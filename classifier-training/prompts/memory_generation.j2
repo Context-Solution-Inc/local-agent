@@ -1,0 +1,85 @@
+{# Frontier-model prompt for synthesizing memory-extraction classifier training examples.
+   Each example is a complete user turn (user message + assistant response) plus a
+   labeled set of memories that should (or should not) be extracted.
+
+   Variables:
+     - count: how many examples to generate
+     - target_density: 'empty' | 'one' | 'multi' | 'mixed' — controls memories_to_extract size
+     - hard_case: optional, e.g. 'temporary_vs_stable', 'sensitive', 'forget_command'
+     - prior_examples: small sample of accepted examples
+#}
+You are constructing labeled training examples for a small on-device classifier
+that decides whether a user/assistant exchange contains durable facts about the
+user that should be saved as long-term memory.
+
+Output exactly {{ count }} examples as a JSON array. Do not output any other text.
+
+Each example MUST conform to this schema:
+
+{
+  "user_message": string,                        // the user's turn
+  "assistant_response": string,                  // the assistant's reply
+  "memories_to_extract": [                       // possibly empty
+    {
+      "text": string,                            // canonical natural-language memory
+      "category": "personal_identity" | "preference" | "professional"
+                | "interest" | "relationship" | "temporary_context",
+      "stability": "stable" | "evolving" | "ephemeral",
+      "confidence": "high" | "medium" | "low",
+      "expiration_iso_date": "YYYY-MM-DD" | null   // required for temporary_context
+    }
+  ],
+  "negative_extractions": [                      // memories the classifier might be tempted
+                                                 // to extract but should NOT (hard negatives)
+    { /* same shape as memories_to_extract */ }
+  ],
+  "rationale": string,
+  "explicit_command": "remember" | "forget" | null
+}
+
+This batch should target memory density: **{{ target_density }}**.
+{% if hard_case %}
+This batch should focus on hard case: **{{ hard_case }}**.
+{% endif %}
+
+Quality requirements (CRITICAL):
+
+1. ABOUT 60% of examples across the full dataset should have empty
+   memories_to_extract — the common case is that a turn produces no memory.
+   Over-extraction is the dominant failure mode and the dataset must reflect that.
+
+2. Memories must be:
+   - DURABLE: stable facts about the user, not transient context
+   - EXPLICITLY VOLUNTEERED: not inferred from a single search query
+   - ABOUT THE USER: not about other people the user mentions
+
+3. Negative extractions are powerful training signal. Include them when:
+   - A user mentions something that LOOKS like a preference but is actually a one-off
+     ("I had an Americano this morning" — not a coffee preference)
+   - A user describes a HYPOTHETICAL ("imagine I lived in Paris")
+   - The user states a FACT ABOUT SOMEONE ELSE ("my friend John is a doctor")
+   - The user phrases a SEARCH QUERY as a statement ("Tesla stock is up")
+
+4. Explicit "remember that ..." commands must produce a high-confidence extraction
+   even if the structure would otherwise be ambiguous (set explicit_command="remember").
+
+5. Explicit "forget that ..." commands must produce ZERO extractions
+   (set explicit_command="forget", memories_to_extract=[]).
+
+6. For temporary_context memories, the expiration_iso_date must be plausible
+   relative to the user_message — e.g. "I'm traveling to Tokyo next week"
+   gets an expiration roughly 14 days out.
+
+7. Assistant responses should be realistic and natural — not robotic. They should
+   sometimes acknowledge the fact (which gives the classifier extra signal),
+   sometimes redirect, and sometimes ignore the memory-worthy content entirely.
+
+{% if prior_examples %}
+Here are some accepted examples in the desired style:
+
+{% for ex in prior_examples %}
+{{ ex | tojson(indent=2) }}
+{% endfor %}
+{% endif %}
+
+Now generate {{ count }} new examples as a JSON array. Output the array only.

@@ -1,0 +1,38 @@
+-- Memory store per PRD section 3.2.4. Embeddings stored as BLOB; brute-force cosine
+-- similarity over up to ~1,000 entries is sub-10ms on Pixel 7 — no native vector index needed.
+
+CREATE TABLE memories (
+    id TEXT NOT NULL PRIMARY KEY,
+    text TEXT NOT NULL,
+    category TEXT NOT NULL,                   -- personal_identity, preference, professional, interest, relationship, temporary_context
+    conversation_id TEXT,                     -- FK soft-reference (memory may outlive its source conversation)
+    created_at_epoch_ms INTEGER NOT NULL,
+    last_accessed_epoch_ms INTEGER NOT NULL,
+    embedding BLOB NOT NULL,                  -- 384-dim float32 (1536 bytes) for all-MiniLM-L6-v2
+    expires_at_epoch_ms INTEGER               -- NULL for non-expiring memories
+);
+
+CREATE INDEX memories_by_category ON memories(category);
+CREATE INDEX memories_by_expires ON memories(expires_at_epoch_ms) WHERE expires_at_epoch_ms IS NOT NULL;
+
+insertMemory:
+INSERT INTO memories(id, text, category, conversation_id, created_at_epoch_ms, last_accessed_epoch_ms, embedding, expires_at_epoch_ms)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+selectAllMemories:
+SELECT * FROM memories;
+
+selectNonExpiredMemories:
+SELECT * FROM memories WHERE expires_at_epoch_ms IS NULL OR expires_at_epoch_ms > ?;
+
+deleteMemory:
+DELETE FROM memories WHERE id = ?;
+
+deleteExpiredMemories:
+DELETE FROM memories WHERE expires_at_epoch_ms IS NOT NULL AND expires_at_epoch_ms <= ?;
+
+countMemories:
+SELECT COUNT(*) FROM memories;
+
+updateLastAccessed:
+UPDATE memories SET last_accessed_epoch_ms = ? WHERE id = ?;

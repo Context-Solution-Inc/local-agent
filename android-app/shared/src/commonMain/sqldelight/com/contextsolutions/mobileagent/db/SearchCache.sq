@@ -1,0 +1,29 @@
+-- Local search cache per PRD section 3.4. Keyed by normalized query (lowercased,
+-- whitespace-collapsed). TTL category determines expiration.
+
+CREATE TABLE search_cache (
+    normalized_query TEXT NOT NULL PRIMARY KEY,
+    original_query TEXT NOT NULL,
+    payload_json TEXT NOT NULL,               -- formatted result payload (top-3 organic, ≤2KB)
+    category TEXT NOT NULL,                   -- 'time_sensitive' (5 min TTL) | 'general' (24h TTL)
+    cached_at_epoch_ms INTEGER NOT NULL,
+    expires_at_epoch_ms INTEGER NOT NULL
+);
+
+CREATE INDEX search_cache_by_expires ON search_cache(expires_at_epoch_ms);
+
+insertCacheEntry:
+INSERT OR REPLACE INTO search_cache(normalized_query, original_query, payload_json, category, cached_at_epoch_ms, expires_at_epoch_ms)
+VALUES (?, ?, ?, ?, ?, ?);
+
+selectCacheEntry:
+SELECT * FROM search_cache WHERE normalized_query = ? AND expires_at_epoch_ms > ?;
+
+deleteExpiredEntries:
+DELETE FROM search_cache WHERE expires_at_epoch_ms <= ?;
+
+clearAllEntries:
+DELETE FROM search_cache;
+
+countEntries:
+SELECT COUNT(*) FROM search_cache;

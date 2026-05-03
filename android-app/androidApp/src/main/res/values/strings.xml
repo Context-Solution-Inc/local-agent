@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Mobile Agent</string>
+    <string name="spike_title">M0 Inference Spike</string>
+
+    <!-- Foreground service notification (PRD section 4.1: UI must remain responsive). -->
+    <string name="fgs_inference_channel">Inference</string>
+    <string name="fgs_inference_channel_desc">Active while the assistant is generating a response.</string>
+    <string name="fgs_inference_title">Generating response…</string>
+    <string name="fgs_inference_text">Tap to return to chat</string>
+
+    <!-- Spike harness UI -->
+    <string name="spike_run">Run benchmark</string>
+    <string name="spike_clear">Clear results</string>
+    <string name="spike_export">Export results</string>
+    <string name="spike_status_idle">Idle</string>
+    <string name="spike_status_loading">Loading model…</string>
+    <string name="spike_status_generating">Generating…</string>
+    <string name="spike_status_done">Done</string>
+</resources>

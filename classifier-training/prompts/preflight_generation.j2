@@ -1,0 +1,73 @@
+{# Frontier-model prompt for synthesizing pre-flight classifier training examples.
+   Rendered with Jinja2 from generation/generate.py. The variables are:
+     - count: how many examples to generate this batch
+     - target_label: 'search_required' | 'search_not_required' | 'ambiguous' | 'mixed'
+     - target_categories: list of categories from PreflightCategory to bias toward
+     - prior_examples: small sample of accepted examples (to guide style and avoid duplicates)
+#}
+You are constructing labeled training examples for a small on-device classifier
+that decides whether a user's query to an AI assistant requires fresh web search
+results, OR can be answered from training data alone.
+
+Output exactly {{ count }} examples as a JSON array. Do not output any other text.
+
+Each example MUST conform to this schema:
+
+{
+  "query": string,                         // realistic user query, may be casual or ungrammatical
+  "label": "search_required" | "search_not_required" | "ambiguous",
+  "confidence": "high" | "medium" | "low",
+  "category": <see categories below>,
+  "rationale": string,                     // 1-2 sentence justification
+  "rewrite_hints": {                       // optional, for queries needing rewriting
+    "needs_team_disambiguation": boolean,
+    "needs_location_disambiguation": boolean,
+    "temporal_resolution": string|null,
+    "needs_memory_lookup": boolean
+  } | null
+}
+
+Valid categories:
+- Search-required: sports_recent, sports_upcoming, markets_current, weather, news_current, prices_products, status_recent, schedules_events
+- Search-not-required: general_knowledge, settled_history, opinion_reasoning, coding_math, creative, personal_memory, meta
+- Ambiguous: ambiguous (use only when label == "ambiguous")
+
+This batch should target: **{{ target_label }}**.
+{% if target_categories %}
+Bias the examples toward these categories: {{ target_categories | join(', ') }}.
+{% endif %}
+
+Quality requirements (CRITICAL):
+
+1. AT LEAST 30% of generated queries must be in NATURALISTIC phrasings — casual,
+   incomplete, with typos, conversational filler, or context-dependent references.
+   Examples of naturalistic style:
+     - "did my guys win"
+     - "is the market up or what"
+     - "Eagles game last night?"
+     - "whats happening with crypto rn"
+     - "hey so I was wondering, did the Eagles end up winning"
+
+2. For "search_required" examples with high confidence, queries must contain a clear
+   recency signal (today, last night, current, this season, etc.) OR be about a topic
+   that obviously changes (stock prices, sports scores, weather, news).
+
+3. For "search_not_required" examples with high confidence, queries must be about
+   settled facts, definitions, opinions, coding/math, or clearly historical events
+   with explicit historical context.
+
+4. NEVER generate examples where the correct label is genuinely unclear unless
+   you set label="ambiguous". Do not pad the dataset with mislabels.
+
+5. Rationales must explain *why* — what signal in the query justifies the label.
+
+{% if prior_examples %}
+Here are some accepted examples in the desired style. Match this register and
+diversity (do NOT copy these — generate new ones):
+
+{% for ex in prior_examples %}
+{{ ex | tojson(indent=2) }}
+{% endfor %}
+{% endif %}
+
+Now generate {{ count }} new examples as a JSON array. Output the array only.

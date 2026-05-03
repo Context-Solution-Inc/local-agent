@@ -1,0 +1,94 @@
+# ============================================================================
+# Secrets — never committed
+# ============================================================================
+secrets.properties
+secrets.local.properties
+local.properties
+**/google-services.json
+**/firebase-app-distribution-service-credentials*.json
+*.keystore
+*.jks
+*.p12
+*.pem
+.env
+.env.*
+!.env.example
+
+# ============================================================================
+# Model artifacts — too large for git, distributed via CDN/release storage
+# ============================================================================
+models/
+*.litertmodel
+*.tflite
+*.task
+*.gguf
+*.safetensors
+*.bin
+*.onnx
+
+# ============================================================================
+# Dataset payloads — JSONL files distributed via release storage / LFS
+# Manifests + schemas remain in repo
+# ============================================================================
+datasets/**/*.jsonl
+datasets/**/*.parquet
+!datasets/**/example.jsonl
+
+# ============================================================================
+# Android / Gradle
+# ============================================================================
+.gradle/
+build/
+*/build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+local.properties
+.kotlin/
+
+# ============================================================================
+# IDE
+# ============================================================================
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+.fleet/
+out/
+.DS_Store
+
+# ============================================================================
+# Python (classifier-training)
+# ============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.eggs/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+.ipynb_checkpoints/
+
+# ============================================================================
+# Logs and runtime artifacts
+# ============================================================================
+*.log
+logs/
+spike-results/
+eval-results/

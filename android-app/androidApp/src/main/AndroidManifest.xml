@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- INTERNET only — Brave Search is the sole outbound dependency (PRD section 4.4). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Inference runs as a foregroundService during active generation so the OS does
+         not kill the process while the user waits for streamed tokens. Android 14+
+         requires a typed foregroundServiceType; 'specialUse' with a stated rationale
+         is the right fit for on-device LLM inference (no other type matches). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+    <!-- WorkManager handles the model download in the background. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Pixel 7 has 8GB RAM; we declare the app expects substantial heap for Gemma 4 E4B. -->
+    <application
+        android:name=".MobileAgentApplication"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.MobileAgent"
+        android:largeHeap="true"
+        tools:targetApi="36">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.MobileAgent">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".spike.SpikeActivity"
+            android:exported="true"
+            android:label="@string/spike_title"
+            android:theme="@style/Theme.MobileAgent">
+            <!-- Internal-only entry point. Disabled in release builds via PackageManager. -->
+        </activity>
+
+        <service
+            android:name=".service.InferenceForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="On-device LLM inference for the assistant; runs only while the user is actively waiting for a generated response." />
+        </service>
+
+    </application>
+</manifest>

@@ -1,0 +1,22 @@
+-- Opt-in classifier-improvement telemetry per PRD section 3.2.1 / 4.4.
+-- Stores aggregate counters only. NEVER query strings, NEVER memory content,
+-- NEVER conversation text. Off by default; uploaded periodically when opted in.
+
+CREATE TABLE telemetry_counters (
+    bucket TEXT NOT NULL,                     -- e.g. 'preflight_high_conf_search', 'preflight_low_conf_skip'
+    window_start_epoch_ms INTEGER NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (bucket, window_start_epoch_ms)
+);
+
+incrementCounter:
+INSERT INTO telemetry_counters(bucket, window_start_epoch_ms, count)
+VALUES (?, ?, 1)
+ON CONFLICT(bucket, window_start_epoch_ms)
+DO UPDATE SET count = count + 1;
+
+selectCountersForUpload:
+SELECT * FROM telemetry_counters WHERE window_start_epoch_ms < ?;
+
+deleteUploadedCounters:
+DELETE FROM telemetry_counters WHERE window_start_epoch_ms < ?;
