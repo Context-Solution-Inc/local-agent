@@ -52,13 +52,29 @@ Privacy-first on-device assistant running Gemma 4 E4B locally on Android, with B
 
 ## Building
 
-The Android project lives under `android-app/`. From a machine with JDK 17 and Android SDK installed:
+### Prerequisites
+
+- **JDK 17** (Temurin recommended). Set `JAVA_HOME` if not already on `PATH`.
+- **Android SDK** with platform `android-36` and build-tools matching AGP 8.7.x. Easiest path is to install [Android Studio](https://developer.android.com/studio) — it bundles the SDK manager, command-line tools, and adb. After install, open Android Studio's SDK Manager and install:
+  - Android SDK Platform 36 (Android 16)
+  - Android SDK Build-Tools 35.0.0+
+  - Android SDK Platform-Tools (for `adb`)
+- **`local.properties`** in `android-app/` pointing Gradle at the SDK. Create it manually (it's gitignored):
+  ```properties
+  sdk.dir=/home/lawrenceley/Android/Sdk
+  ```
+  (Android Studio writes this file automatically the first time you open the project.)
+- **Pixel 7** with USB debugging enabled if you want to install on device.
+
+### Build commands
 
 ```bash
 cd android-app
 ./gradlew :androidApp:assembleDebug
 ./gradlew :androidApp:installDebug      # requires connected Pixel 7 (or other Android 16 device)
 ```
+
+The first invocation of `./gradlew` downloads Gradle 8.11.1 (~150 MB) into `~/.gradle/wrapper/dists/`.
 
 The classifier-training Python project lives under `classifier-training/`:
 
