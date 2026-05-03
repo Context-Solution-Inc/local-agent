@@ -33,6 +33,7 @@ okhttp = "4.12.0"
 
 # Storage
 sqldelight = "2.0.2"
+sqldelight-dialect = "sqlite-3-25"   # SQLite 3.25+ for UPSERT (ON CONFLICT ... DO UPDATE)
 
 # Test
 junit = "4.13.2"
@@ -61,6 +62,7 @@ sqldelight-runtime = { module = "app.cash.sqldelight:runtime", version.ref = "sq
 sqldelight-coroutines-extensions = { module = "app.cash.sqldelight:coroutines-extensions", version.ref = "sqldelight" }
 sqldelight-android-driver = { module = "app.cash.sqldelight:android-driver", version.ref = "sqldelight" }
 sqldelight-native-driver = { module = "app.cash.sqldelight:native-driver", version.ref = "sqldelight" }
+sqldelight-sqlite-dialect = { module = "app.cash.sqldelight:sqlite-3-25-dialect", version.ref = "sqldelight" }
 
 # AndroidX
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidx-core" }

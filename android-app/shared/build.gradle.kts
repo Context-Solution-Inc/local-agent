@@ -6,6 +6,18 @@ plugins {
 }
 
 kotlin {
+    // expect/actual classes are still flagged as Beta in Kotlin 2.x even though every
+    // major KMP project uses them. Opt in explicitly so the build log isn't noisy.
+    targets.configureEach {
+        compilations.configureEach {
+            compileTaskProvider.configure {
+                compilerOptions {
+                    freeCompilerArgs.add("-Xexpect-actual-classes")
+                }
+            }
+        }
+    }
+
     androidTarget {
         compilations.all {
             kotlinOptions {
@@ -73,6 +85,10 @@ sqldelight {
         create("MobileAgentDatabase") {
             packageName.set("com.contextsolutions.mobileagent.db")
             srcDirs.setFrom("src/commonMain/sqldelight")
+            // SQLite 3.25+ for UPSERT (`ON CONFLICT ... DO UPDATE`) in TelemetryAggregate.sq.
+            // Default 3.18 dialect is older than what Android 16's bundled SQLite supports,
+            // and older than the 3.25 floor we actually need.
+            dialect(libs.sqldelight.sqlite.dialect)
         }
     }
 }

@@ -1,0 +1,18 @@
+<!-- Placeholder M0 launcher foreground: a simple speech-bubble glyph in white.
+     Replace with the real product mark before public Play Store release (M7). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,30
+                         C40,30 30,40 30,52
+                         C30,60 34,67 41,71
+                         L38,80
+                         L48,75
+                         C50,75.5 52,76 54,76
+                         C68,76 78,66 78,54
+                         C78,42 68,30 54,30 Z" />
+</vector>
