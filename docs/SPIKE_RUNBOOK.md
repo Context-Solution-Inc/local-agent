@@ -85,32 +85,38 @@ Phase 1 deferrals (tracked in `LiteRtInferenceEngine` kdoc):
 
 ## Stage 3 — Get the model on device ✅ READY
 
-Model: [`litert-community/gemma-4-E2B-it-litert-lm`](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm)
-(2.58 GB `.litertlm` bundle; the smaller E2B variant chosen over the PRD's
-default E4B).
+Model: [`litert-community/gemma-4-E4B-it-litert-lm`](https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm)
+(3.65 GB `.litertlm` bundle — the PRD's default E4B variant; embedding params
+are memory-mapped which materially reduces resident footprint vs naive load).
+
+> ⚠️ E4B's reported CPU memory footprint on a Galaxy S26 Ultra is ~3.28 GB,
+> right at the edge of the Pixel 7's effective ~4 GB per-app ceiling
+> (PHASE1_PLAN §2.2). If the spike OOMs or thrashes, fall back to the E2B
+> variant (`litert-community/gemma-4-E2B-it-litert-lm`, 2.58 GB) per
+> Decision 1 of `M0_DECISION_MEMO.md`.
 
 Download from HuggingFace (one-time):
 
 ```bash
 # Option A: huggingface-cli
 pip install -U huggingface_hub
-huggingface-cli download litert-community/gemma-4-E2B-it-litert-lm \
-    gemma-4-E2B-it.litertlm --local-dir ~/models
+huggingface-cli download litert-community/gemma-4-E4B-it-litert-lm \
+    gemma-4-E4B-it.litertlm --local-dir ~/models
 
 # Option B: direct download via web browser
-# https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/blob/main/gemma-4-E2B-it.litertlm
+# https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/blob/main/gemma-4-E4B-it.litertlm
 ```
 
 Push to the app's external files dir on the connected Pixel 7:
 
 ```bash
 adb shell mkdir -p /sdcard/Android/data/com.contextsolutions.mobileagent.debug/files/models/
-adb push ~/models/gemma-4-E2B-it.litertlm \
+adb push ~/models/gemma-4-E4B-it.litertlm \
     /sdcard/Android/data/com.contextsolutions.mobileagent.debug/files/models/
 ```
 
 The spike UI looks for the file at exactly that path (it derives it from
-`context.getExternalFilesDir("models")` and looks for `gemma-4-E2B-it.litertlm`).
+`context.getExternalFilesDir("models")` and looks for `gemma-4-E4B-it.litertlm`).
 The "Run benchmark" button is disabled until the file is present, and the UI
 displays its size when found.
 
