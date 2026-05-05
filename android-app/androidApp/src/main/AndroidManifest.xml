@@ -12,6 +12,10 @@
          is the right fit for on-device LLM inference (no other type matches). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- WorkManager-driven model download runs as a typed foreground worker
+         (FOREGROUND_SERVICE_TYPE_DATA_SYNC) so the 2.58 GB Gemma artifact survives
+         backgrounding without the OS reaping us mid-stream. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <!-- WorkManager handles the model download in the background. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -57,6 +61,18 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="On-device LLM inference for the assistant; runs only while the user is actively waiting for a generated response." />
         </service>
+
+        <!-- WorkManager runs all foreground workers through its bundled
+             SystemForegroundService. Android 14+ requires that service to declare
+             every foregroundServiceType it might invoke. ModelDownloadWorker
+             calls setForeground with FOREGROUND_SERVICE_TYPE_DATA_SYNC, so we
+             merge `dataSync` onto WorkManager's manifest entry here. Without
+             this, startForeground throws IllegalArgumentException ("0x1 is not
+             a subset of 0x0") and the worker process crashes immediately. -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
 
     </application>
 </manifest>

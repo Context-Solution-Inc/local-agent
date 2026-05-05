@@ -22,10 +22,24 @@ kotlin {
 // drop their own dev key in `secrets.properties` at the project root. Production
 // builds leave the key empty and require BYOK in Settings.
 val secretsFile = rootProject.file("secrets.properties")
-val devBraveKey: String = if (secretsFile.exists()) {
-    Properties().apply { secretsFile.inputStream().use { load(it) } }
-        .getProperty("BRAVE_DEV_KEY", "")
-} else ""
+val secrets: Properties = Properties().apply {
+    if (secretsFile.exists()) secretsFile.inputStream().use { load(it) }
+}
+val devBraveKey: String = secrets.getProperty("BRAVE_DEV_KEY", "")
+
+// Gemma 4 download spec. URL is the HuggingFace direct-download form (see
+// secrets.properties.example). SHA-256 + size are the checksum-pinned values
+// committed alongside the URL; the worker fail-fast verifies both. HF gates the
+// repo, so HF_AUTH_TOKEN is forwarded as a Bearer Authorization header on
+// debug builds only — production must resolve the hosting story (PHASE1_PLAN
+// risk row "checksum-pinned URL under our control") before launch.
+val modelDownloadUrl: String = secrets.getProperty(
+    "MODEL_DOWNLOAD_URL",
+    "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm",
+)
+val modelSha256: String = secrets.getProperty("MODEL_SHA256", "")
+val modelSizeBytes: String = secrets.getProperty("MODEL_SIZE_BYTES", "0")
+val hfAuthToken: String = secrets.getProperty("HF_AUTH_TOKEN", "")
 
 // Toggles the InferenceEngine binding between StubInferenceEngine and the real
 // LiteRT-LM-backed implementation (see InferenceModule). Override from the
@@ -57,6 +71,10 @@ android {
             buildConfigField("String", "BRAVE_DEV_KEY", "\"$devBraveKey\"")
             buildConfigField("boolean", "INTERNAL_BUILD", "true")
             buildConfigField("boolean", "USE_STUB_ENGINE", useStubEngine)
+            buildConfigField("String", "MODEL_DOWNLOAD_URL", "\"$modelDownloadUrl\"")
+            buildConfigField("String", "MODEL_SHA256", "\"$modelSha256\"")
+            buildConfigField("long", "MODEL_SIZE_BYTES", "${modelSizeBytes}L")
+            buildConfigField("String", "HF_AUTH_TOKEN", "\"$hfAuthToken\"")
         }
         release {
             isMinifyEnabled = true
@@ -67,6 +85,14 @@ android {
             buildConfigField("boolean", "INTERNAL_BUILD", "false")
             // Production never uses the stub.
             buildConfigField("boolean", "USE_STUB_ENGINE", "false")
+            // The URL/SHA/size go to release too — the model artifact is public-
+            // ish (gated, but fine for an installed app to fetch). HF token does
+            // NOT go to release; production must use a hosting path that doesn't
+            // require auth, or BYO-token UX (TBD before launch).
+            buildConfigField("String", "MODEL_DOWNLOAD_URL", "\"$modelDownloadUrl\"")
+            buildConfigField("String", "MODEL_SHA256", "\"$modelSha256\"")
+            buildConfigField("long", "MODEL_SIZE_BYTES", "${modelSizeBytes}L")
+            buildConfigField("String", "HF_AUTH_TOKEN", "\"\"")
         }
     }
 
@@ -118,6 +144,11 @@ dependencies {
 
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
+
+    // OkHttp for the model download Worker (Range-resume, streaming SHA-256). Ktor
+    // already brings okhttp transitively via :shared, but we want a direct
+    // OkHttpClient surface here without going through Ktor's HttpClient.
+    implementation(libs.okhttp)
 
     // Tests
     testImplementation(libs.junit)
