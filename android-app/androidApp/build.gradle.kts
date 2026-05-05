@@ -18,9 +18,13 @@ kotlin {
     }
 }
 
-// Bundled dev Brave API key for internal builds. The file is gitignored; engineers
-// drop their own dev key in `secrets.properties` at the project root. Production
-// builds leave the key empty and require BYOK in Settings.
+// Bundled dev Brave API key for internal builds. The file lives next to
+// android-app/settings.gradle.kts — i.e. `android-app/secrets.properties`,
+// not the repo root — because that's what Gradle's `rootProject.file(...)`
+// resolves to (the Gradle root project is android-app/, where settings.gradle.kts
+// lives). It's gitignored. See android-app/secrets.properties.example for the
+// expected fields. Production builds leave the Brave key empty and require BYOK
+// in Settings.
 val secretsFile = rootProject.file("secrets.properties")
 val secrets: Properties = Properties().apply {
     if (secretsFile.exists()) secretsFile.inputStream().use { load(it) }
