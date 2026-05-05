@@ -1,6 +1,6 @@
 # Mobile Agent — On-Device AI Assistant (Android)
 
-Privacy-first on-device assistant running Gemma 4 E4B locally on Android, with Brave Search as the only outbound network dependency. See [PRD.md](PRD.md) for the full product spec and [PHASE1_PLAN.md](PHASE1_PLAN.md) for the implementation plan.
+Privacy-first on-device assistant running Gemma 4 E2B locally on Android, with Brave Search as the only outbound network dependency. See [PRD.md](PRD.md) for the full product spec and [PHASE1_PLAN.md](PHASE1_PLAN.md) for the implementation plan.
 
 ## Repository layout
 
@@ -36,19 +36,18 @@ Privacy-first on-device assistant running Gemma 4 E4B locally on Android, with B
 - **OS:** Android 16 (API 36)+
 - **Language stack:** Kotlin 2.x, Jetpack Compose, Kotlin Multiplatform
 - **Inference runtime:** LiteRT-LM (Android JNI)
-- **Models:** Gemma 4 E4B Q4 (primary), MobileBERT-class classifiers, MiniLM-L6-v2 embedder
+- **Models:** Gemma 4 E2B (primary, ~2.58 GB), MobileBERT-class classifiers, MiniLM-L6-v2 embedder
 
 ## Status
 
-**Milestone 0 (Foundation & spike) — in progress.**
+**M0 (Foundation & spike) — complete.** **M1 (Chat MVP) — WS-1 complete; WS-2/3/11 not started.**
 
-| Workstream | State |
+| Milestone | State |
 |---|---|
-| WS-1 LiteRT-LM Pixel 7 spike | Harness scaffolded with stub `InferenceEngine`. Awaiting device + model artifact. |
-| WS-2 KMP scaffolding | In progress |
-| WS-5 Pre-flight dataset (12k) | Schemas + generation prompts drafted. Argilla setup script ready. |
-| WS-6 Memory extraction dataset (8k) | Schemas + generation prompts drafted. |
-| Decision memo on perf envelope | Template ready in `docs/M0_DECISION_MEMO.md` — fill in after spike runs. |
+| M0 Foundation & spike | ✅ Complete 2026-05-05. Gemma 4 E2B on GPU validated on Pixel 7: first token p50 = 0.55 s, sustained 13.5 tok/s mean, peak PSS 3.52 GB. See `docs/M0_DECISION_MEMO.md`. |
+| M1 WS-1 Inference foundation | ✅ Phases A/B/C landed 2026-05-05. `LiteRtInferenceEngine` w/ CPU fallback + active-accelerator surfacing; `InferenceSessionManager` w/ 5-min idle unload + FGS lifecycle + `onTrimMemory` force-unload; resumable WorkManager-driven model download w/ SHA-256 verification; minimal Compose surface for end-to-end validation. Drills 1/6/9 of the WS-1 exit-gate checklist confirmed on-device. |
+| M1 WS-2/3/11 | Not started |
+| WS-5/6 datasets | Schemas + generation prompts drafted; not yet built |
 
 ## Building
 

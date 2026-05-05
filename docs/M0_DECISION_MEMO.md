@@ -157,21 +157,36 @@ TFLite deps (commit `22b351e`). `LiteRtInferenceEngine.resolveBackend` keeps
 Revisit when: LiteRT-LM ships a Vulkan delegate (would let us drop the
 Play Services dependency), or when Tensor G2 NPU support lands upstream.
 
-### Decision 3 — Foreground service contract ⏳ DEFERRED TO M1
+### Decision 3 — Foreground service contract ✅ DECIDED 2026-05-05
 
-The spike runs entirely in a foreground Activity; Android keeps it alive while
-visible. The `specialUse` foregroundServiceType in `AndroidManifest.xml` is
-declared but never exercised by the spike — it kicks in once chat lives
-behind a backgroundable surface (M1's WS-3 + WS-11).
+- [x] **`specialUse` foregroundServiceType for inference is sufficient on
+      Android 16.** Validated end-to-end on Pixel 7 via M1 WS-1 Phase C's
+      minimal chat surface (PHASE1_PLAN §5 M1 exit-gate Drill 9).
 
-Decision deferred to M1 because:
-- Useful test would be: start generation → background the app → confirm the
-  service stays alive long enough for a 1024-token completion.
-- Requires the chat UI (M1) to exist, since the spike's SpikeActivity itself
-  isn't representative of the production foreground-service flow.
+Evidence: `InferenceSessionManager.markActiveGeneration` calls
+`ContextCompat.startForegroundService` on `InferenceForegroundService`
+(`foregroundServiceType="specialUse"` per `AndroidManifest.xml`). With a
+generation in flight, pressing the Home button does not kill the process — the
+FGS keeps it alive until the Flow completes. Coming back to the app shows the
+fully-streamed response.
 
-Action: re-open this decision when M1's chat path is wired and add an
-explicit test in the M1 milestone exit criteria.
+Caveats surfaced during validation:
+1. **WorkManager's `SystemForegroundService` needs an explicit
+   `foregroundServiceType` merge** (`tools:node="merge"` in our manifest) for
+   any worker that calls `setForeground(...)`. We added `dataSync` for the
+   model download. Without this, the worker process throws
+   `IllegalArgumentException: foregroundServiceType 0x1 is not a subset of 0x0`
+   at the moment WorkManager tries to promote it. (Now in CLAUDE.md hard
+   invariants.)
+2. **`POST_NOTIFICATIONS` runtime permission is required on Android 13+** for
+   the FGS notification to be visible. The service runs regardless of grant —
+   so Decision 3 (process survival) holds either way — but users won't see the
+   notification without it. `MainActivity.ensureNotificationPermission`
+   requests it on first launch.
+
+Revisit if: a future foreground worker needs a different service type
+(append `|specialUse` etc. to the manifest merge), or if Android tightens
+`specialUse` rules in future SDKs (currently ≥36).
 
 ### Decision 4 — KV cache size ✅ DECIDED 2026-05-05
 
@@ -201,19 +216,27 @@ That's M1 polish, not a Decision-5 reopener.
 
 ---
 
-## 4. 16 KB native page alignment check
+## 4. 16 KB native page alignment check ✅ VERIFIED 2026-05-05
 
-Android 15+ requires 16 KB-aligned `.so` files. Run:
+Android 15+ requires 16 KB-aligned `.so` files. Verified directly against the
+arm64-v8a `.so` shipped in the LiteRT-LM 0.10.2 AAR (no device required —
+inspected the artifact in the Gradle cache, which is the same binary that gets
+packaged into our APK):
 
-```bash
-adb shell objdump -p /data/app/.../lib/arm64/libliteRtLm.so | grep LOAD
+```
+$ objdump -p ~/.gradle/caches/9.3.1/transforms/.../liblitertlm_jni.so | grep LOAD
+    LOAD off    0x0000000000000000 vaddr 0x0000000000000000 paddr 0x0000000000000000 align 2**14
+    LOAD off    0x000000000130c000 vaddr 0x000000000130c000 paddr 0x000000000130c000 align 2**14
+    LOAD off    0x00000000013b8500 vaddr 0x00000000013bc500 paddr 0x00000000013bc500 align 2**14
 ```
 
-Expected: alignment of `0x4000` (16 KB) on each `LOAD` segment.
+`align 2**14` = 16384 bytes = 16 KB. All three `LOAD` segments are 16 KB-aligned.
+The AAR ships exactly one .so per ABI (`jni/arm64-v8a/liblitertlm_jni.so`,
+`jni/x86_64/liblitertlm_jni.so`); only the arm64-v8a one ends up on Pixel 7. No
+upstream issue needed; no 4 KB-emulated build needed.
 
-Result: _(fill in)_
-
-If not aligned, file upstream issue with LiteRT-LM team and use 4 KB-emulated build temporarily.
+Re-run after a LiteRT-LM version bump (catalog `litertlm` version) to confirm
+alignment is preserved.
 
 ---
 
@@ -247,11 +270,21 @@ New risks not previously in PHASE1_PLAN §7:
 ## 6. Next steps
 
 - [x] Update `PHASE1_PLAN.md §2.3` with measured perf targets — DONE in same commit.
-- [ ] Decision 3 (foreground service contract) — re-open when M1's chat path is wired.
-- [ ] Add explicit `Accelerator.CPU` fallback in `LiteRtInferenceEngine` when
-      `Backend.GPU()` init throws (Risk 1) — M1 polish.
-- [ ] Wire `onTrimMemory()` to unload Gemma early under system pressure
-      (PHASE1_PLAN §6) — M1 polish.
+- [x] 16 KB native page alignment check — DONE 2026-05-05 (Section 4 above).
+- [x] Add explicit `Accelerator.CPU` fallback in `LiteRtInferenceEngine` when
+      `Backend.GPU()` init throws (Risk 1) — DONE in M1 WS-1 Phase A
+      (`LiteRtInferenceEngine.tryInitialize`). Engine returns the actual
+      accelerator on `ModelHandle.activeAccelerator` so degraded mode is visible
+      to UI/telemetry.
+- [x] Wire `onTrimMemory()` to unload Gemma early under system pressure
+      (PHASE1_PLAN §6) — DONE in M1 WS-1 Phase A
+      (`MobileAgentApplication.onTrimMemory` → `InferenceSessionManager.forceUnload`).
+- [x] Decision 3 (foreground service contract) — VALIDATED 2026-05-05 on
+      Pixel 7 via M1 WS-1 Phase C exit-gate Drill 9. `specialUse`
+      `foregroundServiceType` keeps the process alive across Home-button
+      backgrounding for the duration of a generation. Two on-device caveats
+      recorded (manifest merge for WorkManager's FGS, runtime
+      POST_NOTIFICATIONS) — see Decision 3 above.
 - [ ] Engineer to confirm power state + ambient temp for the run on record
       (Section 1) so the numbers can be reproduced.
 - [ ] Sign off this memo. Distribute to the team.

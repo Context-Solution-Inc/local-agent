@@ -21,7 +21,8 @@ On-device AI assistant for Android. **Pixel 7 + Android 16 only** for Phase 1.
 - **Model:** Gemma 4 E2B (`litert-community/gemma-4-E2B-it-litert-lm`, 2.58 GB)
   — E4B was tried and ruled out (LMKD-induced thrash on 8 GB Pixel 7)
 - **Accelerator:** GPU (Mali-G710 via Play Services TFLite OpenCL delegate).
-  NPU not exposed by Tensor G2; CPU is untested fallback.
+  NPU not exposed by Tensor G2; CPU is the runtime fallback when GPU init throws
+  (M1 WS-1 Phase A — `LiteRtInferenceEngine.tryInitialize`).
 - **Architecture:** KMP shared module (`:shared`) + Android Compose shell (`:androidApp`).
   iOS targets stubbed for Phase 2.
 - **Toolchain:** JDK 17, Gradle 9.3.1, AGP 9.1.1, Kotlin 2.3.21, KSP 2.3.7, Hilt 2.59.2
@@ -48,6 +49,16 @@ Things M0 surfaced the hard way — don't rediscover:
 5. **`:shared` uses `com.android.kotlin.multiplatform.library`** (not the old
    `com.android.library` + `kotlin.multiplatform` combo, which AGP 9 forbids).
    Android config goes inside `kotlin { android { } }`.
+6. **WorkManager's `SystemForegroundService` needs `foregroundServiceType`
+   merged in our manifest.** Any worker that calls `setForeground(...)` will
+   crash the worker process with `IllegalArgumentException: foregroundServiceType
+   0x1 is not a subset of 0x0` unless we declare the type via `tools:node="merge"`
+   in `AndroidManifest.xml`. Currently `dataSync` for the model download; add
+   more bits (e.g. `|specialUse`) if a future worker needs them.
+7. **`POST_NOTIFICATIONS` must be requested at runtime on Android 13+.** The
+   manifest permission alone is not enough — the OS silently suppresses every
+   notification (including FGS-required ones) until the user grants it.
+   `MainActivity.ensureNotificationPermission` does this on first launch.
 
 ## Build & run
 
@@ -93,8 +104,8 @@ The spike model lives at
 
 | Milestone | Status |
 |---|---|
-| M0 Foundation & spike | ✅ Complete 2026-05-05 (Decision 3 deferred to M1) |
-| M1 Chat MVP | Not started |
+| M0 Foundation & spike | ✅ Complete 2026-05-05 |
+| M1 Chat MVP | WS-1 Phases A/B/C landed 2026-05-05 — download, idle unload, FGS-survives-backgrounding all confirmed on Pixel 7. Drills 2/3/4/5/7/8/10/11/12 of the M1 exit-gate checklist still to run. WS-2/3/11 not started. |
 | M2 Web search & agent loop | Not started |
 | M3 Datasets & classifier training | Not started |
 | M4 Pre-flight integration | Not started |
