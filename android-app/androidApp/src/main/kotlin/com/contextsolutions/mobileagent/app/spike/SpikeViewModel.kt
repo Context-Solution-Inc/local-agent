@@ -37,8 +37,15 @@ class SpikeViewModel @Inject constructor(
                 onProgress = { progress ->
                     _state.value = when (progress) {
                         SpikeProgress.Loading -> SpikeUiState.InProgress("Loading model…")
-                        is SpikeProgress.Generating ->
-                            SpikeUiState.InProgress("Prompt ${progress.promptIndex + 1} / ${progress.total}…")
+                        is SpikeProgress.Generating -> {
+                            val base = "Prompt ${progress.promptIndex + 1} / ${progress.total}"
+                            val msg = if (progress.tokensSoFar > 0) {
+                                "$base — ${progress.tokensSoFar} tokens"
+                            } else {
+                                "$base — starting…"
+                            }
+                            SpikeUiState.InProgress(msg)
+                        }
                         is SpikeProgress.Done -> SpikeUiState.Complete(progress.run)
                     }
                 },

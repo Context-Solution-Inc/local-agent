@@ -58,7 +58,15 @@ class SpikeRunner(
             for ((index, prompt) in prompts.withIndex()) {
                 onProgress(SpikeProgress.Generating(promptIndex = index, total = prompts.size))
                 val perPromptColdLoad = if (index == 0) coldLoadMs else null
-                results += runPrompt(handle, prompt, perPromptColdLoad, thermal)
+                results += runPrompt(
+                    handle = handle,
+                    prompt = prompt,
+                    coldLoadMs = perPromptColdLoad,
+                    thermal = thermal,
+                    promptIndex = index,
+                    totalPrompts = prompts.size,
+                    onProgress = onProgress,
+                )
             }
         } finally {
             handle?.let { engine.unload(it) }
@@ -86,6 +94,9 @@ class SpikeRunner(
         prompt: SpikePrompt,
         coldLoadMs: Long?,
         thermal: ThermalMonitor,
+        promptIndex: Int,
+        totalPrompts: Int,
+        onProgress: (SpikeProgress) -> Unit,
     ): SpikePromptResult {
         val thermalStart = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
             thermal.currentThermalStatus() else 0
@@ -106,6 +117,15 @@ class SpikeRunner(
                             if (rss > peakRss) peakRss = rss
                             val native = MemorySnapshot.nativeHeapBytes()
                             if (native > peakNative) peakNative = native
+                            // Surface streaming progress so the UI never looks frozen
+                            // during slow generations (esp. when GPU is throttled).
+                            onProgress(
+                                SpikeProgress.Generating(
+                                    promptIndex = promptIndex,
+                                    total = totalPrompts,
+                                    tokensSoFar = totalTokens,
+                                ),
+                            )
                         }
                         is GenerationEvent.FunctionCall -> {
                             // Tool calls are out of scope for the M0 spike; the harness
@@ -153,7 +173,16 @@ class SpikeRunner(
 
 sealed interface SpikeProgress {
     object Loading : SpikeProgress
-    data class Generating(val promptIndex: Int, val total: Int) : SpikeProgress
+    /**
+     * Emitted at the start of each prompt and again every time a token streams in,
+     * so the UI can show "Prompt N/M: K tokens" instead of looking frozen for minutes
+     * on the long-generation prompts.
+     */
+    data class Generating(
+        val promptIndex: Int,
+        val total: Int,
+        val tokensSoFar: Int = 0,
+    ) : SpikeProgress
     data class Done(val run: SpikeRun) : SpikeProgress
 }
 
@@ -195,10 +224,16 @@ object CanonicalPrompts {
         ),
         SpikePrompt(
             id = "sustained_5min",
+            // maxTokens reduced from 1024 → 512 after the first run on Pixel 7: GPU
+            // thermal throttling kicked in halfway through a 1024-token generation
+            // (cdev cooling state climbed 2 → 3 → 4), making the run take long
+            // enough to look hung. 512 tokens is enough to capture the thermal
+            // trajectory we care about for Decision 5 of the M0 memo without
+            // pushing past the 5-minute mark on a throttled GPU.
             text = "Write a detailed explanation of how a Kalman filter works, including the " +
                 "prediction step, the update step, the role of the covariance matrix, and a worked " +
-                "numerical example. Use approximately 1000 words.",
-            maxTokens = 1024,
+                "numerical example. Use approximately 500 words.",
+            maxTokens = 512,
         ),
     )
 }
