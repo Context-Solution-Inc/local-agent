@@ -105,7 +105,7 @@ The spike model lives at
 | Milestone | Status |
 |---|---|
 | M0 Foundation & spike | ✅ Complete 2026-05-05 |
-| M1 Chat MVP | WS-1 Phases A/B/C landed 2026-05-05 — download, idle unload, FGS-survives-backgrounding all confirmed on Pixel 7. Drills 2/3/4/5/7/8/10/11/12 of the M1 exit-gate checklist still to run. WS-2/3/11 not started. |
+| M1 Chat MVP | WS-1 ✅ Complete 2026-05-05 — all 12 exit-gate drills passed on Pixel 7. WS-2/3/11 not started. |
 | M2 Web search & agent loop | Not started |
 | M3 Datasets & classifier training | Not started |
 | M4 Pre-flight integration | Not started |

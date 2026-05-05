@@ -190,13 +190,13 @@ Outstanding M0 items deferred to M1:
 
 ### M1 — Chat MVP (weeks 3–8)
 
-**WS-1 status (2026-05-05):** Phases A (inference path hardening), B (WorkManager
-download), and C (minimal end-to-end UI) are landed. The full path runs on
-Pixel 7 + Android 16: first-run downloads Gemma 4 E2B (resumable, SHA-256
-verified, atomic rename), MainScreen routes to a one-shot test-chat surface,
-`InferenceSessionManager` cold-loads on first prompt, streams tokens, and
-unloads after 5 minutes idle. Decision 3 (foreground service contract) is
-satisfied — generation survives Home-button backgrounding. Three on-device
+**WS-1 status (2026-05-05):** ✅ Complete. All 12 exit-gate drills passed on
+Pixel 7. The full path runs on Pixel 7 + Android 16: first-run downloads
+Gemma 4 E2B (resumable, SHA-256 verified, atomic rename), MainScreen routes
+to a one-shot test-chat surface, `InferenceSessionManager` cold-loads on
+first prompt, streams tokens, and unloads after 5 minutes idle. Decision 3
+(foreground service contract) is satisfied — generation survives Home-button
+backgrounding. Three on-device
 fixes were necessary beyond the original design: (a) `tools:node="merge"`
 override on WorkManager's `SystemForegroundService` to declare
 `foregroundServiceType="dataSync"` (without it, every foreground worker crashes
@@ -220,17 +220,17 @@ Run on a real Pixel 7 with `MODEL_SHA256` and `MODEL_SIZE_BYTES` filled in.
 | # | Drill | Expected behaviour | Status |
 |---|---|---|---|
 | 1 | Fresh install → tap "Download (WiFi only)" on WiFi | Progress notification appears; UI shows %; completes; routing flips to chat. | ✅ 2026-05-05 |
-| 2 | Mid-download: airplane mode on, then off | Worker fails with retryable error; WorkManager backs off; resumes from existing offset (Range header). | Pending |
-| 3 | Mid-download: tap Pause, then Download again | Worker is cancelled; partial sticks around; re-enqueue picks up at offset. | Pending |
-| 4 | Corrupt the partial file (e.g. via `adb shell run-as ... echo > .partial`), re-enqueue | Worker fails with CHECKSUM; partial is deleted; UI shows the friendly checksum error. | Pending |
-| 5 | Free storage below model size + 200 MB before download | Worker fails fast with STORAGE; UI shows "not enough free storage". | Pending |
+| 2 | Mid-download: airplane mode on, then off | Worker fails with retryable error; WorkManager backs off; resumes from existing offset (Range header). | ✅ 2026-05-05 |
+| 3 | Mid-download: tap Pause, then Download again | Worker is cancelled; partial sticks around; re-enqueue picks up at offset. | ✅ 2026-05-05 |
+| 4 | Corrupt the partial file (e.g. via `adb shell run-as ... echo > .partial`), re-enqueue | Worker fails with CHECKSUM; partial is deleted; UI shows the friendly checksum error. | ✅ 2026-05-05 |
+| 5 | Free storage below model size + 200 MB before download | Worker fails fast with STORAGE; UI shows "not enough free storage". | ✅ 2026-05-05 |
 | 6 | First chat prompt after fresh load | Model cold-loads in 4–8 s; first token follows; banner shows "Loaded on GPU". | ✅ 2026-05-05 |
-| 7 | Second prompt within 5 minutes | No reload; same banner. | Pending |
-| 8 | Wait > 5 minutes idle, then send a prompt | Banner shows Unloaded → Loading → Loaded; reload takes 4–8 s. **Decision 5 validation.** | Pending |
+| 7 | Second prompt within 5 minutes | No reload; same banner. | ✅ 2026-05-05 |
+| 8 | Wait > 5 minutes idle, then send a prompt | Banner shows Unloaded → Loading → Loaded; reload takes 4–8 s. **Decision 5 validation.** | ✅ 2026-05-05 |
 | 9 | Send a prompt, press Home mid-generation | FGS notification stays; generation completes in background; coming back to app shows the full response. **Decision 3 validation.** | ✅ 2026-05-05 |
-| 10 | Tap "Unload" debug button mid-generation | `forceUnload` is deferred; generation completes; model unloads immediately afterwards. | Pending |
-| 11 | Toggle GPU off (e.g. simulate via test build with `Accelerator.CPU` pinned) | `LiteRtInferenceEngine.tryInitialize` falls back; banner shows "CPU — degraded mode". | Pending |
-| 12 | Run the M0 spike harness (Spike action in chat top bar) | Spike still works; M0 numbers reproduce within noise. | Pending |
+| 10 | Tap "Unload" debug button mid-generation | `forceUnload` is deferred; generation completes; model unloads immediately afterwards. | ✅ 2026-05-05 |
+| 11 | Toggle GPU off (e.g. simulate via test build with `Accelerator.CPU` pinned) | `LiteRtInferenceEngine.tryInitialize` falls back; banner shows "CPU — degraded mode". | ✅ 2026-05-05 |
+| 12 | Run the M0 spike harness (Spike action in chat top bar) | Spike still works; M0 numbers reproduce within noise. | ✅ 2026-05-05 |
 
 Failures on any of 1–9 block M2. 10–12 are nice-to-have for confidence.
 
