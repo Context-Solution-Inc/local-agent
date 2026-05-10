@@ -71,6 +71,7 @@ ct-eval-classifier = "classifier_training.training.eval:main"
 ct-quantize = "classifier_training.training.quantize:main"
 ct-export-litert = "classifier_training.training.export_litert:main"
 ct-bench-pixel7 = "classifier_training.training.benchmark_pixel7:main"
+ct-regression-check = "classifier_training.ci.regression_check:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

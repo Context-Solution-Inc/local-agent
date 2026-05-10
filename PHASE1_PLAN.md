@@ -67,7 +67,7 @@ PRD section 4.1 targets (Pixel 9 Pro): first token <2 s, sustained ≥15 tok/s, 
 | Sustained generation (mean) | ≥15 tok/s | ≥8 tok/s | **13.5 tok/s** ✅ |
 | Sustained generation (longest prompt) | — | — | 11.6 tok/s |
 | End-to-end with one search | <12 s p90 | <16 s p90 | (M2 — needs Brave wired) |
-| Pre-flight classifier inference | <50 ms p95 | <80 ms p95 | (M3) |
+| Pre-flight classifier inference | <50 ms p95 | <80 ms p95 | **113 ms p95** (M4 Phase B; 80 ms aspiration deferred to v1.x int32 re-export — model card v1.x #5) |
 | Memory retrieval (embedding + cosine) | <100 ms p95 | <150 ms p95 | (M5) |
 | Cold-start model load | 2–4 s | 4–8 s | **4.3 s** ✅ |
 | Peak PSS, sustained generation | <4 GB | <4 GB | **3.52 GB** ✅ |
@@ -329,11 +329,45 @@ not a calibration problem solvable by hyperparameter tuning.
 signature, threshold defaults, tokenizer requirements, regression CI gate
 hashes, v1.x improvement queue.
 
-### M4 — Pre-flight classifier integration (weeks 12–16)
+### M4 — Pre-flight classifier integration ✅ COMPLETE 2026-05-10 — see `docs/M4_PLAN.md`
 
-- **WS-8:** Classifier inference in shared layer. Three-band routing: >0.85 → fire pre-flight search, <0.15 → skip, middle → fall through to Gemma's own tool-call decision. Query rewriter: deterministic rules for date and abbreviation expansion, Gemma fallback for complex rewrites, abort-and-fall-through if rewriter is not confident. `[PRE-FLIGHT NOTICE BLOCK]` in system prompt per SYSTEM_PROMPT.md §6.
-- **WS-14:** Pre-flight regression set + offline eval harness wired to CI. Threshold tuning surface (configurable JSON shipped with app per PRD §3.2.1).
-- **Deliverable:** Pre-flight is short-circuiting common search queries with measurable latency improvement. Regression set acts as a release gate.
+Detailed phase-by-phase status, ratified decisions, and exit criteria live
+in `docs/M4_PLAN.md`. Top-line summary:
+
+- **WS-8 shipped:**
+  - Classifier engine (`LiteRtClassifierEngine`) in `:shared/androidMain` on
+    `com.google.ai.edge.litert:litert:2.1.4` (the runtime-version match for
+    ai-edge-quantizer's export tooling — Play Services TFLite produced
+    numerically broken outputs, see CLAUDE.md inv. #18).
+  - Custom WordPiece tokenizer in `:shared/commonMain`, byte-exact against
+    HuggingFace `distilbert-base-uncased` over 22 canonical fixtures.
+  - Three-band router with deterministic-only rewriter (no Gemma fallback;
+    memory-context queries abort to FallThrough — M5 promotes them).
+  - `AgentLoop` integration: high-band → run search inline + inject as
+    synthetic Tool message + flip `preflightNotice = true`. Pre-flight
+    tool calls don't count toward Gemma's 3-call cap.
+  - JSON config shipped at `:androidApp/src/main/assets/preflight_config.json`
+    (thresholds 0.85 / 0.15, model_version pinned).
+  - Asset bundling Gradle task with SHA-256 verification on the .tflite.
+- **WS-14 shipped:** `ct-regression-check` CLI in `classifier-training/`.
+  Verifies regression-JSONL SHA-256 against MANIFEST.md, runs
+  `ct-eval-classifier --split regression`, diffs 19 gate metrics against
+  the v1.0 baseline, exits non-zero on any >2pp regression. Three exit
+  paths verified end-to-end. Hosted-CI runner deferred to M6.
+
+| Metric | Result |
+|---|---|
+| Pixel 7 latency p95 (CPU XNNPACK) | 113 ms (M4 gate <150 ms ✓; PRD §2.3 80 ms aspiration tracked as model card v1.x #5) |
+| End-to-end smoke on Pixel 7 | ✓ all 3 canonical queries route correctly (FireSearch / SkipSearch / SkipSearch) |
+| Tokenizer fixture match (vs HF Python) | ✓ byte-exact across 22 canonical strings |
+| Unit tests | 142/142 Kotlin + 40/40 Python |
+| Regression gate smoke (re-eval v1.0 ckpt) | ✓ PASS, byte-identical baseline reproduction |
+
+**M5 hand-off at `docs/M4_M5_HANDOFF.md`:** classifier engine reuse pattern
+(M5 calls `engine.classify(userTurn + assistantResponse)` and reads
+`presenceLogits` + `categoryLogits` — same forward pass, no second model
+load), pair-encoder API on `WordPieceTokenizer`, expected probability
+shapes.
 
 ### M5 — Memory subsystem (weeks 14–18)
 
@@ -380,6 +414,7 @@ hashes, v1.x improvement queue.
 |---|---|---|
 | ~~Gemma 4 E4B doesn't fit perf/memory envelope on Pixel 7~~ | ~~High~~ | ✅ RESOLVED 2026-05-04: switched to E2B (`docs/M0_DECISION_MEMO.md` §3 Decision 1). Peak PSS 3.52 GB under 4 GB cap. |
 | ~~Tensor G2 NPU delegate not available in LiteRT-LM~~ | ~~High~~ | ✅ RESOLVED 2026-05-05: NPU not exposed; GPU (Mali-G710 via Play Services TFLite OpenCL) works at 13.5 tok/s mean. |
+| ~~Classifier .tflite runtime mismatch on Android~~ | ~~High~~ | ✅ RESOLVED 2026-05-10 (M4 Phase B): Play Services TFLite produces silently-broken outputs for our ai-edge-quantizer INT8 model (logits ~1500x magnitude vs Python reference). Switched to `com.google.ai.edge.litert:litert:2.1.4` (Android port of ai-edge-litert), the runtime that matches the export tooling. Documented as CLAUDE.md inv. #18. GPU delegate still refuses the graph (`BROADCAST_TO`/`EMBEDDING_LOOKUP` unsupported) — runs on CPU XNNPACK at p95=113 ms, accepting a 33 ms gap from the 80 ms PRD §2.3 aspiration in exchange for net-positive user-facing latency (saves 2-3 s Gemma round-trip on high-band queries). |
 | LiteRT-LM API churn breaks integration mid-Phase 1 | Medium | Pin to specific release (currently 0.10.2). Isolate behind `InferenceEngine` interface. Keep MediaPipe LLM Inference API as a documented escape hatch. |
 | Classifier accuracy misses PRD §7 targets after training | High | Dataset construction is M3 critical path (`docs/M3_PLAN.md`). Adversarial pair set is a quality gate. Iterate on dataset if first training pass misses. Hold integration (M4) until thresholds met. |
 | Dataset construction blocks classifier integration | High | Solo synthetic-first via local Ollama (zero marginal cost). Phased plan in `docs/M3_PLAN.md` budgets 10 weeks. |

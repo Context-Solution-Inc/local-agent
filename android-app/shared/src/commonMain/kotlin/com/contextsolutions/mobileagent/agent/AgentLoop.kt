@@ -1,5 +1,7 @@
 package com.contextsolutions.mobileagent.agent
 
+import com.contextsolutions.mobileagent.classifier.PreflightDecision
+import com.contextsolutions.mobileagent.classifier.PreflightRouter
 import com.contextsolutions.mobileagent.inference.GenerationEvent
 import com.contextsolutions.mobileagent.inference.GenerationRequest
 import com.contextsolutions.mobileagent.inference.PendingToolCall
@@ -12,7 +14,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
 
 /**
  * The agent layer for a single user turn. The engine drives the multi-step
@@ -20,22 +24,33 @@ import kotlinx.serialization.json.jsonObject
  * documented pattern at https://ai.google.dev/edge/litert-lm/android), so this
  * class is now a thin coordinator:
  *
- *  1. Build the system prompt and tool list, hand them to the engine alongside
+ *  1. **Pre-flight (M4 / WS-8)** — call [PreflightRouter] first. If the
+ *     classifier emits `FireSearch`, run the search inline, append a
+ *     synthetic Assistant(toolCall) + Tool(result) pair to history, and
+ *     pass `preflightNotice = true` so the system prompt picks up the
+ *     `[PRE-FLIGHT NOTICE BLOCK]` (SYSTEM_PROMPT.md §6). Other decisions
+ *     leave the M2 path untouched.
+ *  2. Build the system prompt and tool list, hand them to the engine alongside
  *     the user's message.
- *  2. Provide a [ToolDispatcher] callback the engine invokes when the model
+ *  3. Provide a [ToolDispatcher] callback the engine invokes when the model
  *     emits a tool call. The dispatcher routes to [SearchService], emits UI
  *     events ("Searching: ..."), and enforces the per-turn cap (PRD §3.2.2).
- *  3. Forward streamed text chunks as [AgentEvent.TokenChunk] and finalise
+ *  4. Forward streamed text chunks as [AgentEvent.TokenChunk] and finalise
  *     with [AgentEvent.Done] when the engine reports the turn complete.
  *
  * The agent loop no longer parses tool-call markers or runs its own generation
  * pass loop — the engine handles both. Citations, the per-turn cap, and the
  * "use the tool result" prompt block are still ours to manage.
+ *
+ * **Pre-flight tool calls do NOT count toward [maxToolCalls]** — pre-flight
+ * is a "free" search before Gemma sees the turn (M4_PLAN.md §4 Phase D).
+ * Gemma's in-loop budget remains the full 3.
  */
 class AgentLoop(
     private val session: InferenceSession,
     private val assembler: PromptAssembler,
     private val searchService: SearchService,
+    private val preflightRouter: PreflightRouter,
     private val maxToolCalls: Int = DEFAULT_MAX_TOOL_CALLS,
 ) {
 
@@ -44,17 +59,70 @@ class AgentLoop(
     fun run(input: AgentTurnInput): Flow<AgentEvent> = channelFlow {
         // Treat the inbound user message as the trailing turn in history.
         val priorHistory = input.history
-        val fullHistory = priorHistory + ChatMessage.User(input.userMessage)
+        val userMessage = ChatMessage.User(input.userMessage)
 
         val finalText = StringBuilder()
         val citationsForTurn = mutableListOf<SearchSource>()
         var toolCallsThisTurn = 0
         // Tracks the agent's view of in-progress tool messages so the final
         // turnMessages is faithful to what actually happened.
-        val turnAppendix = mutableListOf<ChatMessage>(ChatMessage.User(input.userMessage))
+        val turnAppendix = mutableListOf<ChatMessage>(userMessage)
+
+        // -- Pre-flight (PRD §3.2.1) --
+        // The router runs the classifier, applies thresholds, and (on a
+        // high-band hit) rewrites date/time relatives. We branch on its
+        // decision before touching the engine: FireSearch injects a synthetic
+        // tool round-trip into history; everything else preserves the M2 path.
+        var preflightNotice = false
+        val historyForPrompt = mutableListOf<ChatMessage>().apply {
+            addAll(priorHistory)
+            add(userMessage)
+        }
+        when (val decision = preflightRouter.route(input.userMessage)) {
+            is PreflightDecision.FireSearch -> {
+                send(AgentEvent.SearchStarted(decision.rewrittenQuery))
+                val outcome = searchService.search(decision.rewrittenQuery)
+                send(AgentEvent.SearchCompleted(outcome))
+                val callId = PRE_FLIGHT_CALL_ID
+                val argsJson = Json.encodeToString(
+                    kotlinx.serialization.json.JsonObject.serializer(),
+                    buildJsonObject { put("query", decision.rewrittenQuery) },
+                )
+                val toolCallMessage = ChatMessage.Assistant(
+                    text = "",
+                    toolCall = ToolCall(callId, WEB_SEARCH_TOOL_NAME, argsJson),
+                )
+                val toolResultMessage = when (outcome) {
+                    is SearchOutcome.Success -> {
+                        citationsForTurn.addAll(outcome.payload.sources)
+                        ChatMessage.Tool(
+                            callId = callId,
+                            toolName = WEB_SEARCH_TOOL_NAME,
+                            text = outcome.payload.json,
+                            isError = false,
+                        )
+                    }
+                    is SearchOutcome.Error -> ChatMessage.Tool(
+                        callId = callId,
+                        toolName = WEB_SEARCH_TOOL_NAME,
+                        text = "Error: ${outcome.kind.name} — ${outcome.message}",
+                        isError = true,
+                    )
+                }
+                turnAppendix.add(toolCallMessage)
+                turnAppendix.add(toolResultMessage)
+                historyForPrompt.add(toolCallMessage)
+                historyForPrompt.add(toolResultMessage)
+                preflightNotice = true
+            }
+            is PreflightDecision.SkipSearch,
+            is PreflightDecision.FallThrough,
+            is PreflightDecision.SearchDisabled -> Unit // M2 path unchanged
+        }
 
         val structured = assembler.assembleStructured(
-            history = fullHistory,
+            history = historyForPrompt,
+            preflightNotice = preflightNotice,
             searchAvailable = searchService.isAvailable(),
         )
         val request = GenerationRequest(
@@ -183,6 +251,7 @@ class AgentLoop(
     companion object {
         const val DEFAULT_MAX_TOOL_CALLS: Int = 3
         const val WEB_SEARCH_TOOL_NAME: String = "web_search"
+        const val PRE_FLIGHT_CALL_ID: String = "preflight-call-0"
 
         const val TOOL_LIMIT_REACHED_MESSAGE: String =
             "Error: tool call limit reached for this turn. Answer the user with what you have."

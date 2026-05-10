@@ -90,8 +90,23 @@ build/
 # ============================================================================
 *.log
 logs/
+**/stub-run.json
 spike-results/
 eval-results/
 # Spike-run JSON pulled off-device via adb (per docs/SPIKE_RUNBOOK.md)
 **/spike-*.json
-**/stub-run.json
+
+# ============================================================================
+# Eval runs — large training checkpoints + transient gate snapshots stay local.
+# Keep the v1.0 baseline's metrics.json + REPORT.md committed so
+# ct-regression-check has its baseline reference (see docs/M3_M4_HANDOFF.md §6).
+# ============================================================================
+eval/runs/**/*.pt
+eval/runs/**/train.log
+eval/runs/regression_check_candidate.json
+eval/runs/phaseF_iter*/
+eval/runs/phaseG_quantized_*/
+eval/runs/smoke_*/
+
+# Claude Code local session state
+.claude/

@@ -1,0 +1,20 @@
+{
+  "args": {
+    "preflight_jsonl": "datasets/preflight/preflight_v1.0.0.jsonl",
+    "memory_jsonl": "datasets/memory/memory_v1.0.0.jsonl",
+    "output_dir": "eval/runs/phaseF_full_20260509_162556",
+    "base_model": "distilbert-base-uncased",
+    "epochs": 5,
+    "batch_size": 32,
+    "lr": 2e-05,
+    "weight_decay": 0.01,
+    "warmup_pct": 0.06,
+    "grad_clip": 1.0,
+    "max_steps": null,
+    "seed": 42,
+    "preflight_only": false
+  },
+  "best_val_macro_f1": 0.7277626849251001,
+  "elapsed_s": 222.4189173397608,
+  "device": "cuda"
+}

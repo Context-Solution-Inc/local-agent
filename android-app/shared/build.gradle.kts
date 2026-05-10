@@ -80,11 +80,33 @@ kotlin {
             implementation(libs.play.services.tflite.java)
             implementation(libs.play.services.tflite.gpu)
             implementation(libs.play.services.tflite.support)
+            // AI Edge LiteRT for the M4 pre-flight classifier — different
+            // runtime from classic TFLite, ships its own libLiteRt.so and
+            // matches the ai-edge-quantizer export tooling.
+            implementation(libs.ai.edge.litert)
         }
         iosMain.dependencies {
             implementation(libs.sqldelight.native.driver)
         }
     }
+}
+
+// litert-2.1.4.aar bundles its own copy of `org.tensorflow.lite.*` classes
+// (InterpreterApi, Tensor, etc.) directly inside classes.jar.
+// play-services-tflite-java transitively pulls `tensorflow-lite-api:2.16.x`
+// with the same fully-qualified class names — AGP rejects the duplicates.
+// Excluding the transitive tensorflow-lite-api from every androidMain
+// configuration makes litert's bundled copy the canonical source for
+// `org.tensorflow.lite.*`. Both versions are ABI-compatible: LiteRT-LM
+// (Gemma path) only calls Play Services TFLite via the InterpreterApi
+// surface at runtime, so it doesn't matter which classloader-visible
+// copy of the interface it links against, as long as exactly one is
+// present.
+configurations.matching {
+    it.name.startsWith("androidMain") || it.name.startsWith("androidTest") ||
+        it.name.startsWith("debugAndroid") || it.name.startsWith("releaseAndroid")
+}.configureEach {
+    exclude(group = "org.tensorflow", module = "tensorflow-lite-api")
 }
 
 sqldelight {

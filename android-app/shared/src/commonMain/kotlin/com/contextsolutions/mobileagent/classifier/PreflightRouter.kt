@@ -1,0 +1,130 @@
+package com.contextsolutions.mobileagent.classifier
+
+import com.contextsolutions.mobileagent.classifier.internal.softmax
+
+/**
+ * Phase C / WS-8 routing decision (PRD §3.2.1). Drives the three-band
+ * outcome the agent loop branches on:
+ *
+ *  - `p_search_required > thresholds.highBand` → run the rewriter
+ *    - rewriter returns null → [PreflightDecision.FallThrough] (`RewriterAbort`)
+ *    - else → [PreflightDecision.FireSearch] with the rewritten query
+ *  - `p_search_required < thresholds.lowBand` → [PreflightDecision.SkipSearch]
+ *    (web_search tool stays registered — see M4_PLAN.md §2; Gemma can still
+ *    call it if its judgment differs)
+ *  - middle band → [PreflightDecision.FallThrough] (`MiddleBand`) — standard
+ *    Gemma tool-calling per PRD §3.2.1
+ *
+ * **Graceful degradation (PRD §3.2.1 failure modes).** Classifier
+ * load/inference failure NEVER throws into the agent. The router catches
+ * `null` returns from [ClassifierEngine.classify] and emits
+ * [PreflightDecision.FallThrough] (`ClassifierUnavailable`) so the user
+ * request continues unchanged. Logged once per construction at INFO level
+ * to keep telemetry honest without spamming logcat on every query.
+ *
+ * **Settings short-circuit.** When the user has search disabled (or no
+ * Brave key), the router returns [PreflightDecision.SearchDisabled] before
+ * tokenizing — we don't waste classifier cycles on a query that can't
+ * fire search anyway.
+ *
+ * **Logging.** Each `route()` call logs the chosen decision +
+ * `p_search_required` (and rewritten query for FireSearch) at INFO level
+ * via [logger]. Probabilities for all 3 classes are deferred to a debug
+ * flag (M6 telemetry replaces this surface).
+ */
+class PreflightRouter(
+    private val engine: ClassifierEngine,
+    private val tokenizer: WordPieceTokenizer,
+    private val rewriter: QueryRewriter,
+    private val configProvider: () -> PreflightConfig,
+    private val searchAvailableProvider: suspend () -> Boolean,
+    private val logger: (String) -> Unit = {},
+) {
+
+    private var classifierUnavailableLogged = false
+
+    suspend fun route(query: String): PreflightDecision {
+        if (!searchAvailableProvider()) {
+            logger("[preflight] decision=SearchDisabled query=\"${redact(query)}\"")
+            return PreflightDecision.SearchDisabled
+        }
+
+        val tokenized = tokenizer.encodeSingle(query)
+        val output = engine.classify(tokenized.inputIds, tokenized.attentionMask)
+        if (output == null) {
+            if (!classifierUnavailableLogged) {
+                logger("[preflight] classifier unavailable; all queries fall through to Gemma")
+                classifierUnavailableLogged = true
+            }
+            return PreflightDecision.FallThrough(
+                reason = FallThroughReason.ClassifierUnavailable,
+                pSearchRequired = null,
+            )
+        }
+
+        val probs = softmax(output.preflightLogits)
+        val pSearch = probs[ClassifierOutput.PREFLIGHT_INDEX_SEARCH_REQUIRED]
+        val thresholds = configProvider().thresholds
+
+        val decision = when {
+            pSearch > thresholds.highBand -> {
+                val rewritten = rewriter.rewrite(query)
+                if (rewritten == null) {
+                    PreflightDecision.FallThrough(
+                        reason = FallThroughReason.RewriterAbort,
+                        pSearchRequired = pSearch,
+                    )
+                } else {
+                    PreflightDecision.FireSearch(
+                        originalQuery = query,
+                        rewrittenQuery = rewritten,
+                        pSearchRequired = pSearch,
+                    )
+                }
+            }
+            pSearch < thresholds.lowBand -> PreflightDecision.SkipSearch(pSearchRequired = pSearch)
+            else -> PreflightDecision.FallThrough(
+                reason = FallThroughReason.MiddleBand,
+                pSearchRequired = pSearch,
+            )
+        }
+
+        logger(formatLogLine(query, decision))
+        return decision
+    }
+
+    private fun formatLogLine(query: String, decision: PreflightDecision): String {
+        val name = when (decision) {
+            is PreflightDecision.FireSearch -> "FireSearch"
+            is PreflightDecision.SkipSearch -> "SkipSearch"
+            is PreflightDecision.FallThrough -> "FallThrough(${decision.reason})"
+            is PreflightDecision.SearchDisabled -> "SearchDisabled"
+        }
+        val pSearch = decision.pSearchRequired
+        val pStr = if (pSearch != null) " p_search_required=${pSearch.formatProb()}" else ""
+        val extra = when (decision) {
+            is PreflightDecision.FireSearch ->
+                " rewritten=\"${redact(decision.rewrittenQuery)}\""
+            else -> ""
+        }
+        return "[preflight] decision=$name$pStr query=\"${redact(query)}\"$extra"
+    }
+
+    private fun Float.formatProb(): String {
+        // 3 decimal places, locale-independent. Avoids printf/Locale dependency
+        // on commonMain.
+        val rounded = (this * 1000f).toInt()
+        val whole = rounded / 1000
+        val frac = (rounded % 1000).toString().padStart(3, '0')
+        return "$whole.$frac"
+    }
+
+    /**
+     * Truncate to 80 chars for log readability. Pre-flight never sends queries
+     * to a server, but log lines could end up in Crashlytics — better to keep
+     * them short. M6 telemetry handles full-text capture under explicit
+     * consent (PRD §3.2.1).
+     */
+    private fun redact(text: String): String =
+        if (text.length <= 80) text else text.take(77) + "..."
+}

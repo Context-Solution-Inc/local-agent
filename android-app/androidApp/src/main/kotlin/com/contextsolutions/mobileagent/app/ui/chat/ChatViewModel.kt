@@ -2,6 +2,7 @@ package com.contextsolutions.mobileagent.app.ui.chat
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import android.util.Log
 import com.contextsolutions.mobileagent.agent.AgentEvent
 import com.contextsolutions.mobileagent.agent.AgentTurnInput
 import com.contextsolutions.mobileagent.agent.ChatMessage
@@ -10,11 +11,13 @@ import com.contextsolutions.mobileagent.app.service.InferenceSessionAdapter
 import com.contextsolutions.mobileagent.app.service.InferenceSessionManager
 import com.contextsolutions.mobileagent.app.service.ModelInventory
 import com.contextsolutions.mobileagent.app.service.SessionState
+import com.contextsolutions.mobileagent.classifier.ClassifierEngine
 import com.contextsolutions.mobileagent.search.SearchOutcome
 import com.contextsolutions.mobileagent.search.SearchSource
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -39,6 +42,7 @@ class ChatViewModel @Inject constructor(
     private val agentLoopFactory: AgentLoopFactory,
     private val sessionManager: InferenceSessionManager,
     private val inventory: ModelInventory,
+    private val classifierEngine: ClassifierEngine,
 ) : ViewModel() {
 
     val sessionState: StateFlow<SessionState> = sessionManager.state
@@ -50,6 +54,22 @@ class ChatViewModel @Inject constructor(
     private var agentHistory: List<ChatMessage> = emptyList()
 
     private var currentJob: Job? = null
+
+    init {
+        // M4 Phase B: warm the pre-flight classifier on the IO dispatcher as
+        // soon as the user enters the chat screen. The 100-500 ms load latency
+        // hides behind user typing time. Failure is logged but never surfaced
+        // to UI — PreflightRouter (Phase C) sees isLoaded=false and falls
+        // through to standard Gemma tool-calling per PRD §3.2.1.
+        viewModelScope.launch(Dispatchers.IO) {
+            val accelerator = classifierEngine.warmUp()
+            if (accelerator != null) {
+                Log.i(TAG, "pre-flight classifier ready on $accelerator")
+            } else {
+                Log.w(TAG, "pre-flight classifier unavailable; agent will fall through to Gemma")
+            }
+        }
+    }
 
     fun send(prompt: String) {
         val trimmed = prompt.trim()
@@ -150,6 +170,10 @@ class ChatViewModel @Inject constructor(
     private fun SearchOutcome.toSearchStatus(): SearchStatus = when (this) {
         is SearchOutcome.Success -> if (fromCache) SearchStatus.CompletedFromCache else SearchStatus.None
         is SearchOutcome.Error -> SearchStatus.Failed(kind.name, message)
+    }
+
+    private companion object {
+        private const val TAG = "ChatViewModel"
     }
 }
 

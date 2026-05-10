@@ -49,6 +49,17 @@ litertlm = "0.10.2"
 # match the google-ai-edge/gallery reference implementation.
 playServicesTflite = "16.4.0"
 
+# AI Edge LiteRT (the Android port of Python's ai-edge-litert) for the M4
+# pre-flight classifier. Both the Play Services FROM_SYSTEM_ONLY runtime AND
+# the bundled org.tensorflow:tensorflow-lite:2.16.x produced broken outputs
+# (~1500x logit magnitude vs Python reference) for our ai-edge-quantizer
+# weight-only INT8 .tflite — verified by the M4 Phase B diagnostic. ai-edge-
+# litert is a different runtime from classic TFLite (ships its own libLiteRt.so
+# + vendor plugins) and is what ai-edge-quantizer's export tooling targets.
+# The Android version 2.1.4 matches Python's 2.1.2 family. LiteRT-LM keeps
+# using its own runtime via Play Services for the Gemma 4 path.
+aiEdgeLitert = "2.1.4"
+
 # Test
 junit = "4.13.2"
 androidx-test-junit = "1.2.1"
@@ -86,6 +97,10 @@ litertlm-android = { module = "com.google.ai.edge.litertlm:litertlm-android", ve
 play-services-tflite-java = { module = "com.google.android.gms:play-services-tflite-java", version.ref = "playServicesTflite" }
 play-services-tflite-gpu = { module = "com.google.android.gms:play-services-tflite-gpu", version.ref = "playServicesTflite" }
 play-services-tflite-support = { module = "com.google.android.gms:play-services-tflite-support", version.ref = "playServicesTflite" }
+
+# AI Edge LiteRT — Android Kotlin runtime that matches Python's ai-edge-litert
+# export tooling (M4 classifier path; see comment above).
+ai-edge-litert = { module = "com.google.ai.edge.litert:litert", version.ref = "aiEdgeLitert" }
 
 # AndroidX
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidx-core" }

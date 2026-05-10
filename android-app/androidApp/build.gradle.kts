@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.security.MessageDigest
 import java.util.Properties
 
 plugins {
@@ -119,6 +120,82 @@ android {
             )
         }
     }
+
+    // M4 / WS-8 — JVM unit tests for the tokenizer pull vocab.txt +
+    // preflight_config.json + tokenizer_canonical_inputs.json onto the test
+    // classpath via a small generated resources dir. We deliberately don't
+    // expose all of src/main/assets to the test source set because that
+    // pulls the 67 MB .tflite into test resource processing for every
+    // test run.
+    sourceSets {
+        getByName("test") {
+            resources.directories.add(
+                layout.buildDirectory.dir("generated/classifierTestResources").get().asFile.absolutePath,
+            )
+        }
+    }
+}
+
+// Stage just the small text fixtures needed by JVM unit tests into a
+// dedicated build dir. Binds in via the test source set above.
+val collectClassifierTestResources = tasks.register<Copy>("collectClassifierTestResources") {
+    description = "Stage vocab.txt + preflight_config.json + tokenizer fixture for JVM tests."
+    from(rootDir.resolve("androidApp/src/main/assets/vocab.txt"))
+    from(rootDir.resolve("androidApp/src/main/assets/preflight_config.json"))
+    from(rootDir.resolve("../classifier-training/tests/fixtures/tokenizer_canonical_inputs.json"))
+    into(layout.buildDirectory.dir("generated/classifierTestResources"))
+}
+tasks.matching { it.name.endsWith("UnitTestJavaRes") || it.name.endsWith("UnitTestSources") }
+    .configureEach { dependsOn(collectClassifierTestResources) }
+
+// M4 / WS-8 asset bundling. The INT8 .tflite is gitignored (`models/`) so it's
+// not in the source tree by default; this task copies it into the assets dir
+// at build time and verifies SHA-256 against the v1.0 ship hash. Failure
+// surfaces a pointer to docs/M3_M4_HANDOFF.md so a fresh checkout knows where
+// to fetch the artifact from.
+val copyClassifierTflite = tasks.register("copyClassifierTflite") {
+    description = "Copy + verify the pre-flight classifier .tflite into androidApp assets."
+    group = "build"
+    val srcFile = rootDir.resolve("../models/preflight_memory_shared_v1.0.0_int8.tflite")
+    val dstFile = rootDir.resolve("androidApp/src/main/assets/preflight_memory_shared_v1.0.0_int8.tflite")
+    val expectedSha = "5920733f96bfc2f193fdebc7ef5585cd37ecc3b9f23b21259e448410679ea83d"
+    inputs.file(srcFile)
+    outputs.file(dstFile)
+    doLast {
+        if (!srcFile.exists()) {
+            throw GradleException(
+                "Pre-flight classifier artifact missing: ${srcFile.absolutePath}\n" +
+                    "Fetch it via the steps in docs/M3_M4_HANDOFF.md §1 (or rebuild from " +
+                    "`ct-export-litert` per the same doc) before running this build."
+            )
+        }
+        val digest = MessageDigest.getInstance("SHA-256")
+        srcFile.inputStream().use { input ->
+            val buf = ByteArray(64 * 1024)
+            while (true) {
+                val n = input.read(buf); if (n <= 0) break
+                digest.update(buf, 0, n)
+            }
+        }
+        val actual = digest.digest().joinToString("") { byte: Byte -> "%02x".format(byte) }
+        if (actual != expectedSha) {
+            throw GradleException(
+                "Pre-flight classifier SHA-256 mismatch.\n" +
+                    "  expected: $expectedSha (v1.0 ship)\n" +
+                    "  actual:   $actual\n" +
+                    "Update build.gradle.kts after a deliberate classifier re-export."
+            )
+        }
+        dstFile.parentFile.mkdirs()
+        srcFile.copyTo(dstFile, overwrite = true)
+    }
+}
+
+androidComponents.onVariants { variant ->
+    val variantName = variant.name.replaceFirstChar { c -> c.titlecase() }
+    project.tasks
+        .matching { it.name == "merge${variantName}Assets" }
+        .configureEach { dependsOn(copyClassifierTflite) }
 }
 
 dependencies {
@@ -177,4 +254,22 @@ dependencies {
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.compose.ui.test.junit4)
     debugImplementation(libs.compose.ui.test.manifest)
+
+    // Play Services LiteRT direct API for the M4 Phase A spike + future
+    // classifier instrumentation tests in :androidApp/src/androidTest/. The
+    // production engine lives in :shared/androidMain and consumes the same
+    // libraries via implementation() there — surfacing them here only
+    // for tests that exercise the API surface directly without going through
+    // the ClassifierEngine seam.
+    androidTestImplementation(libs.play.services.tflite.java)
+    androidTestImplementation(libs.play.services.tflite.gpu)
+    androidTestImplementation(libs.play.services.tflite.support)
+    androidTestImplementation(libs.ai.edge.litert)
+}
+
+// Same rationale as :shared — keep litert's bundled `org.tensorflow.lite.*`
+// classes as the canonical copy by excluding the transitive tensorflow-lite-api
+// pulled in by play-services-tflite-java.
+configurations.configureEach {
+    exclude(group = "org.tensorflow", module = "tensorflow-lite-api")
 }

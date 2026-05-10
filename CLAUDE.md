@@ -106,14 +106,26 @@ the original text-marker workaround. With invariants 8–11 in place,
 LiteRT-LM surfaces tool calls structurally via `Message.toolCalls` and the
 parser is unused in the production path (still has tests).
 
-12. **The classifier .tflite has 3 outputs in a fixed order**: `StatefulPartitionedCall:0`
-    is **preflight_logits** `[1,3]` ordered `[search_required, search_not_required, ambiguous]`,
-    `:1` is **presence_logits** `[1,2]` ordered `[no_extraction, has_extraction]`, `:2` is
-    **category_logits** `[1,6]` (multi-label sigmoid) ordered `[personal_identity, preference,
-    professional, interest, relationship, temporary_context]`. Single forward pass produces
-    all three; agent picks the head it needs. Output ORDER is set at trace time — verify via
-    `interp.get_output_details()[i]["name"]` before assuming the index. Re-export changes the
-    name suffixes; never key off them.
+12. **The classifier .tflite has 2 inputs and 3 outputs identified by `tensor.name()`,
+    NOT interpreter index.** Play Services LiteRT 16.4.0 on Pixel 7 permutes BOTH input
+    and output indices away from name order, and the failure mode is silent: garbage
+    embeddings or swapped heads with no exception, just nonsense logits.
+    - **Inputs** (`int64`, shape `[1,128]`): `serving_default_args_0:0` → input_ids,
+      `serving_default_args_1:0` → attention_mask. Dispatch by parsing the `_N:0`
+      suffix from `interpreter.getInputTensor(i).name()`. (M4 Phase B caught this
+      empirically — feeding `[ids, mask]` to `runForMultipleInputsOutputs` in argument
+      order produced raw logits in the thousands; reordering by name yielded calibrated
+      logits in the [-5, +5] range matching the Python `ai-edge-litert` reference.)
+    - **Outputs** (`float32`): `StatefulPartitionedCall:0` → **preflight_logits** `[1,3]`
+      ordered `[search_required, search_not_required, ambiguous]`, `:1` →
+      **presence_logits** `[1,2]` ordered `[no_extraction, has_extraction]`, `:2` →
+      **category_logits** `[1,6]` (multi-label sigmoid) ordered `[personal_identity,
+      preference, professional, interest, relationship, temporary_context]`. Verified
+      by the M4 Phase A spike: runtime returned `[idx 0]=name :1`, `[idx 1]=name :0`,
+      `[idx 2]=name :2`. Dispatch by parsing the `:N` suffix from
+      `interpreter.getOutputTensor(i).name()`, with shape as a sanity check
+      (`[1,3]`/`[1,2]`/`[1,6]` are all unique on this graph). Hardcoding either
+      interpreter index ships a silent swap.
 
 13. **Classifier tokenizer must match training-time `distilbert-base-uncased` exactly.**
     Different vocab (cased vs uncased), different sub-word splits, or a stale `vocab.txt`
@@ -143,6 +155,43 @@ parser is unused in the production path (still has tests).
     `.pt`) are excluded by `.gitignore`'s `models/` rule. Keep the model card at
     `docs/preflight_memory_shared_vX.Y.Z_MODEL_CARD.md` so it tracks in git alongside the
     handoff note.
+
+18. **The pre-flight classifier MUST run on `com.google.ai.edge.litert:litert:2.x`
+    — NOT `org.tensorflow:tensorflow-lite` and NOT Play Services TFLite.** Both
+    classic TFLite runtimes produce numerically broken outputs for our
+    `ai-edge-quantizer` weight-only INT8 model (logits ~1500x larger magnitude
+    than the Python reference, every query collapsing to one dominant class).
+    Verified by the M4 Phase B diagnostic: same model, same tokens, same int64
+    inputs — Python `[1.902, -1.22, -0.672]`, both Android runtimes
+    `[1234, -2365, 3058]`. No exception, just silently wrong arithmetic.
+    `com.google.ai.edge.litert:litert:2.1.4` is the Android port of Python's
+    `ai-edge-litert` runtime — the one ai-edge-quantizer's export tooling
+    actually targets. Different package (`com.google.ai.edge.litert.CompiledModel`,
+    not `org.tensorflow.lite.InterpreterApi`), different native libs
+    (`libLiteRt.so` vs `libtensorflowlite_jni.so`). LiteRT-LM (Gemma 4) keeps
+    using its own runtime via `play-services-tflite-*` — both coexist on the
+    classpath because each is opted-into explicitly. **Class-collision
+    workaround:** litert-2.1.4.aar bundles its own copy of `org.tensorflow.lite.*`
+    classes; play-services-tflite-java pulls `tensorflow-lite-api` transitively
+    with the same class names. AGP rejects duplicates. Resolved via
+    `configurations.matching { … }.configureEach { exclude(group =
+    "org.tensorflow", module = "tensorflow-lite-api") }` in
+    `:shared/build.gradle.kts` and `:androidApp/build.gradle.kts`. Both ABI-
+    compatible — picking either copy works.
+
+19. **AGP 9 KMP source-set DSL doesn't accept the closure form for catalog
+    `Provider` deps.** In `kotlin { sourceSets { androidMain.dependencies { … } } }`,
+    `implementation(libs.foo) { exclude(...) }` fails to compile with
+    "Argument type mismatch: actual type is 'Provider<…>', but 'String' was
+    expected." `.get()` resolves the Provider to a
+    `MinimalExternalModuleDependency`, but that type is immutable — `exclude {}`
+    on it throws "Minimal dependencies are immutable" at config time. The
+    workaround is configuration-level `configurations.matching { it.name.startsWith
+    ("androidMain") || ... }.configureEach { exclude(...) }` outside the
+    `kotlin {}` block, OR plain `dependencies { add("androidMainImplementation", …)
+    { exclude(…) } }`. Hit during M4 when wiring the litert dep alongside
+    play-services-tflite (inv. #18); same pattern will recur if M5's embedder
+    has transitive collisions.
 
 ## Build & run
 
@@ -230,9 +279,36 @@ ct-export-litert --ckpt ../eval/runs/<ts>/best.pt \
     --output ../models/preflight_memory_shared_v1.0.0_int8.tflite \
     --max-length 128 --int8
 
-# Pixel 7 latency benchmark (host-CPU proxy today; M4 wires Android instrumentation test)
+# Pixel 7 latency benchmark (host-CPU proxy; real Pixel 7 numbers come from
+# the :androidApp instrumentation test ClassifierLatencyBenchmark — see below)
 ct-bench-pixel7 --tflite ../models/preflight_memory_shared_v1.0.0_int8.tflite \
     --output ../eval/runs/<ts>/pixel7_latency.json --host-proxy
+
+# WS-14 regression gate (M4 Phase E) — verifies SHA-256s, runs eval on
+# regression split, diffs against v1.0 baseline, exits 0/1/2/3
+# (PASS / SHA-mismatch / regression / infrastructure error). Run before
+# any new .tflite lands in models/.
+ct-regression-check --ckpt ../eval/runs/<ts>/best.pt
+ct-regression-check --skip-eval --ckpt path/to/metrics.json   # for hosted CI flows
+```
+
+### M4 classifier instrumentation tests (Pixel 7)
+
+```bash
+# End-to-end: real assets + WordPieceTokenizer + LiteRtClassifierEngine
+./gradlew :androidApp:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=com.contextsolutions.mobileagent.classifier.ClassifierEndToEndTest
+
+# Latency: 200 warmup + 1000 measured forward passes (M4 gate p95 < 150 ms;
+# PRD §2.3 80 ms aspiration deferred to v1.x int32 re-export)
+./gradlew :androidApp:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=com.contextsolutions.mobileagent.classifier.ClassifierLatencyBenchmark
+
+# Diagnostic kept for M4 Phase B reference (compares FROM_SYSTEM_ONLY vs
+# FROM_APPLICATION_ONLY runtimes — both broken with classic TFLite, neither
+# matters now that we use ai-edge-litert per inv. #18)
+./gradlew :androidApp:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=com.contextsolutions.mobileagent.classifier.ClassifierDiagnosticTest
 ```
 
 ### Secrets
@@ -271,7 +347,7 @@ mistake to make. See `android-app/secrets.properties.example` for the fields.
 | M1 Chat MVP — WS-1 | ✅ Complete 2026-05-05. All 12 exit-gate drills passed on Pixel 7. |
 | M2 Web search & agent loop (incl. M1 WS-2/3/11) | ✅ Complete 2026-05-07. End-to-end chat + tool-calling + UI. Single LiteRT-LM `Conversation` per user turn, structured tool registration, `ToolDispatcher` callback. 107 unit tests. Known limitation: Brave snippets are page descriptions; works well for sports/stocks/news but doesn't yield raw weather numbers without page fetching. |
 | M3 Datasets & classifier training | ✅ Complete 2026-05-09. Datasets `preflight_v1.0.0` (11,670) + `memory_v1.0.0` (7,707) frozen with regression-set SHA-256s in manifests. Single shared DistilBERT-base + 3 task heads exported to `models/preflight_memory_shared_v1.0.0_int8.tflite` (67.7 MB INT8). §7 GATE: FAIL by 4-7pp on two pre-flight metrics — defensible v1 with documented v1.x improvement path (precision ceiling is dataset-level boundary noise, not tunable). Memory presence passes (92.2% test / 96.2% regression). 26 unit tests in `classifier-training/`. Detailed phase log in `docs/M3_PLAN.md`; M4 handoff at `docs/M3_M4_HANDOFF.md`. |
-| M4 Pre-flight integration | Not started |
+| M4 Pre-flight integration | ✅ Complete 2026-05-10. Classifier wired into `AgentLoop` via `:shared/commonMain/classifier/PreflightRouter` (engine in `:shared/androidMain` on `com.google.ai.edge.litert:litert:2.1.4`). Three-band routing per PRD §3.2.1; deterministic-only rewriter (memory-context queries abort to FallThrough until M5). Pixel 7 CPU latency p95=113 ms (M4 gate <150 ms ✓; PRD §2.3 80 ms aspiration tracked as model card v1.x #5 — int32 input re-export). End-to-end on real Pixel 7: pre-flight fires for time-sensitive queries with rewritten search queries; M2 path unchanged for middle/low band. WS-14 `ct-regression-check` CLI shipped — verifies SHA-256s, runs `ct-eval-classifier --split regression`, gates on >2pp regression across 19 metrics. 142 Kotlin tests + 40 Python tests. Detailed phase log in `docs/M4_PLAN.md`; M5 handoff at `docs/M4_M5_HANDOFF.md`. |
 | M5 Memory subsystem | Not started |
 | M6 Polish, eval, telemetry | Not started |
 | M7 Closed beta → Play Store | Not started |
@@ -335,3 +411,74 @@ mistake to make. See `android-app/secrets.properties.example` for the fields.
   with `MIN_MAX_UNIFORM_QUANT` instead. PyTorch dynamic INT8 (`torch.ao.quantization.quantize_dynamic`)
   exists in `ct-quantize` for CPU-only debugging but is NOT the .tflite
   ship path.
+
+## M4 architecture cheat sheet (for M5 / M6 follow-ups)
+
+- **Classifier package (`:shared/commonMain/classifier/`)** —
+  `ClassifierEngine` interface, `ClassifierOutput` (3 logit arrays from
+  one forward pass), `WordPieceTokenizer` (byte-exact against HF
+  `distilbert-base-uncased` over 22 fixtures), `Vocab`, `PreflightConfig`
+  (kotlinx-serializable JSON), `PreflightRouter`, `QueryRewriter`,
+  `internal/Softmax.kt` (numerically-stable softmax/sigmoid handling huge
+  INT8 logit magnitudes).
+- **Engine (`:shared/androidMain/classifier/LiteRtClassifierEngine.kt`)**
+  — backed by `com.google.ai.edge.litert:litert:2.1.4` (Android port of
+  Python's ai-edge-litert; matches the export tooling). NOT
+  `org.tensorflow:tensorflow-lite` (broken outputs on this graph) and NOT
+  Play Services TFLite (also broken; see CLAUDE.md inv. #18). Output
+  index dispatch by parsing the `:N` suffix of `tensor.name()` (the
+  runtime permutes interpreter index away from name order — inv. #12).
+  GPU delegate refuses to compile this graph (`BROADCAST_TO`,
+  `EMBEDDING_LOOKUP`, `CAST INT64→FLOAT32` not supported); CPU XNNPACK
+  is the only path. p95=113 ms on Pixel 7 — accepted vs PRD §2.3 80 ms
+  aspiration; v1.x int32 re-export should close the gap.
+- **Lazy load on chat-screen entry** — `ChatViewModel.init` kicks off
+  `engine.warmUp()` on `Dispatchers.IO`; load latency (~200-500 ms on
+  Pixel 7) hides behind user typing time. Once loaded, stays resident
+  for the app lifetime. Failure to load returns null from `warmUp()`
+  (no throw); router emits `FallThrough(ClassifierUnavailable)`. This
+  is a deliberate deviation from PRD §4.2's "loaded at app start"
+  phrasing — keeps app cold start clean and skips the load entirely
+  when the user only opens settings; trade-off is a one-time first-chat
+  warm-up cost. Resolved in `docs/M4_PLAN.md` §7.
+- **Router (`PreflightRouter.route(query)`)** — three-band per PRD
+  §3.2.1: `>0.85` → run rewriter → FireSearch (or FallThrough on rewriter
+  abort), `<0.15` → SkipSearch (web_search tool stays registered), middle
+  → FallThrough(MiddleBand). `searchAvailable` short-circuits to
+  `SearchDisabled` before classify to save inference cycles. Logs every
+  decision at INFO via injected `(String) -> Unit` callback.
+- **Rewriter (`QueryRewriter`)** — deterministic-only. Date/time
+  substitution from `TimeContext` (today, yesterday, last night, last
+  week, last month, last year + variants). Memory-reference detection
+  (`my X`, `where I live`, `i live in`) returns null → router emits
+  `FallThrough(RewriterAbort)`. No Gemma fallback (defeats round-trip
+  saving). M5 promotes "my team"-style queries to FireSearch via memory
+  retrieval substitution.
+- **AgentLoop integration (`:shared/commonMain/agent/AgentLoop.kt`)** —
+  `route()` runs before prompt assembly. On `FireSearch`: emit
+  `SearchStarted(rewrittenQuery)`, run `searchService.search()`, append a
+  synthetic `Assistant(toolCall) + Tool(result)` pair to history (the
+  Tool turn becomes the engine's "current message" via
+  `sendMessageAsync(Message.tool(...))`), pass `preflightNotice = true`
+  so the system prompt picks up `[PRE-FLIGHT NOTICE BLOCK]`
+  (SYSTEM_PROMPT.md §6). Pre-flight tool calls do NOT count toward
+  `maxToolCalls` (Gemma's budget remains 3).
+- **Asset bundling** —
+  `:androidApp/src/main/assets/preflight_memory_shared_v1.0.0_int8.tflite`
+  (copied from `models/` at build time via a Gradle task that verifies
+  SHA-256), `vocab.txt` (committed, 30,522 entries), `preflight_config.json`
+  (committed, default thresholds 0.85 / 0.15, model_version pin).
+- **Regression gate (`classifier-training/.../ci/regression_check.py`)**
+  — `ct-regression-check --ckpt <new>.pt`. Verifies regression-JSONL
+  SHA-256 against MANIFEST.md, runs `ct-eval-classifier --split regression`,
+  diffs 19 gate metrics against
+  `eval/runs/phaseF_full_20260509_162556/metrics.json`. Exits 0/1/2/3
+  (PASS / SHA mismatch / regression / infrastructure error). Hosted-CI
+  runner is M6.
+- **Tests** — Kotlin: `WordPieceTokenizerFixtureTest`, `SoftmaxTest`,
+  `QueryRewriterTest`, `PreflightRouterTest`, `AgentLoopPreflightTest`,
+  `PlayServicesLiteRtSpikeTest` (instrumentation; legacy name, kept as
+  documentation of Phase A finding), `ClassifierEndToEndTest`
+  (instrumentation), `ClassifierLatencyBenchmark` (instrumentation).
+  Python: `tests/test_regression_check.py` (14 unit tests for diff/SHA
+  logic).

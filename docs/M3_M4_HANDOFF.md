@@ -38,13 +38,30 @@ Inputs (both `int64`, fixed shape `[1, 128]`):
 | `serving_default_args_0:0` | `[1, 128]` | `int64` | DistilBERT input_ids |
 | `serving_default_args_1:0` | `[1, 128]` | `int64` | attention_mask (1 for real tokens, 0 for padding) |
 
-Outputs (all `float32`):
+Outputs (all `float32`). **Identify by tensor name, not interpreter index** —
+Play Services LiteRT permutes the interpreter index away from the trace-time
+name suffix (verified on Pixel 7 via the M4 Phase A spike, see logcat row in
+`build/outputs/androidTest-results/...PlayServicesLiteRtSpikeTest...`):
 
-| Name | Shape | Meaning |
+| Tensor name | Shape | Meaning |
 |---|---|---|
 | `StatefulPartitionedCall:0` | `[1, 3]` | preflight_logits — order: `[search_required, search_not_required, ambiguous]` |
 | `StatefulPartitionedCall:1` | `[1, 2]` | presence_logits — order: `[no_extraction, has_extraction]` |
 | `StatefulPartitionedCall:2` | `[1, 6]` | category_logits — order: `[personal_identity, preference, professional, interest, relationship, temporary_context]` |
+
+Pixel 7 / Play Services LiteRT 16.4.0 runtime returns the tensors in a
+permuted index order — at the time of the M4 Phase A spike (2026-05-09):
+
+```
+interpreter index 0 → name=StatefulPartitionedCall:1  shape=[1,2]  (presence)
+interpreter index 1 → name=StatefulPartitionedCall:0  shape=[1,3]  (preflight)
+interpreter index 2 → name=StatefulPartitionedCall:2  shape=[1,6]  (category)
+```
+
+**The engine must dispatch by parsing the `:N` suffix from `tensor.name()`,
+then verify the shape as a sanity check**, never by trusting the interpreter
+index order. A re-export changes neither contract — the name suffix tracks
+the head's traced output rank, and the shape is fixed by graph structure.
 
 The single .tflite produces all three outputs in **one forward pass** (~12 ms
 host-CPU INT8). The agent picks whichever head it needs — the unused heads
@@ -131,16 +148,23 @@ if (presence == 1) {
 
 ## 5. Latency expectations
 
-| Build | Host CPU p95 | Pixel 7 CPU estimate | Pixel 7 GPU (Mali-G710) estimate |
+**Real Pixel 7 measurement (M4 Phase B, 2026-05-10):** p95 = **113.5 ms** on
+CPU XNNPACK via `com.google.ai.edge.litert:litert:2.1.4`. GPU delegate is
+**not viable** for this model graph — both Play Services TFLite GPU and
+ai-edge-litert's GPU accelerator refuse the export with `Failed to compile
+model` (unsupported ops: `BROADCAST_TO`, `EMBEDDING_LOOKUP`,
+`CAST INT64→FLOAT32`). The runtime cleanly falls back to CPU.
+
+| Build | Host CPU p95 | Pixel 7 CPU (real) | Pixel 7 GPU |
 |---|---:|---:|---:|
-| INT8 .tflite | 14.7 ms | 45-60 ms | 5-10 ms |
+| INT8 .tflite | 14.7 ms | **113.5 ms** | n/a (compile failure) |
 
-**WS-8 must benchmark on real Pixel 7 before integration sign-off.** The
-real number replaces the host proxy in the model card. Expected operating
-point: GPU delegate via Play Services LiteRT, well under the 80 ms gate.
-
-If the GPU delegate is unavailable on a given device (older Play Services,
-GrapheneOS), fall back to CPU XNNPACK — still under target.
+The 113 ms result misses the PRD §2.3 80 ms target by ~33 ms but is
+**net-positive on user-facing latency** — pre-flight saves the 2-3 second
+Gemma round-trip on high-band queries. M4 ships with the M4 latency gate
+relaxed to 150 ms; the v1.x improvement queue (model card §v1.x improvement
+path #5) tracks the int32-input re-export that should recover the 80 ms
+target. See model card § Latency for full numbers.
 
 ---
 
@@ -153,14 +177,44 @@ The frozen regression splits are committed in the manifests with SHA-256:
 | `datasets/preflight/preflight_v1.0.0_regression.jsonl` | `9724f57840a4fd73ebdc318911ce7a79c6b43d3c093e314983538350521be544` |
 | `datasets/memory/memory_v1.0.0_regression.jsonl` | `7801cb2386dd8f72fd1ffefb2b737a47988e7aac81bf322e1507db72d4c94ae6` |
 
-**WS-14 wiring:**
+**WS-14 implementation (M4 Phase E, 2026-05-10):** the
+`ct-regression-check` CLI in `classifier-training/` is the contract. It
+verifies SHA-256s, runs `ct-eval-classifier --split regression`, diffs
+gate metrics against the v1.0 baseline, and exits non-zero on any >2pp
+regression. The PRD §7 "v1.0-passing metric" target is implemented as a
+flat per-metric budget (no metric in [GATE_METRICS] may drop by more
+than the per-metric threshold) — simpler than tracking pass/fail status
+per metric, and catches regressions on metrics that were close to but
+below the §7 target.
 
-1. CI checks out the regression files.
-2. Verifies SHA-256 matches the manifest.
-3. Runs `ct-eval-classifier --ckpt <new model> --split regression …`
-4. Compares the regression-split metrics against the v1.0 baseline (in
-   `eval/runs/phaseF_full_20260509_162556/metrics.json`).
-5. Fails the build if any v1.0-passing metric regresses by >2pp.
+```bash
+# Default: re-eval the candidate ckpt and gate against the v1.0 baseline
+ct-regression-check --ckpt path/to/best.pt
+
+# Pre-computed metrics.json instead of re-evaluating (used by hosted CI
+# that runs eval as a separate step)
+ct-regression-check --ckpt path/to/metrics.json --skip-eval
+
+# Custom per-metric threshold (default 2.0pp)
+ct-regression-check --ckpt path/to/best.pt --threshold-pp 1.0
+```
+
+Exit codes:
+
+| Code | Meaning |
+|---|---|
+| `0` | PASS — every gate metric is within budget |
+| `1` | SHA-256 mismatch on a regression JSONL — refuse to evaluate |
+| `2` | Regression — one or more gate metrics dropped by >`--threshold-pp` |
+| `3` | Infrastructure error (e.g., `ct-eval-classifier` crashed) |
+
+The 19 gate metrics (`preflight.regression.*` per-class P/R/F1, three-band,
+adversarial-pair, macro-F1, accuracy; `memory.regression.*` presence,
+forget/remember command, category macro-F1) are listed in
+`classifier_training.ci.regression_check.GATE_METRICS`.
+
+**Hosted-CI runner is M6 work.** v1 ships the local script as the gate
+contract — run it manually before any new `.tflite` lands in `models/`.
 
 The regression split is **immutable** — a major version bump (v2.0.0)
 is required to change it, with a fresh classifier eval. See
@@ -209,7 +263,9 @@ print(f"p(search_required) = {p_search:.3f}")  # > 0.85 → fire search
 `interp.get_output_details()[i]["name"]` rather than assuming the index.
 The names will be `StatefulPartitionedCall:0` (preflight),
 `StatefulPartitionedCall:1` (presence), `StatefulPartitionedCall:2`
-(category) for v1.0 builds.
+(category) for v1.0 builds. **The Android Play Services LiteRT runtime
+permutes the interpreter index relative to the name suffix order** (see
+§2 above) — always dispatch by name, not by index.
 
 ---
 

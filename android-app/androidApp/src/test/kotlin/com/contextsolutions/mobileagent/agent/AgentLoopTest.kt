@@ -1,6 +1,14 @@
 package com.contextsolutions.mobileagent.agent
 
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
+import com.contextsolutions.mobileagent.classifier.ClassifierAccelerator
+import com.contextsolutions.mobileagent.classifier.ClassifierEngine
+import com.contextsolutions.mobileagent.classifier.ClassifierOutput
+import com.contextsolutions.mobileagent.classifier.PreflightConfig
+import com.contextsolutions.mobileagent.classifier.PreflightRouter
+import com.contextsolutions.mobileagent.classifier.QueryRewriter
+import com.contextsolutions.mobileagent.classifier.Vocab
+import com.contextsolutions.mobileagent.classifier.WordPieceTokenizer
 import com.contextsolutions.mobileagent.db.MobileAgentDatabase
 import com.contextsolutions.mobileagent.inference.FinishReason
 import com.contextsolutions.mobileagent.inference.GenerationEvent
@@ -200,7 +208,38 @@ class AgentLoopTest {
             session = session,
             assembler = assembler,
             searchService = service,
+            preflightRouter = noopPreflightRouter(service, context),
             maxToolCalls = maxToolCalls,
+        )
+    }
+
+    /**
+     * A pre-flight router that always emits FallThrough(ClassifierUnavailable)
+     * — the production behavior when the classifier fails to load. Keeps these
+     * M2-era tests focused on Gemma's tool-calling cycle. The dedicated Phase D
+     * tests in `AgentLoopPreflightTest` exercise FireSearch/SkipSearch paths.
+     */
+    private fun noopPreflightRouter(
+        service: SearchService,
+        timeContext: TimeContext,
+    ): PreflightRouter {
+        val emptyVocab = Vocab(
+            tokenToId = mapOf("[PAD]" to 0, "[UNK]" to 100, "[CLS]" to 101, "[SEP]" to 102),
+            idToToken = mapOf(0 to "[PAD]", 100 to "[UNK]", 101 to "[CLS]", 102 to "[SEP]"),
+        )
+        val unavailableEngine = object : ClassifierEngine {
+            override val isLoaded: Boolean = false
+            override suspend fun warmUp(): ClassifierAccelerator? = null
+            override suspend fun classify(inputIds: LongArray, attentionMask: LongArray): ClassifierOutput? = null
+            override suspend fun unload() = Unit
+        }
+        return PreflightRouter(
+            engine = unavailableEngine,
+            tokenizer = WordPieceTokenizer(emptyVocab),
+            rewriter = QueryRewriter { timeContext },
+            configProvider = { PreflightConfig.DEFAULT },
+            searchAvailableProvider = { service.isAvailable() },
+            logger = {},
         )
     }
 

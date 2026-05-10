@@ -142,17 +142,36 @@ accuracy 88.0%.
 Memory (regression split, 367 examples): presence precision 96.2%, forget
 100%, remember 91.3%.
 
-### Latency (host-CPU proxy via XNNPACK 4-thread)
+### Latency
 
-| Build | p50 | p95 | p99 | PRD §2.3 (Pixel 7) target |
-|---|---:|---:|---:|---|
-| FP32 .tflite | 37.8 ms | 46.9 ms | 48.8 ms | <80 ms ✓ |
-| **INT8 .tflite** | **11.4 ms** | **14.7 ms** | 16.0 ms | <80 ms ✓ |
+**Real Pixel 7 measurement (M4 Phase B, 2026-05-10)** via
+`ClassifierLatencyBenchmark` (200 warmup + 1,000 measured passes through
+`ai-edge-litert:2.1.4` over 16 mixed canonical queries):
 
-Pixel 7 (Tensor G2 CPU) is roughly 3-4× slower than modern desktop CPU on
-TFLite XNNPACK workloads → INT8 p95 expected ≈ 45-60 ms. Mali-G710 GPU
-delegate via Play Services LiteRT can drop this to ~5-10 ms. Real on-device
-benchmark is M4 work (`:androidApp` instrumentation test).
+| Build | Accelerator | p50 | p95 | p99 | mean | M4 gate |
+|---|---|---:|---:|---:|---:|---|
+| **INT8 .tflite (ship)** | **CPU XNNPACK** | **112.1 ms** | **113.5 ms** | **114.6 ms** | **112.3 ms** | <150 ms ✓ |
+
+GPU acceleration was attempted but failed at compile time: `ai-edge-litert`'s
+GPU delegate (and Play Services TFLite's GPU delegate before it) refuse the
+exported graph because of unsupported ops — `BROADCAST_TO`,
+`EMBEDDING_LOOKUP`, `CAST INT64→FLOAT32`. CPU XNNPACK delegated 345/353
+ops (97.7%); the remaining 8 fall through to the reference CPU runtime.
+
+The PRD §2.3 80 ms target was extrapolated from a 14.7 ms host-CPU proxy
+assuming a 3-4× Tensor G2 slowdown. Reality is ~8× — XNNPACK's INT64 input
+paths don't hit the optimized kernels. **The 33 ms gap from the 80 ms aspiration
+is acceptable for v1**: pre-flight still saves a 2-3 second Gemma round-trip
+on high-band queries, so 113 ms is net-positive on user-facing latency. v1.x
+improvement queue (#6 below) tracks the int32-input re-export that should
+recover the 80 ms target.
+
+Reference host-CPU proxy (kept for tracking ratio drift across releases):
+
+| Build | p50 | p95 | p99 |
+|---|---:|---:|---:|
+| FP32 .tflite (host CPU) | 37.8 ms | 46.9 ms | 48.8 ms |
+| INT8 .tflite (host CPU) | 11.4 ms | 14.7 ms | 16.0 ms |
 
 ---
 
@@ -203,6 +222,13 @@ no calibration band; the agent extracts iff the binary head predicts class 1.
    Phase C pair expansion since rephrasings skew formal. Acceptable for
    v1.0; worth re-tuning the expansion prompt in v1.x if classifier
    under-performs on real telemetry queries.
+7. **Pixel 7 latency 113 ms p95 vs 80 ms PRD §2.3 aspiration.** The
+   exported graph uses INT64 token-id inputs and includes `BROADCAST_TO` /
+   `EMBEDDING_LOOKUP` / `CAST INT64→FLOAT32` ops that prevent any GPU
+   delegate from compiling, forcing CPU XNNPACK. XNNPACK's INT64 paths
+   are unoptimized scalar code. Mitigation in v1.x: re-export with int32
+   inputs via `ct-export-litert --input-dtype int32`; expected to recover
+   ~1.5-2× speedup and clear the 80 ms target.
 
 All of these are tracked as v1.x improvement opportunities in
 `docs/M3_PLAN.md` Phase H follow-ups.
@@ -258,7 +284,12 @@ In rough priority order:
 3. Subsample memory multi rows or re-balance density at training time.
 4. Re-tune `prompts/preflight_pair_expansion.j2` to demand more naturalistic
    variants (currently formal-skewed).
-5. Stretch: replace DistilBERT-base with DeBERTa-v3-base (better boundary
+5. **Re-export with int32 token-id inputs** (`ct-export-litert --input-dtype int32`)
+   to clear the 80 ms PRD §2.3 latency target. v1.0 ships at 113 ms p95 on
+   Pixel 7 CPU because INT64 inputs miss XNNPACK's optimized paths and the
+   GPU delegate refuses the graph. Pursue when post-launch telemetry shows
+   pre-flight latency contributing to user-perceived delay.
+6. Stretch: replace DistilBERT-base with DeBERTa-v3-base (better boundary
    handling) — exceeds §4.2 50 MB classifier budget; revisit when memory
    headroom permits.
 

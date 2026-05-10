@@ -395,7 +395,12 @@ def _evaluate_gate(
     """
     failures: list[str] = []
 
-    if not pre_test.get("empty"):
+    # The PRD §7 gate is computed against the test split; when the caller
+    # only ran --split regression (e.g., the M4 WS-14 regression-check), the
+    # test slot is missing and we skip these checks entirely. The
+    # ct-regression-check tool re-implements the regression-vs-baseline
+    # comparison itself; eval.py's gate is for the full M3 release flow.
+    if pre_test and not pre_test.get("empty") and "three_band" in pre_test:
         ship = pre_test.get("ship_threshold")
         if ship is None:
             failures.append(
@@ -408,7 +413,7 @@ def _evaluate_gate(
                 f"preflight time-sensitive recall {ts_r:.3f} < {PREFLIGHT_TIME_SENSITIVE_RECALL_TARGET}"
             )
 
-    if not mem_test.get("empty"):
+    if mem_test and not mem_test.get("empty") and "presence_precision" in mem_test:
         mp = mem_test["presence_precision"]
         if mp < MEMORY_PRESENCE_PRECISION_TARGET:
             failures.append(
