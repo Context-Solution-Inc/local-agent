@@ -1,0 +1,80 @@
+{# Expansion prompt: produce N rephrasings of one memory hard-case prototype side.
+
+   Variables:
+     - count: number of rephrasings to generate
+     - prototype_user_message
+     - prototype_assistant_response
+     - prototype_memories_json: JSON array of memories_to_extract (preserved verbatim)
+     - prototype_negatives_json: JSON array of negative_extractions
+     - prototype_rationale
+     - explicit_command: "remember" | "forget" | null
+     - pair_type: e.g. "implicit_vs_explicit_preference"
+     - today_iso, today_plus_7_iso, today_plus_30_iso: date anchors
+#}
+You generate {{ count }} REPHRASINGS of a single user/assistant memory turn
+for an adversarial training set. Every rephrasing must preserve the SAME
+EXTRACTION DECISION — same memories_to_extract, same negative_extractions,
+same explicit_command. The goal is variety in surface form (register,
+sentence shape, word choice) without changing what should or shouldn't be
+extracted.
+
+ANCHOR: today is {{ today_iso }}. Treat any "this week" / "next week" cues
+relative to that date. Where the prototype carries a temporary_context
+expiration_iso_date, your rephrasings must use the SAME date.
+
+OUTPUT FORMAT (strict): a JSON array of EXACTLY {{ count }} objects. No prose,
+no Markdown code fence, no thinking. The first character of your reply must
+be `[` and the last must be `]`.
+
+Each object must have exactly two fields:
+
+  "user_message":        rephrased user turn (string)
+  "assistant_response":  natural assistant reply (string, can vary too)
+
+The memories_to_extract / negative_extractions / explicit_command fields are
+FIXED by the prototype — the driver applies them to all your rephrasings.
+You only produce the user/assistant text.
+
+PROTOTYPE:
+  pair_type:           {{ pair_type }}
+  user_message:        {{ prototype_user_message | tojson }}
+  assistant_response:  {{ prototype_assistant_response | tojson }}
+  memories_to_extract: {{ prototype_memories_json }}
+  negative_extractions: {{ prototype_negatives_json }}
+  explicit_command:    {{ explicit_command | default('null') | tojson }}
+  rationale:           {{ prototype_rationale }}
+
+VARIATION RULES:
+
+  1. Vary the SURFACE FORM substantially — different word order, different
+     sentence shape, more casual / more formal, sometimes a fragment.
+  2. Keep all SIGNAL WORDS that drive the extraction decision. If the
+     prototype's extraction hinges on "always" or "every Sunday", at least
+     2 of your variants must keep that signal (or an equivalent like
+     "every time" / "weekly"). If the prototype hinges on "today" or
+     "this morning" to mark a one-off, your variants must keep that
+     temporal one-off marker.
+  3. The assistant response can vary in tone but must remain plausible.
+     Sometimes acknowledging, sometimes redirecting, sometimes neutral —
+     never robotic.
+  4. Do NOT produce duplicates. Each rephrasing must be substantively
+     different from every other rephrasing AND from the prototype itself.
+  5. NEVER flip the extraction decision. If the prototype is in
+     negative_extractions territory (one-off, transient), your variants
+     must remain transient. If the prototype is durable, your variants
+     must remain durable.
+
+EXEMPLAR (different topic — for shape only, do NOT copy):
+
+  Prototype: user_message="I always order an Americano when I get coffee."
+  Output:
+  [
+    {"user_message":"americanos every time, no exceptions","assistant_response":"Strong and clean — I get it."},
+    {"user_message":"my go-to coffee order is always an americano","assistant_response":"What roast do you like?"},
+    {"user_message":"I never get anything but americanos at coffee shops","assistant_response":"Reliable choice."},
+    {"user_message":"americano is always my coffee shop order","assistant_response":"Solid pick."},
+    {"user_message":"every time I'm in a coffee shop I order an americano","assistant_response":"Consistent."}
+  ]
+
+Now output the JSON array of {{ count }} rephrasings of the prototype above.
+Output ONLY the array.

@@ -198,6 +198,42 @@ Evidence: 8K KV cache + E2B + GPU peak PSS 3.52 GB during `sustained_5min`
 KV cache scales with active context, not with the configured cap, so the
 8K cap is essentially "ceiling for worst case" and our worst case fits.
 
+### Decision 6 — Classifier architecture ✅ DECIDED 2026-05-09 (M3 Phase H)
+
+- [x] **Single shared encoder + 3 task heads** (preflight 3-class, memory_presence 2-class, memory_category 6-way multi-label).
+- [ ] Two-separate-classifiers fallback. Tried in M3 Phase F iter 2; preflight-only training was *worse* (precision 0.863 vs 0.886 multi-task, recall 0.809 vs 0.868). Multi-task acts as encoder regularization.
+- [ ] Three-separate-models. Not attempted — combined cost would exceed §4.2's 50 MB per-classifier budget by 3×.
+
+Evidence: M3_PLAN.md Phase F iteration log. The shared encoder ships as
+`preflight_memory_shared_v1.0.0_int8.tflite` (67.7 MB), satisfying the
+combined classifier+embedder 200 MB §4.2 footprint with ~107 MB headroom.
+
+### Decision 7 — Classifier base model ✅ DECIDED 2026-05-09 (M3 Phase H)
+
+- [x] **DistilBERT-base-uncased** (66.4 M params, 67.7 MB INT8 .tflite).
+- [ ] MobileBERT. Not attempted — DistilBERT-base hit the perf ceiling on
+      the v1.0 dataset before the architecture-change branch fired in
+      M3_PLAN's day-5 decision tree (we were within 3-7pp on every §7
+      metric, not far enough to justify a base swap).
+- [ ] DeBERTa-v3-base (130 MB INT8). Listed as v1.x stretch in the model
+      card — would likely close the 6.4pp precision gap but exceeds the
+      single-classifier 50 MB budget.
+
+### Decision 8 — Memory v1 scope ✅ DECIDED 2026-05-09 (M3 Phase H)
+
+- [x] **Memory v1 = presence (binary) + category (6-way multi-label)**.
+      Span-text generation is deferred to v1.x.
+- [ ] Memory v1 = full extraction with span markers (PRD §3.2.4 v1 path).
+      Span tagging requires sequence-level outputs which complicate the
+      .tflite signature and the M4 / WS-9, WS-10 integration. Per PRD
+      §3.2.4 ("v1.x, Gemma 4 itself can be used to generate well-formed
+      memory text via a brief background inference call"), we can route
+      span generation through Gemma at extraction time without retraining.
+
+Evidence: M3_PLAN.md §2 ratified decisions; classifier outputs presence
++ category only, span text generation runs through Gemma in the agent
+layer (M5 work).
+
 ### Decision 5 — Idle unload aggressiveness ✅ DECIDED 2026-05-05
 
 - [x] **5-minute idle unload (PRD default) is sufficient.**

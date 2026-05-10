@@ -1,73 +1,230 @@
-{# Frontier-model prompt for synthesizing pre-flight classifier training examples.
-   Rendered with Jinja2 from generation/generate.py. The variables are:
+{# Synthetic generation prompt for the pre-flight search classifier.
+   See CLASSIFIER_DATASETS.md §2 for the full spec.
+
+   Variables:
      - count: how many examples to generate this batch
      - target_label: 'search_required' | 'search_not_required' | 'ambiguous' | 'mixed'
      - target_categories: list of categories from PreflightCategory to bias toward
-     - prior_examples: small sample of accepted examples (to guide style and avoid duplicates)
+     - target_confidence: 'high' | 'medium' | 'low' | 'mixed' (defaults to 'mixed')
+     - prior_examples: small reservoir-sampled set of accepted examples
 #}
-You are constructing labeled training examples for a small on-device classifier
-that decides whether a user's query to an AI assistant requires fresh web search
-results, OR can be answered from training data alone.
+You generate labeled training examples for a small on-device classifier. The
+classifier decides whether an AI assistant needs to call a web search tool
+for the user's query, or whether the model can answer from its training data.
 
-Output exactly {{ count }} examples as a JSON array. Do not output any other text.
+OUTPUT FORMAT (strict): a JSON array of {{ count }} objects. No prose, no
+explanation, no Markdown code fence, no thinking, nothing before or after the
+array. The first character of your reply must be `[` and the last must be `]`.
 
-Each example MUST conform to this schema:
+Each object MUST have exactly these fields and no others:
 
-{
-  "query": string,                         // realistic user query, may be casual or ungrammatical
-  "label": "search_required" | "search_not_required" | "ambiguous",
-  "confidence": "high" | "medium" | "low",
-  "category": <see categories below>,
-  "rationale": string,                     // 1-2 sentence justification
-  "rewrite_hints": {                       // optional, for queries needing rewriting
-    "needs_team_disambiguation": boolean,
-    "needs_location_disambiguation": boolean,
-    "temporal_resolution": string|null,
-    "needs_memory_lookup": boolean
-  } | null
-}
+  "query":      a realistic user query (string, may be casual / typo'd)
+  "label":      "search_required" | "search_not_required" | "ambiguous"
+  "confidence": "high" | "medium" | "low"
+                (must be "medium" if label is "ambiguous")
+  "category":   one of the categories below (must match the label)
+  "rationale":  1–2 sentence justification (string)
+  "rewrite_hints":  object or null. Object shape:
+                {
+                  "needs_team_disambiguation": true|false,
+                  "needs_location_disambiguation": true|false,
+                  "temporal_resolution": string|null,
+                  "needs_memory_lookup": true|false
+                }
+                Use null when no rewriting is needed.
+  "pair_id":    string|null. Used only when this query is one half of an
+                adversarial pair; otherwise omit or set to null.
 
-Valid categories:
-- Search-required: sports_recent, sports_upcoming, markets_current, weather, news_current, prices_products, status_recent, schedules_events
-- Search-not-required: general_knowledge, settled_history, opinion_reasoning, coding_math, creative, personal_memory, meta
-- Ambiguous: ambiguous (use only when label == "ambiguous")
+CATEGORIES:
+  Search-required (use ONLY with label="search_required"):
+    sports_recent, sports_upcoming, markets_current, weather, news_current,
+    prices_products, status_recent, schedules_events
+  Search-not-required (use ONLY with label="search_not_required"):
+    general_knowledge, settled_history, opinion_reasoning, coding_math,
+    creative, personal_memory, meta
+  Ambiguous (use ONLY with label="ambiguous"):
+    ambiguous
 
-This batch should target: **{{ target_label }}**.
+THIS BATCH:
+  target_label      = {{ target_label }}
+  target_confidence = {{ target_confidence | default('mixed') }}
 {% if target_categories %}
-Bias the examples toward these categories: {{ target_categories | join(', ') }}.
+  bias toward categories = {{ target_categories | join(', ') }}
 {% endif %}
 
-Quality requirements (CRITICAL):
+CONFIDENCE — how it's used by the model and what each level means:
 
-1. AT LEAST 30% of generated queries must be in NATURALISTIC phrasings — casual,
-   incomplete, with typos, conversational filler, or context-dependent references.
-   Examples of naturalistic style:
-     - "did my guys win"
-     - "is the market up or what"
-     - "Eagles game last night?"
-     - "whats happening with crypto rn"
-     - "hey so I was wondering, did the Eagles end up winning"
+  The classifier emits a probability and routes by three bands:
+    > 0.85    → fire web search (HIGH confidence search_required)
+    < 0.15    → skip web search (HIGH confidence search_not_required)
+    middle    → fall through to the model's own tool-call decision
 
-2. For "search_required" examples with high confidence, queries must contain a clear
-   recency signal (today, last night, current, this season, etc.) OR be about a topic
-   that obviously changes (stock prices, sports scores, weather, news).
+  So `confidence` here is NOT just labeler conviction — it's a target for
+  where the example should land in the routing.
 
-3. For "search_not_required" examples with high confidence, queries must be about
-   settled facts, definitions, opinions, coding/math, or clearly historical events
-   with explicit historical context.
+  HIGH:    The label is OBVIOUS to a thoughtful labeler. Either the query
+           contains an unambiguous recency signal (today, last night, current,
+           live), is about a topic that obviously moves (live scores, market
+           prices, weather), OR is a clearly settled fact / definition /
+           coding question / opinion. We want these to clear the 0.85
+           threshold (or fall under 0.15).
 
-4. NEVER generate examples where the correct label is genuinely unclear unless
-   you set label="ambiguous". Do not pad the dataset with mislabels.
+  MEDIUM:  Reasonable labelers could disagree. The query is either:
+             * Topically time-sensitive but generically phrased — "how is
+               Apple doing lately" (could mean stock OR product reception)
+             * Settled-knowledge-adjacent but lightly time-sensitive —
+               "what's a good Italian restaurant in Toronto" (training-data
+               answer is plausible; freshness adds value)
+             * Casually phrased without strong recency signals — "how's the
+               market" (today vs general market behavior)
+           These should land in the middle band intentionally.
 
-5. Rationales must explain *why* — what signal in the query justifies the label.
+  LOW:     Edge cases where even after careful thought the label is hard to
+           defend — vague queries with very weak signal in either direction.
+           Use sparingly. Examples: "anything new" without context, "is X
+           still relevant", incomplete fragments. Trains the model to express
+           low confidence rather than always producing extreme scores.
+
+  When target_confidence is "mixed" (the default), aim for roughly
+  70% high / 25% medium / 5% low across the batch (per §2.2). Do NOT
+  label every example "high" — the dataset must teach the classifier to
+  produce calibrated middle-band scores.
+
+  When target_confidence is "medium", "low", or "high", you must GENERATE
+  QUERIES that AT THE QUERY LEVEL deserve that confidence. Do not write
+  obvious queries and re-label them — write queries whose correct
+  confidence IS the target.
+
+    To generate a MEDIUM example you must write a query that is
+    deliberately BORDERLINE — vague phrasing, mild recency cues,
+    generic topical references. Examples of medium-deserving queries:
+      "how is Apple doing"
+      "what's a good Italian restaurant in Toronto"
+      "how's the market"
+      "how does Tesla make money"
+      "any news about Sam Altman"
+      "is the Fed doing anything"
+    The query must be one where a thoughtful labeler would say "could
+    go either way" — not a clear-recency one.
+
+    To generate a LOW example you must write a query that is so vague
+    even the label is hard to justify. Examples:
+      "anything new"
+      "how's it going"
+      "what's happening"
+      "wassup"
+    These are deliberately uninterpretable; pick a label but mark
+    confidence="low" honestly. NEVER combine label="ambiguous" with
+    confidence="low" — ambiguous must always be confidence="medium"
+    per the schema.
+
+    To generate a HIGH example, use clear-recency queries (today,
+    last night, current, live, this week) for search_required, OR
+    settled-fact / definition / coding / opinion queries for
+    search_not_required.
+
+  RECAP: target_confidence drives WHICH KIND OF QUERY YOU WRITE, not
+  just the label you put on it. If target_confidence is "medium",
+  every query in the batch should be borderline by construction.
+
+QUALITY RULES (failures here cause the example to be rejected):
+
+  1. Naturalistic phrasing: at least 3 in 10 queries should be casual,
+     fragmentary, typo'd, or use conversational filler. Do NOT make every
+     query a well-formed search-engine sentence.
+     Examples of naturalistic style:
+       "did my guys win"
+       "is the market up or what"
+       "Eagles game last night?"
+       "whats happening with crypto rn"
+       "hey so I was wondering, did the Eagles end up winning"
+
+  2. search_required + high confidence: query MUST contain a recency signal
+     (today, last night, this week, current, latest, right now) OR be about
+     a topic that obviously changes (live scores, market prices, weather).
+
+  3. search_not_required + high confidence: query MUST be a settled fact,
+     a definition, an opinion, a coding/math question, or an explicit
+     historical event from at least a couple of years before today
+     (TODAY = {{ today_iso }}).
+
+  4. Do NOT mislabel for variety. If genuinely unclear, use label="ambiguous"
+     with confidence="medium".
+
+  5. Rationale must explain the SIGNAL — what about the query justifies
+     the label. "Asks about a recent event" is too generic; "uses 'last
+     night' which forces a date-relative answer" is the right level.
+
+  6. Diversity within the batch: vary topic, register, length, and category.
+     Avoid generating ten variants of the same query.
+
+EXEMPLARS BY CONFIDENCE LEVEL (for reference only — do not copy):
+
+  HIGH search_required:
+    {"query":"did the Eagles pull it off last night","label":"search_required",
+     "confidence":"high","category":"sports_recent",
+     "rationale":"'Last night' forces date-relative outcome lookup.",
+     "rewrite_hints":{"needs_team_disambiguation":true,
+       "needs_location_disambiguation":false,
+       "temporal_resolution":"previous_evening","needs_memory_lookup":false}}
+
+  HIGH search_not_required:
+    {"query":"explain how DNS resolution works","label":"search_not_required",
+     "confidence":"high","category":"general_knowledge",
+     "rationale":"Stable technical concept fully addressable from training.",
+     "rewrite_hints":null}
+
+  MEDIUM search_required (note: label is correct but signal is light, so
+  a labeler could plausibly defend either label — classifier should
+  produce a 0.5–0.7 score here):
+    {"query":"how is Apple doing lately","label":"search_required",
+     "confidence":"medium","category":"markets_current",
+     "rationale":"Phrasing is generic but 'lately' biases toward recent stock/news; a careful labeler could still defend search_not_required for a product-reception read.",
+     "rewrite_hints":null}
+
+  MEDIUM search_not_required (general knowledge with very mild recency
+  flavor; classifier should produce 0.3–0.5):
+    {"query":"what does it mean when a stock splits","label":"search_not_required",
+     "confidence":"medium","category":"general_knowledge",
+     "rationale":"Definitional question — answerable from training data but a labeler could argue freshness helps if the user is reacting to a specific recent split.",
+     "rewrite_hints":null}
+
+  LOW (labeler committed to a side but with weak signal — use sparingly,
+  and NEVER combine label="ambiguous" with confidence="low" since ambiguous
+  must always be medium per the schema):
+    {"query":"how's the world","label":"search_not_required",
+     "confidence":"low","category":"opinion_reasoning",
+     "rationale":"Vague greeting-like prompt with no clear search target; defaulting to no-search but a labeler could disagree.",
+     "rewrite_hints":null}
 
 {% if prior_examples %}
-Here are some accepted examples in the desired style. Match this register and
-diversity (do NOT copy these — generate new ones):
-
+RECENTLY ACCEPTED EXAMPLES (match this register; do NOT copy these queries):
 {% for ex in prior_examples %}
-{{ ex | tojson(indent=2) }}
+  {{ ex | tojson }}
 {% endfor %}
 {% endif %}
 
-Now generate {{ count }} new examples as a JSON array. Output the array only.
+FORBIDDEN EXACT QUERIES — do NOT generate any of these. They appear as
+exemplars above and are recognized in dedup; reusing them is wasted output:
+  - "did the Eagles pull it off last night"
+  - "explain how DNS resolution works"
+  - "how is Apple doing lately"
+  - "what does it mean when a stock splits"
+  - "how's the world"
+  - "anything new"
+  - "did the eagles pull it off"
+  - "did my guys win"
+  - "what's happening with the fed"
+  - "is the fed doing anything"
+  - "how does Tesla make money"
+  - "what's a good Italian restaurant in Toronto"
+  - "how's the market"
+  - "any news about Sam Altman"
+  - "whats happening with crypto rn"
+
+Diversity REQUIREMENT: every query in this batch must be substantively
+different from every other query in this batch. Use varied named entities
+(specific teams, companies, locations, products, people). Do NOT generate
+multiple paraphrases of the same query.
+
+Now output the JSON array of {{ count }} new examples. Output ONLY the array.

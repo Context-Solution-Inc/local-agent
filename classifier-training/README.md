@@ -6,10 +6,10 @@ Python project for constructing the two on-device classifier datasets and fine-t
 
 ```
 src/classifier_training/
-  datasets/         Pydantic schemas + JSONL validators (canonical types)
-  generation/       Frontier-model synthetic generation pipeline + CLIs
-  labeling/         Argilla integration (workspace setup, JSONL import/export)
-  training/         (M3) fine-tuning, INT8 quantization, LiteRT conversion
+  datasets/         Pydantic schemas, JSONL validator, ct-stats distribution dashboard
+  generation/       Synthetic generation pipeline (Ollama default, Claude optional)
+  review/           Local Textual TUI for solo synthetic review (replaces Argilla)
+  training/         (M3 phases E–G) fine-tuning, INT8 quantization, LiteRT conversion
 prompts/            Jinja2 prompt templates for synthetic generation
 scripts/            One-off scripts (seed generation, dataset stats)
 tests/              pytest schema + validator tests
@@ -19,7 +19,7 @@ tests/              pytest schema + validator tests
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev,labeling]"
+pip install -e ".[dev]"
 
 # Optional, only when running training:
 pip install -e ".[training]"
@@ -28,19 +28,35 @@ pip install -e ".[training]"
 ## CLIs
 
 ```bash
-ct-validate datasets/preflight/preflight_v0.1.0.jsonl    # JSONL schema check
-ct-generate-preflight --count 100 --out preflight.jsonl  # synthetic batch
-ct-generate-memory --count 100 --out memory.jsonl
-ct-argilla-init --workspace mobile-agent                 # creates Argilla datasets
+ct-validate datasets/preflight/preflight_v0.1.0.jsonl    # schema check + summary
+ct-stats    datasets/preflight/preflight_v0.1.0.jsonl    # distribution vs §2.2 targets
+ct-generate-preflight --count 8 --out preflight.jsonl    # synthetic batch (Ollama)
+ct-generate-memory    --count 8 --out memory.jsonl
+ct-review preflight.jsonl                                # local accept/reject TUI
 ```
 
-## Pipeline (M0–M3)
+## Generation backend
 
-1. **Synthetic seed (M0–M1):** Generate ~10k preflight + ~6k memory examples via `ct-generate-*`, calling Claude (or another frontier model) with the templates in `prompts/`.
-2. **Argilla import (M1):** `ct-argilla-init` creates the labeling workspace; raw JSONL is imported with full schema as the labeling task. Two-labeler agreement tracked per CLASSIFIER_DATASETS.md §2.7.
-3. **Adversarial authoring (M2):** In-house labelers add ~2k preflight pair examples + ~2k memory hard cases.
-4. **Export + version (M2):** Argilla → cleaned JSONL with `split` assignments → committed as a versioned release artifact.
-5. **Training (M3):** `training/` package (training extras) fine-tunes MobileBERT/DistilBERT/MiniLM and quantizes to INT8 LiteRT. Benchmarks measured on a Pixel 7.
+Default backend is local Ollama. Override via env:
+
+```bash
+export CT_GEN_BACKEND=ollama          # default
+export OLLAMA_MODEL=qwen3.5:9b        # default
+export OLLAMA_HOST=http://localhost:11434
+
+# Optional Claude fallback (requires the [claude] extra):
+export CT_GEN_BACKEND=claude
+export ANTHROPIC_API_KEY=...
+pip install -e ".[claude]"
+```
+
+## Pipeline (M3 — see `docs/M3_PLAN.md`)
+
+1. **Phase A** — pipeline + review tool stood up (this README). Smoke test on 50 examples each.
+2. **Phase B** — synthetic seed: ~10k preflight + ~6k memory via stratified `ct-generate-*` batches, reviewed via `ct-review`, deduped, distribution tracked via `ct-stats`.
+3. **Phase C** — adversarial pair authoring: ≥800 preflight pairs + ≥400 memory hard cases.
+4. **Phase D** — versioning + frozen regression splits, SHA-256 committed.
+5. **Phase E–G** — `training/` package fine-tunes a shared DistilBERT/MobileBERT encoder with two task heads, quantizes to INT8 LiteRT, benchmarks on Pixel 7.
 
 ## Privacy
 

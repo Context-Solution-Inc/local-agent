@@ -16,10 +16,14 @@ dependencies = [
     "jsonlines>=4.0,<5",
     "click>=8.1,<9",
     "jinja2>=3.1,<4",
-    "anthropic>=0.40,<1",
     "tenacity>=8.2,<9",
     "rich>=13.7,<14",
     "python-dateutil>=2.9,<3",
+    # Ollama-first synthetic generation (M3_PLAN.md §3 Phase A).
+    "httpx>=0.27,<1",
+    "ollama>=0.3,<1",
+    # Local Textual review tool replaces Argilla per M3_PLAN.md §2.
+    "textual>=0.79,<1",
 ]
 
 [project.optional-dependencies]
@@ -30,9 +34,14 @@ dev = [
     "mypy>=1.10,<2",
     "types-python-dateutil",
 ]
-labeling = [
-    # Argilla for labeling, agreement tracking, and import/export to JSONL.
-    "argilla>=2.0,<3",
+claude = [
+    # Optional Claude backend for synthetic generation. Only needed when
+    # CT_GEN_BACKEND=claude. Default is ollama (free, local).
+    "anthropic>=0.40,<1",
+]
+dedup = [
+    # Sentence-Transformers for near-duplicate detection in M3_PLAN.md Phase B.
+    "sentence-transformers>=3.0,<4",
 ]
 training = [
     # Pulled in only when the training scripts are run; keeps the labeling/dataset
@@ -52,7 +61,16 @@ training = [
 ct-validate = "classifier_training.datasets.validate:main"
 ct-generate-preflight = "classifier_training.generation.generate:preflight_cli"
 ct-generate-memory = "classifier_training.generation.generate:memory_cli"
-ct-argilla-init = "classifier_training.labeling.argilla_setup:main"
+ct-fill = "classifier_training.generation.fill:main"
+ct-expand-pairs = "classifier_training.generation.expand_pairs:main"
+ct-stats = "classifier_training.datasets.stats:main"
+ct-dedup = "classifier_training.datasets.dedup:main"
+ct-review = "classifier_training.review.app:main"
+ct-train-classifier = "classifier_training.training.train:main"
+ct-eval-classifier = "classifier_training.training.eval:main"
+ct-quantize = "classifier_training.training.quantize:main"
+ct-export-litert = "classifier_training.training.export_litert:main"
+ct-bench-pixel7 = "classifier_training.training.benchmark_pixel7:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

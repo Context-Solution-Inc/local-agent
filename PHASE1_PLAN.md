@@ -181,12 +181,13 @@ Sequencing is roughly six months end-to-end with a small team (sizing in §9). C
   Decision 3 — foreground service contract — deferred to M1 since the
   spike's Activity surface doesn't exercise it). M1 unblocked.
 
-Outstanding M0 items deferred to M1:
-- Decision 3 (foreground service contract) — needs chat surface to test.
-- Power state / ambient temperature for the on-record run (engineer to confirm).
-- 16 KB native page alignment check on `liblitertlm_jni.so` (the spike ran
-  successfully, suggesting alignment is fine; explicit verification still
-  recommended).
+Outstanding M0 items, status as of 2026-05-08:
+- ✅ Decision 3 (foreground service contract) — VALIDATED 2026-05-05 via M1 WS-1
+  Phase C exit-gate Drill 9 (see `docs/M0_DECISION_MEMO.md` §3 Decision 3).
+- ✅ 16 KB native page alignment check on `liblitertlm_jni.so` — VERIFIED
+  2026-05-05 (`docs/M0_DECISION_MEMO.md` §4). All three LOAD segments
+  16 KB-aligned in the 0.10.2 AAR; re-run after any LiteRT-LM bump.
+- [ ] Power state / ambient temperature for the on-record run (engineer to confirm).
 
 ### M1 — Chat MVP (weeks 3–8)
 
@@ -287,14 +288,46 @@ multi-round bugfix sequence to get the LiteRT-LM tool-calling integration
 right (the architecture had to shift from text-marker parsing to LiteRT-LM's
 structured tool API; one `Conversation` per turn rather than per generate).
 
-### M3 — Datasets & classifier training (weeks 4–14, runs largely in parallel with M1/M2)
+### M3 — Datasets & classifier training ✅ COMPLETE 2026-05-09 — see `docs/M3_PLAN.md`
 
-This is the longest critical-path workstream and starts on day one.
+Detailed phase-by-phase plan, ratified decisions, and exit criteria live in
+`docs/M3_PLAN.md`. Top-line summary:
 
-- **WS-5:** Pre-flight dataset reaches 12,000 examples per CLASSIFIER_DATASETS.md §2. Three-phase sourcing: synthetic generation via frontier model (~10k), in-house adversarial authoring (~2k), with two-labeler agreement at 85%+ Cohen's kappa. Includes the 800-example adversarial pair set per §2.4 and 30%+ naturalistic phrasings per §2.5.
-- **WS-6:** Memory extraction dataset reaches 8,000 examples per §3. Includes ≥200 explicit-forget and ≥200 explicit-remember examples per §3.5.
-- **WS-7:** Base model selection (MobileBERT vs DistilBERT vs MiniLM-with-classification-head). Two heads sharing one base if architectures align (decided by accuracy/footprint tradeoff). Fine-tune, INT8 quantize, convert to LiteRT, benchmark on Pixel 7 to validate <80 ms p95 inference.
-- **Deliverable:** Two LiteRT classifier artifacts in `/models`. Test-set metrics meet PRD §7 targets (95%+ precision on high-confidence pre-flight, 90%+ recall, 90%+ memory extraction precision) — failure here triggers dataset expansion before integration.
+- **WS-5:** Pre-flight dataset shipped at `preflight_v1.0.0` (11,670 examples,
+  580 hand-authored adversarial pair examples covering 80 prototype pairs across
+  the 5 §2.4 pair types). Distribution within ±7pp of every §2.2 proportion;
+  naturalistic share 28.1% (close to the 30% target). Manifest + frozen
+  regression-split SHA-256 in `datasets/preflight/MANIFEST.md`.
+- **WS-6:** Memory dataset shipped at `memory_v1.0.0` (7,707 examples).
+  Forget=527 + Remember=737 (both far over the §3.5 ≥200 minimums).
+  Hard-case pairs across implicit_vs_explicit_preference / temporary_vs_stable /
+  sensitive shipped via 48 hand-authored prototypes. Manifest in
+  `datasets/memory/MANIFEST.md`.
+- **WS-7:** Single shared DistilBERT-base encoder + 3 task heads. INT8
+  weight-only LiteRT artifact at `models/preflight_memory_shared_v1.0.0_int8.tflite`
+  (67.7 MB). Multi-task fine-tune (5 epochs CE, lr 2e-5, batch 32) — see model card.
+
+| §7 metric | Target | v1 | Status |
+|---|---|---|---|
+| Pre-flight high-band precision | ≥95% | 88.6% (FP32) / 92.4% (INT8) | within 7pp |
+| Pre-flight time-sensitive recall (per-class argmax) | ≥90% | 86.8% | within 4pp |
+| Memory presence precision | ≥90% | **92.2%** | ✓ |
+| Memory presence (regression split) | ≥90% | **96.2%** | ✓ |
+| Forward-pass latency p95 (host proxy / Pixel 7 estimate) | <80 ms | 14.7 ms / ~45-60 ms | ✓ |
+| Adversarial-pair accuracy | — | 83.7% test / 88.0% regression | informational |
+
+**§7 GATE: FAIL by 4-7pp on two pre-flight metrics — defensible v1 with
+documented v1.x improvement path** (telemetry-driven dataset expansion at
+the search_required ↔ ambiguous boundary). The model card at
+`docs/preflight_memory_shared_v1.0.0_MODEL_CARD.md` enumerates known
+weaknesses + improvement queue. Threshold-sweep analysis in the eval
+report shows the FP32 model can't reach 95% precision at any threshold in
+[0.5, 0.95] (caps at 0.905) — the gap is dataset-level boundary noise,
+not a calibration problem solvable by hyperparameter tuning.
+
+**Phase H handoff to M4 (WS-8) at `docs/M3_M4_HANDOFF.md`**: tflite
+signature, threshold defaults, tokenizer requirements, regression CI gate
+hashes, v1.x improvement queue.
 
 ### M4 — Pre-flight classifier integration (weeks 12–16)
 
@@ -343,35 +376,36 @@ This is the longest critical-path workstream and starts on day one.
 
 ## 7. Risks & mitigations
 
-| Risk | Severity | Mitigation |
+| Risk | Severity | Status / Mitigation |
 |---|---|---|
-| Gemma 4 E4B doesn't fit perf/memory envelope on Pixel 7 even with relaxed targets | High | M0 spike validates early. Fallback: drop to E2B Q4 (~1.5 GB). Decision gate at end of M0. |
-| LiteRT-LM API churn breaks integration mid-Phase 1 | Medium | Pin to specific release. Isolate behind `InferenceEngine` interface. Keep MediaPipe LLM Inference API as a documented escape hatch. |
-| Classifier accuracy misses PRD §7 targets after training | High | Dataset construction starts day one (M3 starts in week 4, not week 14). Adversarial pair set is a quality gate. Iterate on dataset if first training pass misses. Hold integration (M4) until thresholds met. |
-| Dataset construction blocks classifier integration | High | Three-phase sourcing per CLASSIFIER_DATASETS.md §2.6 starts in M0. Lock labeler capacity early — vendor (Scale, Surge) or in-house team commitment by week 2. |
-| Pixel 7 thermal throttling under sustained inference | Medium | Thermal monitoring + token-rate throttling in WS-1. UI warnings per PRD §4.3. |
+| ~~Gemma 4 E4B doesn't fit perf/memory envelope on Pixel 7~~ | ~~High~~ | ✅ RESOLVED 2026-05-04: switched to E2B (`docs/M0_DECISION_MEMO.md` §3 Decision 1). Peak PSS 3.52 GB under 4 GB cap. |
+| ~~Tensor G2 NPU delegate not available in LiteRT-LM~~ | ~~High~~ | ✅ RESOLVED 2026-05-05: NPU not exposed; GPU (Mali-G710 via Play Services TFLite OpenCL) works at 13.5 tok/s mean. |
+| LiteRT-LM API churn breaks integration mid-Phase 1 | Medium | Pin to specific release (currently 0.10.2). Isolate behind `InferenceEngine` interface. Keep MediaPipe LLM Inference API as a documented escape hatch. |
+| Classifier accuracy misses PRD §7 targets after training | High | Dataset construction is M3 critical path (`docs/M3_PLAN.md`). Adversarial pair set is a quality gate. Iterate on dataset if first training pass misses. Hold integration (M4) until thresholds met. |
+| Dataset construction blocks classifier integration | High | Solo synthetic-first via local Ollama (zero marginal cost). Phased plan in `docs/M3_PLAN.md` budgets 10 weeks. |
+| Pixel 7 thermal throttling under sustained inference | Medium | Thermal monitoring + token-rate throttling in WS-1. UI warnings per PRD §4.3. M0 spike hit MODERATE (2) max under 109 s of generation, never SEVERE. |
 | Play Store privacy/data-safety review of an on-device LLM | Medium | Data Safety form clearly states only Brave queries leave device. Privacy policy explicit about on-device processing. Telemetry is opt-in and explicitly excludes content. Engage Play Console review early in M7. |
 | Brave API costs scale beyond free tier in dev/test | Low | Aggressive caching is already specified. Internal builds rate-limit to development quotas. Production is BYOK so per-user costs are user-borne. |
 | Gemma 4 model artifact availability/licensing changes | Medium | Confirm distribution rights and CDN hosting plan in M0. Have a checksum-pinned download URL under our control, not Google's. |
-| Tensor G2 NPU delegate not available in LiteRT-LM | High | M0 spike validates. Fallback to GPU delegate. If both insufficient, downshift to E2B. |
-| 8 GB RAM headroom too tight when other apps are running | Medium | Aggressive `onTrimMemory` handler unloads Gemma 4 immediately on system pressure. Cold reload at 4–8s is acceptable per relaxed targets. |
+| 8 GB RAM headroom too tight when other apps are running | Medium | ✅ MITIGATED in M1 WS-1 Phase A: `onTrimMemory()` proactively unloads Gemma under system pressure (`MobileAgentApplication.onTrimMemory` → `InferenceSessionManager.forceUnload`). 5-min idle unload as baseline. |
+| Play Services TFLite is a runtime dep for GPU | Medium | New risk surfaced in M0. Devices without recent Play Services (CN AOSP forks, GrapheneOS) will fall back to CPU; engine already degrades via `LiteRtInferenceEngine.tryInitialize` and surfaces it via `ModelHandle.activeAccelerator`. Add to M5/M6 compatibility matrix. |
 
 ---
 
 ## 8. Open questions
 
-These need answers before or during M0:
+Status as of 2026-05-08:
 
-1. **Android 16 GA on Pixel 7:** What is the production rollout date? If not GA at our launch, what is the addressable Pixel 7 + Android 16 user base?
-2. **LiteRT-LM Tensor G2 delegate:** Confirmed supported, GPU-only, or CPU-only? (M0 spike answers this.)
-3. **Classifier base model:** MobileBERT, DistilBERT, or MiniLM-with-head? (Decided in M3 by accuracy/latency tradeoff on Pixel 7.)
-4. **Single shared base model with two heads vs two separate models** for pre-flight + memory extraction — the PRD leaves this open (§3.2.4) and it has direct memory-budget implications (~50 MB savings if shared).
-5. **Labeling capacity source:** in-house team, contract labelers, or vendor (Scale AI, Surge AI, Snorkel)? Cost and timeline depend on this.
-6. **Crash reporting vendor:** Firebase Crashlytics, Sentry, or none? Custom content scrubbing required either way.
+1. **Android 16 GA on Pixel 7:** OPEN. What is the production rollout date? If not GA at our launch, what is the addressable Pixel 7 + Android 16 user base?
+2. ~~**LiteRT-LM Tensor G2 delegate:**~~ ✅ RESOLVED 2026-05-05 — GPU only (Mali-G710 via Play Services TFLite OpenCL). NPU not exposed by Tensor G2. CPU is the runtime fallback when GPU init throws.
+3. ~~**Classifier base model:**~~ ✅ RESOLVED 2026-05-09 — DistilBERT-base-uncased. Two-models fallback was tried in M3 Phase F (preflight-only iter 2) and was *worse* than multi-task; MobileBERT not attempted because DistilBERT was within 3-7pp on §7. See `docs/M0_DECISION_MEMO.md` Decision 7.
+4. ~~**Single shared base model with two heads vs two separate models:**~~ ✅ RESOLVED 2026-05-09 — single shared encoder + 3 heads (preflight 3-class, memory_presence 2-class, memory_category 6-way multi-label). M3 Phase F iter 2 confirmed multi-task helps preflight by ~3pp precision; memory training acts as encoder regularization. See `docs/M0_DECISION_MEMO.md` Decision 6.
+5. ~~**Labeling capacity source:**~~ ✅ RESOLVED 2026-05-07 — solo, synthetic-first via local Ollama (qwen3.5:9b). No two-labeler kappa for v1; deferred to post-launch telemetry-sourced examples per `docs/M3_PLAN.md` §2.
+6. **Crash reporting vendor:** OPEN. Firebase Crashlytics, Sentry, or none? Custom content scrubbing required either way.
 7. **Localization at launch:** English-only is assumed; if other locales are required, the system prompt's English-locked day-of-week field per SYSTEM_PROMPT.md §4.3 still holds, but UI strings need translation.
 8. **Accessibility scope:** Play Store launch standard is TalkBack + dynamic type + color contrast. Anything beyond?
 9. **Telemetry endpoint:** Phase 1 needs a minimal backend to receive opt-in aggregate counters. Owned by us, or piggyback on an existing analytics infrastructure?
-10. **Dev Brave API key custody:** which engineer/account holds the dev key, where is `secrets.properties` stored, what's the rotation policy?
+10. **Dev Brave API key custody:** ✅ RESOLVED in M2 — `android-app/secrets.properties` (gitignored), per CLAUDE.md "Secrets" section.
 
 ---
 

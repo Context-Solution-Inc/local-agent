@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 # =============================================================================
@@ -202,18 +202,14 @@ class MemoryToExtract(BaseModel):
     confidence: MemoryConfidence
     expiration_iso_date: str | None = None  # required if category == TEMPORARY_CONTEXT
 
-    @field_validator("expiration_iso_date")
-    @classmethod
-    def temporary_must_have_expiration(
-        cls, v: str | None, info: object
-    ) -> str | None:
-        data = getattr(info, "data", {})
-        if data.get("category") == MemoryCategory.TEMPORARY_CONTEXT and not v:
+    @model_validator(mode="after")
+    def temporary_must_have_expiration(self) -> "MemoryToExtract":
+        if self.category == MemoryCategory.TEMPORARY_CONTEXT and not self.expiration_iso_date:
             raise ValueError(
                 "temporary_context memories must include expiration_iso_date "
                 "(CLASSIFIER_DATASETS.md §3.3)"
             )
-        return v
+        return self
 
 
 class MemoryExtractionExample(BaseModel):
@@ -227,6 +223,7 @@ class MemoryExtractionExample(BaseModel):
     memories_to_extract: list[MemoryToExtract] = Field(default_factory=list)
     negative_extractions: list[MemoryToExtract] = Field(default_factory=list)
     rationale: str = Field(min_length=1, max_length=500)
+    pair_id: str | None = None  # M3 Phase C — links adversarial hard-case pairs (§3.5)
     source: Source
     split: SplitName
     explicit_command: str | None = None  # e.g. "remember", "forget", null otherwise

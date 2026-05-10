@@ -12,6 +12,9 @@ Before suggesting architecture, scope, or code structure, read:
 3. `docs/M0_DECISION_MEMO.md` — ratified Phase 1 hardware/runtime decisions
 4. `SYSTEM_PROMPT.md` — system prompt construction spec
 5. `CLASSIFIER_DATASETS.md` — pre-flight + memory extractor dataset spec
+6. `docs/M3_PLAN.md` — M3 phase-by-phase plan + ratified decisions
+7. `docs/M3_M4_HANDOFF.md` — operational handoff for the v1.0 classifier (M4 starting point)
+8. `docs/preflight_memory_shared_v1.0.0_MODEL_CARD.md` — classifier spec, eval metrics, known weaknesses
 
 ## Project at a glance
 
@@ -26,6 +29,14 @@ On-device AI assistant for Android. **Pixel 7 + Android 16 only** for Phase 1.
 - **Architecture:** KMP shared module (`:shared`) + Android Compose shell (`:androidApp`).
   iOS targets stubbed for Phase 2.
 - **Toolchain:** JDK 17, Gradle 9.3.1, AGP 9.1.1, Kotlin 2.3.21, KSP 2.3.7, Hilt 2.59.2
+- **Pre-flight + memory classifier:** single shared DistilBERT-base encoder + 3 task heads,
+  exported to `models/preflight_memory_shared_v1.0.0_int8.tflite` (67.7 MB INT8). Three
+  outputs in one forward pass. M4 / WS-8 wires this via Play Services LiteRT.
+- **Classifier training pipeline:** `classifier-training/` Python package (own venv,
+  uses host RTX 5090 + CUDA). Generation defaults to local Ollama (`qwen3.5:9b`),
+  not Claude. CLIs: `ct-validate`, `ct-stats`, `ct-dedup`, `ct-review`, `ct-fill`,
+  `ct-expand-pairs`, `ct-generate-{preflight,memory}`, `ct-train-classifier`,
+  `ct-eval-classifier`, `ct-quantize`, `ct-export-litert`, `ct-bench-pixel7`.
 
 ## Hard invariants
 
@@ -95,6 +106,44 @@ the original text-marker workaround. With invariants 8–11 in place,
 LiteRT-LM surfaces tool calls structurally via `Message.toolCalls` and the
 parser is unused in the production path (still has tests).
 
+12. **The classifier .tflite has 3 outputs in a fixed order**: `StatefulPartitionedCall:0`
+    is **preflight_logits** `[1,3]` ordered `[search_required, search_not_required, ambiguous]`,
+    `:1` is **presence_logits** `[1,2]` ordered `[no_extraction, has_extraction]`, `:2` is
+    **category_logits** `[1,6]` (multi-label sigmoid) ordered `[personal_identity, preference,
+    professional, interest, relationship, temporary_context]`. Single forward pass produces
+    all three; agent picks the head it needs. Output ORDER is set at trace time — verify via
+    `interp.get_output_details()[i]["name"]` before assuming the index. Re-export changes the
+    name suffixes; never key off them.
+
+13. **Classifier tokenizer must match training-time `distilbert-base-uncased` exactly.**
+    Different vocab (cased vs uncased), different sub-word splits, or a stale `vocab.txt`
+    silently degrade the classifier with no error message. The Android side bundles the
+    same 30,522-entry WordPiece vocab and lower-cases input. A fixture test in `:androidApp`
+    must assert input_ids match between the Python tokenizer and the Kotlin runtime on a
+    known string — without it, drift is silent.
+
+14. **Pre-flight thresholds (0.85 high / 0.15 low) are CONFIGURABLE per PRD §3.2.1, not
+    constants.** Surface them via the shipped JSON config the agent reads at startup.
+    Hard-coding blocks post-launch telemetry-driven tuning, which is the documented path
+    to closing the v1.0 §7 precision gap (model card weakness #1, #2).
+
+15. **Classifier .tflite sequence length is statically baked at export (currently 128).**
+    Different lengths require re-export via `ct-export-litert --max-length N`. Long queries
+    are truncated; if telemetry shows real queries averaging >50 sub-word tokens, re-export
+    at 256.
+
+16. **`ai-edge-torch` was renamed to `litert-torch` in 2025.** Both are installed in the
+    classifier-training venv but only `litert_torch` is actively maintained. Use
+    `import litert_torch` for new code; the export driver falls back to `ai_edge_torch` only
+    for older saved sessions. Quantization recipes in `litert_torch.generative.quantize` are
+    LLM-specific (not for encoder classifiers); use `ai_edge_quantizer.Quantizer` with
+    `MIN_MAX_UNIFORM_QUANT` for encoder INT8 weight-only quant.
+
+17. **`models/` is gitignored — model cards live in `docs/`.** Binary artifacts (`.tflite`,
+    `.pt`) are excluded by `.gitignore`'s `models/` rule. Keep the model card at
+    `docs/preflight_memory_shared_vX.Y.Z_MODEL_CARD.md` so it tracks in git alongside the
+    handoff note.
+
 ## Build & run
 
 ```bash
@@ -145,6 +194,46 @@ adb shell run-as com.contextsolutions.mobileagent.debug \
 - **M0 spike:** `/sdcard/Android/data/com.contextsolutions.mobileagent.debug/files/models/gemma-4-E2B-it.litertlm`
   — external app dir for `adb push` convenience. The two paths coexist; production
   doesn't read the spike one and vice versa.
+- **Classifier (M3 ship):** `models/preflight_memory_shared_v1.0.0_int8.tflite` (67.7 MB)
+  — gitignored. M4 bundles into `:androidApp/src/main/assets/` (or downloads alongside
+  Gemma via WorkManager). FP32 reference at `models/preflight_memory_shared_v1.0.0.tflite`
+  (264.6 MB) is for debugging only — never ship.
+
+### Classifier build & run (Phase 1 M3 / M4 / WS-14)
+
+```bash
+# One-time setup (separate venv from android-app)
+cd classifier-training
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"           # core (gen, review, dedup, stats)
+pip install -e ".[training]"      # adds torch/transformers/litert-torch (requires CUDA)
+
+# Generation (Ollama-backed, $0 marginal cost)
+ollama pull qwen3.5:9b            # or set OLLAMA_MODEL to a different tag
+ct-fill preflight --out ../datasets/preflight/preflight_v0.1.0.jsonl --multiplier 1.0
+ct-fill memory    --out ../datasets/memory/memory_v0.1.0.jsonl    --multiplier 1.0
+ct-expand-pairs preflight --variants-per-side 8 --out ../datasets/preflight/preflight_v0.1.0.jsonl
+ct-expand-pairs memory    --variants-per-side 5 --out ../datasets/memory/memory_v0.1.0.jsonl
+ct-dedup ../datasets/preflight/preflight_v0.1.0.jsonl --apply
+ct-stats ../datasets/preflight/preflight_v0.1.0.jsonl
+
+# Training + eval + export (full v1.0 reproduction takes ~10 min on RTX 5090)
+ct-train-classifier --preflight-jsonl ../datasets/preflight/preflight_v1.0.0.jsonl \
+    --memory-jsonl ../datasets/memory/memory_v1.0.0.jsonl \
+    --output-dir ../eval/runs/$(date +%Y%m%d_%H%M%S) \
+    --epochs 5 --batch-size 32 --lr 2e-5 --seed 42
+ct-eval-classifier --ckpt ../eval/runs/<ts>/best.pt \
+    --preflight-jsonl ../datasets/preflight/preflight_v1.0.0.jsonl \
+    --memory-jsonl    ../datasets/memory/memory_v1.0.0.jsonl \
+    --output-dir      ../eval/runs/<ts>
+ct-export-litert --ckpt ../eval/runs/<ts>/best.pt \
+    --output ../models/preflight_memory_shared_v1.0.0_int8.tflite \
+    --max-length 128 --int8
+
+# Pixel 7 latency benchmark (host-CPU proxy today; M4 wires Android instrumentation test)
+ct-bench-pixel7 --tflite ../models/preflight_memory_shared_v1.0.0_int8.tflite \
+    --output ../eval/runs/<ts>/pixel7_latency.json --host-proxy
+```
 
 ### Secrets
 
@@ -181,7 +270,7 @@ mistake to make. See `android-app/secrets.properties.example` for the fields.
 | M0 Foundation & spike | ✅ Complete 2026-05-05 |
 | M1 Chat MVP — WS-1 | ✅ Complete 2026-05-05. All 12 exit-gate drills passed on Pixel 7. |
 | M2 Web search & agent loop (incl. M1 WS-2/3/11) | ✅ Complete 2026-05-07. End-to-end chat + tool-calling + UI. Single LiteRT-LM `Conversation` per user turn, structured tool registration, `ToolDispatcher` callback. 107 unit tests. Known limitation: Brave snippets are page descriptions; works well for sports/stocks/news but doesn't yield raw weather numbers without page fetching. |
-| M3 Datasets & classifier training | Not started |
+| M3 Datasets & classifier training | ✅ Complete 2026-05-09. Datasets `preflight_v1.0.0` (11,670) + `memory_v1.0.0` (7,707) frozen with regression-set SHA-256s in manifests. Single shared DistilBERT-base + 3 task heads exported to `models/preflight_memory_shared_v1.0.0_int8.tflite` (67.7 MB INT8). §7 GATE: FAIL by 4-7pp on two pre-flight metrics — defensible v1 with documented v1.x improvement path (precision ceiling is dataset-level boundary noise, not tunable). Memory presence passes (92.2% test / 96.2% regression). 26 unit tests in `classifier-training/`. Detailed phase log in `docs/M3_PLAN.md`; M4 handoff at `docs/M3_M4_HANDOFF.md`. |
 | M4 Pre-flight integration | Not started |
 | M5 Memory subsystem | Not started |
 | M6 Polish, eval, telemetry | Not started |
@@ -209,3 +298,40 @@ mistake to make. See `android-app/secrets.properties.example` for the fields.
 - **Tests** — Unit tests live in `:androidApp/src/test/` (the AGP 9 KMP
   library plugin doesn't wire host tests for `:shared` out of the box; the
   JDBC SQLite driver is a `testImplementation` dep there).
+
+## M3 architecture cheat sheet (for M4 / M5 follow-ups)
+
+- **Classifier package (`classifier-training/`)** — Python project with its own
+  `.venv`. Generation defaults to local Ollama (`qwen3.5:9b`); set
+  `CT_GEN_BACKEND=claude` + `ANTHROPIC_API_KEY` and `pip install -e '.[claude]'`
+  for the optional Claude path. Schemas validated via Pydantic; every JSONL
+  row passes through schema validation before training/eval consumes it.
+- **Stratified generation driver (`ct-fill`)** — picks the most-underweight
+  cell per batch, rotates target_confidence to hit §2.2's 70/25/5, uses
+  in-batch dedup against the canonical text set so duplicates don't count
+  toward cell targets. Per-batch dup rate dropped from 41% (pre-fix) to 4-5%
+  with the forbidden-exemplar list in the prompts.
+- **Adversarial pair authoring (`ct-expand-pairs`)** — 80 hand-authored
+  preflight prototypes (5 §2.4 pair types × 16 each) and 48 memory hard-case
+  prototypes (implicit_vs_explicit, temporary_vs_stable, sensitive ×16). The
+  driver expands each prototype side via Ollama into 5-8 rephrasings sharing
+  a `pair_id`, forces one variant per side into the regression split.
+- **Eval harness (`ct-eval-classifier`)** — emits a Markdown + JSON report
+  with the single-line `M3 GATE: PASS/FAIL` at top, three-band routing
+  simulation (>0.85 / 0.15-0.85 / <0.15), threshold sweep across [0.50, 0.95]
+  with auto-detected ship_threshold, adversarial-pair accuracy, per-class
+  P/R/F1, confusion matrix, host-CPU latency proxy. Exit code reflects gate
+  state for CI use (M4 / WS-14).
+- **Phase F finding** — multi-task fine-tuning beats two-separate-classifiers
+  on this dataset (preflight-only iter 2 was *worse* by 2-3pp). The shared
+  encoder is the right architecture; the v1.0 precision ceiling is dataset-level
+  boundary noise between search_required and ambiguous, not solvable by
+  hyperparameter tuning. Improvement path is telemetry-driven dataset
+  expansion in v1.x.
+- **Phase G finding** — `ai-edge-quantizer` weight-only INT8 channel-wise
+  produces a usable 67.7 MB .tflite from the FP32 PyTorch checkpoint. The
+  `litert-torch` (formerly `ai-edge-torch`) generative quant recipes are
+  LLM-specific and don't reduce encoder size — use `ai_edge_quantizer.Quantizer`
+  with `MIN_MAX_UNIFORM_QUANT` instead. PyTorch dynamic INT8 (`torch.ao.quantization.quantize_dynamic`)
+  exists in `ct-quantize` for CPU-only debugging but is NOT the .tflite
+  ship path.

@@ -1,0 +1,75 @@
+{# Expansion prompt: produce N rephrasings of one prototype-pair side.
+
+   Variables:
+     - count: number of rephrasings to generate
+     - original_query: the prototype side's query
+     - label: search_required | search_not_required | ambiguous
+     - confidence: high | medium | low
+     - category: PreflightCategory enum value
+     - rationale: human rationale (for context only)
+     - pair_type: e.g. "settled_history_vs_recent"
+     - today_iso: today's date for "this year"/"last year" anchoring
+#}
+You generate {{ count }} REPHRASINGS of a single user query for an adversarial
+training set. Every rephrasing must preserve the SAME MEANING and the SAME
+LABEL — the goal is variety in register, grammar, and word order without
+changing what the user is asking for.
+
+ANCHOR: today is {{ today_iso }}. "This year" / "last year" / "current" must
+read consistently with that date.
+
+OUTPUT FORMAT (strict): a JSON array of EXACTLY {{ count }} objects. No prose,
+no Markdown code fence, no thinking. The first character of your reply must
+be `[` and the last must be `]`.
+
+Each object must have exactly two fields:
+
+  "query":     the rephrased user query (string, may be casual / typo'd)
+  "rationale": a short explanation of why this query has the same label as
+               the original (string, 1 sentence)
+
+The original query, label, and category are FIXED — do not change them.
+Just produce {{ count }} new ways to ask the same thing.
+
+  Original query:   {{ original_query | tojson }}
+  Label:            {{ label }}
+  Confidence:       {{ confidence }}
+  Category:         {{ category }}
+  Pair type:        {{ pair_type }}
+  Why this label:   {{ rationale }}
+
+VARIATION RULES:
+
+  1. Vary the SURFACE FORM substantially. Different word order, different
+     sentence shape, more casual / more formal, sometimes question /
+     sometimes statement, sometimes fragment.
+  2. Preserve the recency cues that make the label correct. If the label is
+     search_required because of "this week", at least keep an equivalent
+     recency marker. If the label is search_not_required because of an
+     explicit historical year, keep the year (or a clearly-historical
+     reference) in the rephrasing.
+  3. At least 2 of the {{ count }} variants should be naturalistic
+     (casual / fragmentary / lowercase / no end-punctuation, e.g.
+     "did the eagles pull it off last night").
+  4. NEVER produce a rephrasing that flips the meaning. If the original
+     query is about a SETTLED historical event, every variant must remain
+     about that event with no implication of recency. If the original is
+     a CURRENT-state query, every variant must keep an explicit or implicit
+     recency cue.
+  5. Do NOT produce duplicates. Each rephrasing must be substantively
+     different from every other.
+
+EXEMPLAR (different topic — for shape only, do NOT copy):
+
+  Original query: "did the Eagles win last night"
+  Output:
+  [
+    {"query":"did the eagles pull it off last night","rationale":"Same recency marker, casual register."},
+    {"query":"how did the eagles do yesterday","rationale":"Same outcome question framed via 'how did they do'."},
+    {"query":"eagles game last night?","rationale":"Fragment with implicit outcome question."},
+    {"query":"who won the eagles game last night","rationale":"Direct outcome question with same recency."},
+    {"query":"did philly win last night","rationale":"Casual nickname, same recency marker."}
+  ]
+
+Now output the JSON array of {{ count }} rephrasings of the original query above.
+Output ONLY the array.

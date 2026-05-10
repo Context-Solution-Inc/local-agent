@@ -1,85 +1,312 @@
-{# Frontier-model prompt for synthesizing memory-extraction classifier training examples.
-   Each example is a complete user turn (user message + assistant response) plus a
-   labeled set of memories that should (or should not) be extracted.
+{# Synthetic generation prompt for the memory-extraction classifier.
+   See CLASSIFIER_DATASETS.md §3 for the full spec.
 
    Variables:
      - count: how many examples to generate
-     - target_density: 'empty' | 'one' | 'multi' | 'mixed' — controls memories_to_extract size
+     - target_density: 'empty' | 'one' | 'multi' | 'mixed'
      - hard_case: optional, e.g. 'temporary_vs_stable', 'sensitive', 'forget_command'
-     - prior_examples: small sample of accepted examples
+     - prior_examples: small reservoir-sampled set of accepted examples
 #}
-You are constructing labeled training examples for a small on-device classifier
-that decides whether a user/assistant exchange contains durable facts about the
-user that should be saved as long-term memory.
+You generate labeled training examples for a small on-device classifier. The
+classifier decides whether an exchange between a user and an AI assistant
+contains DURABLE facts about the USER that should be saved as long-term memory.
 
-Output exactly {{ count }} examples as a JSON array. Do not output any other text.
+OUTPUT FORMAT (strict): a JSON array of {{ count }} objects. No prose, no
+explanation, no Markdown code fence, no thinking, nothing before or after the
+array. The first character of your reply must be `[` and the last must be `]`.
 
-Each example MUST conform to this schema:
+Each object MUST have exactly these fields and no others:
 
-{
-  "user_message": string,                        // the user's turn
-  "assistant_response": string,                  // the assistant's reply
-  "memories_to_extract": [                       // possibly empty
-    {
-      "text": string,                            // canonical natural-language memory
-      "category": "personal_identity" | "preference" | "professional"
-                | "interest" | "relationship" | "temporary_context",
-      "stability": "stable" | "evolving" | "ephemeral",
-      "confidence": "high" | "medium" | "low",
-      "expiration_iso_date": "YYYY-MM-DD" | null   // required for temporary_context
-    }
-  ],
-  "negative_extractions": [                      // memories the classifier might be tempted
-                                                 // to extract but should NOT (hard negatives)
-    { /* same shape as memories_to_extract */ }
-  ],
-  "rationale": string,
-  "explicit_command": "remember" | "forget" | null
-}
+  "user_message":        the user's turn (string)
+  "assistant_response":  the assistant's reply (string)
+  "memories_to_extract": array of memory objects (possibly empty)
+  "negative_extractions": array of memory objects the classifier might be
+                         tempted to extract but SHOULD NOT (hard negatives,
+                         possibly empty)
+  "rationale":           1–2 sentence labeler justification
+  "explicit_command":    "remember" | "forget" | null
 
-This batch should target memory density: **{{ target_density }}**.
+Memory object shape (used in both memories_to_extract and negative_extractions):
+
+  {
+    "text":       canonical natural-language memory (e.g. "User lives in
+                  Toronto"). About the USER, not third parties.
+    "category":   "personal_identity" | "preference" | "professional"
+                | "interest" | "relationship" | "temporary_context"
+    "stability":  "stable" | "evolving" | "ephemeral"
+    "confidence": "high" | "medium" | "low"
+    "expiration_iso_date": "YYYY-MM-DD" or null. REQUIRED (non-null) when
+                  category is "temporary_context"; null otherwise.
+  }
+
+THIS BATCH:
+  target_density = {{ target_density }}
 {% if hard_case %}
-This batch should focus on hard case: **{{ hard_case }}**.
+  hard_case      = {{ hard_case }}
 {% endif %}
 
-Quality requirements (CRITICAL):
+DENSITY GUIDANCE (the dataset overall is 60% empty / 28% single / 12% multi):
 
-1. ABOUT 60% of examples across the full dataset should have empty
-   memories_to_extract — the common case is that a turn produces no memory.
-   Over-extraction is the dominant failure mode and the dataset must reflect that.
+  empty  → memories_to_extract is []
+  one    → memories_to_extract has exactly 1 entry
+  multi  → memories_to_extract MUST have 2 OR MORE entries. To produce
+           this, the user_message MUST contain 2–3 distinct durable
+           facts about the user. Construct the message deliberately —
+           a natural but information-dense turn. Do NOT default to
+           single-fact messages when target_density is 'multi'.
+  mixed  → vary across the batch
 
-2. Memories must be:
-   - DURABLE: stable facts about the user, not transient context
-   - EXPLICITLY VOLUNTEERED: not inferred from a single search query
-   - ABOUT THE USER: not about other people the user mentions
+  WHEN target_density == "multi":
+    EVERY example you produce in this batch MUST satisfy
+    len(memories_to_extract) >= 2.
+    If you find yourself writing a user_message with only one durable
+    fact, REWRITE IT to include another (e.g. add their location,
+    profession, family, or a preference). Examples that fail this rule
+    are wasted output.
 
-3. Negative extractions are powerful training signal. Include them when:
-   - A user mentions something that LOOKS like a preference but is actually a one-off
-     ("I had an Americano this morning" — not a coffee preference)
-   - A user describes a HYPOTHETICAL ("imagine I lived in Paris")
-   - The user states a FACT ABOUT SOMEONE ELSE ("my friend John is a doctor")
-   - The user phrases a SEARCH QUERY as a statement ("Tesla stock is up")
+QUALITY RULES (failures here cause the example to be rejected):
 
-4. Explicit "remember that ..." commands must produce a high-confidence extraction
-   even if the structure would otherwise be ambiguous (set explicit_command="remember").
+  1. EMPTY is the common case. If target_density is 'empty' or 'mixed',
+     a sizeable share of examples must produce zero memories. Over-extraction
+     is the dominant failure we are training against.
 
-5. Explicit "forget that ..." commands must produce ZERO extractions
-   (set explicit_command="forget", memories_to_extract=[]).
+  2. A memory must be ALL of:
+     - DURABLE (a stable fact about the user, not a transient query)
+     - VOLUNTEERED (the user shared it, not inferred from a single search)
+     - ABOUT THE USER (not about a friend, family, employer, or hypothetical)
 
-6. For temporary_context memories, the expiration_iso_date must be plausible
-   relative to the user_message — e.g. "I'm traveling to Tokyo next week"
-   gets an expiration roughly 14 days out.
+  3. negative_extractions are POWERFUL training signal. Use them when the
+     turn looks memory-worthy but is actually:
+     - A transient query    ("what's the weather in Toronto today")
+     - A hypothetical       ("imagine I lived in Paris")
+     - A fact about someone ("my brother is a dentist")
+     - A search-as-statement ("Tesla stock is up today")
+     - A one-off ("I had an Americano this morning") vs preference
+       ("I always order an Americano")
 
-7. Assistant responses should be realistic and natural — not robotic. They should
-   sometimes acknowledge the fact (which gives the classifier extra signal),
-   sometimes redirect, and sometimes ignore the memory-worthy content entirely.
+  4. Explicit "remember that ..." → high-confidence extraction.
+     Set explicit_command="remember".
+
+  5. Explicit "forget ..." or "don't remember that" → ZERO extractions
+     (memories_to_extract=[]). Set explicit_command="forget".
+
+  6. expiration_iso_date discipline:
+     - Set ONLY when category == "temporary_context".
+     - For all other categories (preference, professional, etc.) the field
+       MUST be null.
+     - When set, choose a plausible FUTURE date relative to today
+       (TODAY = {{ today_iso }}). Examples: "trip next week" ≈ TODAY + 7d,
+       "this weekend" ≈ next Saturday, "deadline next month" ≈ TODAY + 28d.
+       Never pick a date in the past.
+
+  7. Assistant responses must read naturally. They may acknowledge, redirect,
+     or ignore the memory-worthy content. Robotic confirmations are unrealistic.
+
+  8. Diversity: vary topic (work, hobbies, family, travel, health, food,
+     learning), register, and length within the batch.
+
+EXEMPLARS — calibrated to the active target_density / hard_case.
+Use as a shape; do NOT copy verbatim.
+
+{% if hard_case == "forget_command" %}
+  This batch has hard_case = forget_command. EVERY example you produce must:
+    - have explicit_command = "forget"
+    - have memories_to_extract = []
+    - contain a forget instruction in user_message ("actually forget that …",
+      "don't remember the part about …", "scratch that — never mind", etc.)
+
+  {"user_message":"actually forget what I said about my job",
+   "assistant_response":"Done — I won't keep that detail.",
+   "memories_to_extract":[],
+   "negative_extractions":[],
+   "rationale":"Explicit forget command. Should produce zero extractions.",
+   "explicit_command":"forget"}
+
+  {"user_message":"scratch that — don't remember anything I said about my mom",
+   "assistant_response":"Got it, I'll drop that detail.",
+   "memories_to_extract":[],
+   "negative_extractions":[],
+   "rationale":"Explicit forget command targeting an earlier disclosure.",
+   "explicit_command":"forget"}
+
+{% elif hard_case == "remember_command" %}
+  This batch has hard_case = remember_command. EVERY example you produce must:
+    - have explicit_command = "remember"
+    - have memories_to_extract with at least one entry, confidence="high"
+    - contain a remember instruction in user_message ("remember that …",
+      "for future reference, …", "make a note that …", etc.)
+
+  {"user_message":"remember that I'm allergic to peanuts",
+   "assistant_response":"Got it — I'll keep that in mind.",
+   "memories_to_extract":[{"text":"User is allergic to peanuts","category":"personal_identity",
+                           "stability":"stable","confidence":"high"}],
+   "negative_extractions":[],
+   "rationale":"Explicit remember command for a high-stakes durable fact.",
+   "explicit_command":"remember"}
+
+{% elif hard_case == "temporary_vs_stable" %}
+  This batch has hard_case = temporary_vs_stable. Mix examples that should
+  extract as temporary_context (with expiration) vs ones that should extract
+  as stable. Sometimes both arise in the same turn.
+
+  {"user_message":"I'm working on a side project this weekend.",
+   "assistant_response":"Cool — what's it about?",
+   "memories_to_extract":[{"text":"User is working on a side project this weekend",
+                           "category":"temporary_context","stability":"ephemeral",
+                           "confidence":"medium","expiration_iso_date":"{{ today_plus_7_iso }}"}],
+   "negative_extractions":[{"text":"User is a software engineer","category":"professional",
+                            "stability":"stable","confidence":"low"}],
+   "rationale":"Weekend scope marks this temporary; profession is not stated, so the implied stable fact would be over-extraction.",
+   "explicit_command":null}
+
+{% elif hard_case == "sensitive" %}
+  This batch has hard_case = sensitive. Users disclose health, financial,
+  or relationship details. Default rule: extract only if the user clearly
+  shares it as durable context, otherwise treat as transient and use
+  negative_extractions. Err on NOT extracting in ambiguous cases.
+
+  {"user_message":"I'm just feeling really down today, didn't sleep well.",
+   "assistant_response":"Sorry to hear that. Anything specific weighing on you?",
+   "memories_to_extract":[],
+   "negative_extractions":[{"text":"User has chronic insomnia","category":"personal_identity",
+                            "stability":"stable","confidence":"low"}],
+   "rationale":"One bad night is not durable evidence of insomnia. Sensitive disclosures must clear a high bar before extraction.",
+   "explicit_command":null}
+
+{% elif hard_case == "implicit_vs_explicit_preference" %}
+  This batch has hard_case = implicit_vs_explicit_preference. Distinguish
+  durable preferences ("I always order an Americano") from one-offs
+  ("I had an Americano this morning").
+
+  {"user_message":"I always order an Americano when I get coffee.",
+   "assistant_response":"Solid choice — strong but clean.",
+   "memories_to_extract":[{"text":"User prefers Americanos","category":"preference",
+                           "stability":"stable","confidence":"high"}],
+   "negative_extractions":[],
+   "rationale":"'Always' marks this as a durable preference, not a one-off.",
+   "explicit_command":null}
+
+{% elif target_density == "empty" %}
+  This batch has target_density = empty. EVERY example you produce must
+  have memories_to_extract = []. Vary across the empty-trap shapes:
+  transient queries, hypotheticals, third-party facts, and search-style
+  statements.
+
+  {"user_message":"what's the weather in Toronto today",
+   "assistant_response":"Let me check current conditions for Toronto.",
+   "memories_to_extract":[],
+   "negative_extractions":[{"text":"User lives in Toronto","category":"personal_identity",
+                            "stability":"stable","confidence":"low"}],
+   "rationale":"Single transient query is not strong evidence of residence.",
+   "explicit_command":null}
+
+  {"user_message":"if I lived in Paris would I like the food more",
+   "assistant_response":"Hard to say without trying — French cuisine is varied.",
+   "memories_to_extract":[],
+   "negative_extractions":[{"text":"User lives in Paris","category":"personal_identity",
+                            "stability":"stable","confidence":"low"}],
+   "rationale":"Hypothetical framing — 'if I lived' rules out a residence memory.",
+   "explicit_command":null}
+
+  {"user_message":"my friend Sarah is a pediatric nurse at the local hospital.",
+   "assistant_response":"That sounds rewarding work.",
+   "memories_to_extract":[],
+   "negative_extractions":[{"text":"User's friend Sarah is a pediatric nurse",
+                            "category":"relationship","stability":"stable","confidence":"medium"}],
+   "rationale":"Fact is about a third party, not a durable fact about the user.",
+   "explicit_command":null}
+
+{% elif target_density == "one" %}
+  This batch has target_density = one. EVERY example must have
+  memories_to_extract with EXACTLY ONE entry. Avoid stuffing multiple
+  facts into a single turn.
+
+  {"user_message":"I've been a Philadelphia Eagles fan since I was a kid",
+   "assistant_response":"That's a long-running loyalty.",
+   "memories_to_extract":[{"text":"User's favorite NFL team is the Philadelphia Eagles",
+                           "category":"preference","stability":"stable","confidence":"high"}],
+   "negative_extractions":[],
+   "rationale":"Single durable preference clearly volunteered.",
+   "explicit_command":null}
+
+{% elif target_density == "multi" %}
+  This batch has target_density = multi. EVERY example must have
+  memories_to_extract with 2 OR MORE entries. The user_message must be
+  information-dense — 2–4 distinct durable facts about the user.
+
+  {"user_message":"hey just signed the lease — moving from Austin to Seattle next month for a senior backend role at a fintech startup. my partner Alex is coming with me. you should know I'm allergic to shellfish so any restaurant suggestions later need to skip those.",
+   "assistant_response":"Big move! Congrats on the role. I'll keep all of that in mind.",
+   "memories_to_extract":[
+     {"text":"User is moving from Austin to Seattle next month","category":"temporary_context",
+      "stability":"ephemeral","confidence":"high","expiration_iso_date":"{{ today_plus_30_iso }}"},
+     {"text":"User works as a senior backend engineer at a fintech startup","category":"professional",
+      "stability":"stable","confidence":"high"},
+     {"text":"User's partner is named Alex","category":"relationship","stability":"stable","confidence":"high"},
+     {"text":"User is allergic to shellfish","category":"personal_identity","stability":"stable","confidence":"high"}
+   ],
+   "negative_extractions":[],
+   "rationale":"Information-dense turn with 4 durable facts; multi-memory by construction.",
+   "explicit_command":null}
+
+{% else %}
+  This batch has target_density = {{ target_density }}. Vary memories_to_extract
+  size naturally across the batch — some empty, some with 1 entry, fewer with
+  2+. Use the patterns below as anchors.
+
+  EMPTY (transient query, no memories):
+  {"user_message":"what's the weather in Toronto today",
+   "assistant_response":"Let me check current conditions for Toronto.",
+   "memories_to_extract":[],
+   "negative_extractions":[{"text":"User lives in Toronto","category":"personal_identity",
+                            "stability":"stable","confidence":"low"}],
+   "rationale":"Single transient query is not strong evidence of residence.",
+   "explicit_command":null}
+
+  ONE (durable preference):
+  {"user_message":"I've been a Philadelphia Eagles fan since I was a kid",
+   "assistant_response":"That's a long-running loyalty.",
+   "memories_to_extract":[{"text":"User's favorite NFL team is the Philadelphia Eagles",
+                           "category":"preference","stability":"stable","confidence":"high"}],
+   "negative_extractions":[],
+   "rationale":"Explicit, durable preference statement clearly volunteered.",
+   "explicit_command":null}
+
+  MULTI (information-dense turn):
+  {"user_message":"just moved to Berlin for a new role as a senior data scientist. my partner Sam is joining me next month.",
+   "assistant_response":"Welcome to Berlin — exciting time.",
+   "memories_to_extract":[
+     {"text":"User lives in Berlin","category":"personal_identity","stability":"stable","confidence":"high"},
+     {"text":"User works as a senior data scientist","category":"professional","stability":"stable","confidence":"high"},
+     {"text":"User's partner is named Sam","category":"relationship","stability":"stable","confidence":"high"}
+   ],
+   "negative_extractions":[],
+   "rationale":"Multiple durable facts in one turn.",
+   "explicit_command":null}
+{% endif %}
 
 {% if prior_examples %}
-Here are some accepted examples in the desired style:
-
+RECENTLY ACCEPTED EXAMPLES (match this register; do NOT copy these turns):
 {% for ex in prior_examples %}
-{{ ex | tojson(indent=2) }}
+  {{ ex | tojson }}
 {% endfor %}
 {% endif %}
 
-Now generate {{ count }} new examples as a JSON array. Output the array only.
+FORBIDDEN EXACT user_message TEXTS — do NOT generate any of these. They
+appear as exemplars above and are recognized in dedup:
+  - "I've been a Philadelphia Eagles fan since I was a kid"
+  - "what's the weather in Toronto today"
+  - "actually forget what I said about my job"
+  - "scratch that — don't remember anything I said about my mom"
+  - "remember that I'm allergic to peanuts"
+  - "I'm working on a side project this weekend."
+  - "I always order an Americano when I get coffee."
+  - "if I lived in Paris would I like the food more"
+  - "my friend Sarah is a pediatric nurse at the local hospital."
+  - "hey just signed the lease — moving from Austin to Seattle next month..."
+  - "just moved to Berlin for a new role as a senior data scientist..."
+
+Diversity REQUIREMENT: every user_message in this batch must be substantively
+different from every other one. Use varied named entities (specific cities,
+jobs, hobbies, people). Do NOT generate multiple paraphrases of the same turn.
+
+Now output the JSON array of {{ count }} new examples. Output ONLY the array.
