@@ -320,6 +320,26 @@ parser is unused in the production path (still has tests).
     canary test: seeds the `memories` table with a unique marker
     string and asserts it never appears in any built payload.
 
+28. **Logcat tags for production loggers come from the DI module,
+    NOT the class.** When debugging on-device, `adb logcat -s
+    PreflightRouter:I` returns NOTHING — preflight log lines are
+    tagged `ClassifierModule` (see
+    `ClassifierModule.providePreflightRouter`'s
+    `logger = { Log.i(TAG, it) }` with `TAG = "ClassifierModule"`).
+    Same pattern: `MemoryRetriever` / `MemoryEvictor` / `MemoryExtractor`
+    tag with their class names ONLY because `MemoryModule` happens
+    to name them that way; future modules might not. **Production
+    diagnostic filter to use:**
+    `adb logcat -s EagerWarmUp:I InferenceSessionManager:I
+    TelemetryWorker:I ChatViewModel:I ClassifierModule:I
+    MemoryRetriever:I MemoryExtractor:I MemoryEvictor:I
+    AndroidRuntime:E`. ALSO: by privacy invariant (#27),
+    `MemoryRetriever` only logs on the **error path** — successful
+    retrieval is counters-only. Absence of `MemoryRetriever` lines
+    in logcat is NORMAL for a healthy retrieval; presence means a
+    failure branch fired. Don't mistake silence for "retrieval
+    didn't run." M6 Phase G burned ~15 min on this confusion.
+
 ## Build & run
 
 ```bash
