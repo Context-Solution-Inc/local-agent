@@ -1,8 +1,8 @@
 # M7 — Closed Beta → Play Store Launch: Implementation Plan
 
-**Document version:** 0.1 (Draft)
-**Status:** Awaiting Phase A kickoff
-**Last updated:** 2026-05-11
+**Document version:** 0.2 (Draft)
+**Status:** Pre-Phase A complete; Phase A kickoff pending
+**Last updated:** 2026-05-12
 **Companion to:** PRD.md §4.4 / §6 / §7, PHASE1_PLAN.md §5 M7, `docs/M6_M7_HANDOFF.md`
 
 ---
@@ -101,6 +101,73 @@ silent expansion of M7.
 ---
 
 ## 4. Phase plan
+
+### Phase 0 — Pre-Phase A release-blockers (shipped) — ✅ COMPLETE 2026-05-12
+
+**Goal:** Two release-blockers surfaced ahead of Phase A kickoff and
+needed to land before Phase A could produce a viable
+`assembleRelease`. Both fit the spirit of Decision 10 (no new
+features) — they make the production release path viable + remove a
+class of P0 closed-beta crash.
+
+**PRs landed:**
+
+1. **PR #1 — HF auth token BYOK** (merged 2026-05-11, commit `1fcd593`).
+   Production users now supply their own HuggingFace API token via a
+   new onboarding step (between Brave key and telemetry consent) and a
+   Settings section that mirrors the Brave key UX. Wires
+   `ModelDownloader` through a new
+   `:shared/commonMain/inference/HfAuthTokenProvider` resolver:
+   user-supplied token from `SecureStorage` wins; debug builds fall
+   back to `BuildConfig.HF_AUTH_TOKEN` from `secrets.properties`;
+   release builds always pass `null` for the dev fallback. **Why this
+   was a release-blocker:** before PR#1, `release` builds shipped with
+   `HF_AUTH_TOKEN = ""` baked into BuildConfig, so the gated Gemma
+   download would 401 on every production install. No Play Store
+   launch was possible without this. Adds 5 unit tests
+   (`DefaultHfAuthTokenProviderTest`).
+
+2. **PR #2 — Main-thread heartbeat watchdog** (merged 2026-05-12, commit
+   `c1e2bf4`). Daemon thread pings the main Looper every 5 s; trips
+   after 4 missed acks (~20 s, well below `system_server`'s ~60 s
+   watchdog). On trip: `InferenceSessionManager.forceUnload(MainThreadWatchdog)`
+   + non-fatal recorded via `SafeCrashReporter` + two telemetry counters
+   (`main_thread_watchdog_tripped_total`,
+   `inference_unloaded_watchdog_total`). Foreground-gated via
+   `Application.ActivityLifecycleCallbacks`. Also adds a 60 s post-warmup
+   idle unload (existing 5-min post-generation timer unchanged). **Why
+   this was a release-blocker:** during PR#1 testing on Pixel 7, Gemma
+   running on the Mali-G710 starved the kernel GPU scheduler so badly
+   that an unrelated process's main thread parked in uninterruptible
+   `D` state for 26 s; ART couldn't suspend it; `system_server`'s own
+   watchdog killed `system_server`, and every app on the device got
+   `DeadSystemException` (effectively a soft reboot). Without the
+   watchdog this would surface in closed beta as anomalous "the phone
+   restarted" tester reports with no Crashlytics signal pointing at us.
+   Adds 6 unit tests (`MainThreadHeartbeatWatchdogTest`) + 3 new
+   `InferenceSessionManagerTest` cases. Test total moved from 318
+   (end of M6) to 332.
+
+**Impact on the plan ahead:**
+- §6 risk register gains an entry for the GPU-saturation soft reboot,
+  now mitigated.
+- Phase A §9 starter checklist unchanged — release-signing config wiring,
+  keystore generation, store listing, Data Safety, etc. remain
+  unaddressed and are still the gate.
+- Decision 10 ("no new features, no architecture changes") interpreted
+  strictly would have blocked PR #1; both PRs are release-readiness
+  work surfaced during local testing, not feature additions. Lawrence
+  signed off on each before merge.
+
+**Exit gate (achieved):**
+- Both PRs merged to `main`.
+- `./gradlew :androidApp:assembleDebug` clean; 332 unit tests / 0
+  failures.
+- Pixel 7 walkthrough confirmed: HF token onboarding flow lands on the
+  new step, the 60 s post-warmup idle unload fires as expected, and
+  the 5-min post-generation timer is unchanged.
+
+---
 
 ### Phase A — Release plumbing (3–5 d) — depends on M6 complete
 
@@ -349,6 +416,7 @@ this, M7 transitions to ongoing v1.0.x patching + v1.x roadmap.
 
 | Phase | Duration | Status | Critical path? |
 |---|---|---|---|
+| 0 — Pre-Phase A release-blockers | 2 d actual | ✅ complete 2026-05-12 | yes (now resolved) |
 | A — Release plumbing | 3–5 d | not started | yes |
 | B — Internal testing | 4–7 d | not started | yes |
 | C — Closed testing | 7–14 d | not started | yes |
@@ -388,6 +456,7 @@ review is a daily 15-minute task throughout C/D/E.
 | Play Console flags the on-device LLM as undisclosed generative AI | Medium | Pre-empt with explicit "AI Disclosures" sub-form filing + matching copy in onboarding + store listing (Phase A §8). |
 | Tester recruitment falls short of Decision 2's 50 minimum | Medium | Phase C plan accepts 50 as the floor; if recruitment lags, extend Phase C duration up to 14 days OR open the cohort to wider Decision 17 channels earlier than planned. |
 | Crash signal too noisy without NDK Crashlytics; top-N issue traces back to LiteRT-LM JNI | Medium | Defer NDK to v1.x per Decision 9. If a JVM crash signal points at JNI without enough stack info, pull NDK Crashlytics into v1.0.x as a P1 fix. |
+| Gemma on Mali-G710 saturates the GPU scheduler enough to trigger a `system_server` soft reboot under load | **Mitigated 2026-05-12** | Surfaced during PR#1 testing on Pixel 7 (cause: kernel GPU scheduler starved unrelated processes' main threads). Mitigated by Phase 0 PR #2 (main-thread heartbeat watchdog) — trips at ~20 s of main-thread stall and pre-empts `system_server`'s ~60 s watchdog by force-unloading Gemma. Also addressed: post-warmup model now releases after 60 s of idle (was: stayed loaded until `onTrimMemory` or process death). Closed-beta evidence will confirm the rate of trips on diverse devices; expected to be ~0 on the Pixel 7 baseline. If trips are nonzero on real users, that's the signal to revisit Gemma's KV-cache GPU memory budget or switch the cache-write path to CPU. |
 | Closed-beta surfaces a launch-blocking issue (e.g., memory-rewrite Finding 1 is louder than expected) | Medium | M6_M7_HANDOFF §5 finding 1 is documented as v1.0 known limitation. Closed-beta evidence either confirms this stays acceptable (ship) OR forces re-scope to fix in v1.0 (see §3 architectural-seam note). |
 | Brave API cost spikes during open beta or production | Medium | Cache-rate from PRD §3.4 reduces marginal cost; per-user is BYOK (Decision 17 PRD §3.6); dev-built-in Brave key is debug-only. Monitor Brave billing dashboard weekly during Phase C+. |
 | Android 16 GA on Pixel 7 delays beyond Phase E start | Low | Resolved in M6 Decision 7 — A16 is GA. Restated here for completeness. |
