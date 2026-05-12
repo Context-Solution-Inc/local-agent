@@ -5,6 +5,7 @@ import com.contextsolutions.mobileagent.classifier.ClassifierOutput
 import com.contextsolutions.mobileagent.classifier.WordPieceTokenizer
 import com.contextsolutions.mobileagent.classifier.internal.argMax
 import com.contextsolutions.mobileagent.classifier.internal.sigmoid
+import com.contextsolutions.mobileagent.classifier.internal.softmax
 import com.contextsolutions.mobileagent.telemetry.CounterNames
 import com.contextsolutions.mobileagent.telemetry.NoOpTelemetryCounters
 import com.contextsolutions.mobileagent.telemetry.TelemetryCounters
@@ -24,13 +25,26 @@ import kotlin.uuid.Uuid
  *    payload and `deleteByCosine`s the closest match (>0.85). This
  *    bypass exists because the shipped classifier folds explicit-remember
  *    /-forget into `presence` rather than exposing a dedicated head — Q2
- *    in M5_PLAN.md §2.
+ *    in M5_PLAN.md §2. Explicit commands always save / forget immediately;
+ *    the prompt-card flow below only applies to the classifier path.
  *
- * 2. **Classifier path.** Pair-encode `[CLS] userMessage [SEP] assistantResponse [SEP]`
- *    via [WordPieceTokenizer.encodePair] and read the classifier's
- *    `presence` + `category` heads in one forward pass. If `argMax(presence)`
- *    is `HAS_EXTRACTION`, walk the multi-label `category` sigmoid and
- *    create one memory per active category (>0.5 threshold).
+ * 2. **Classifier path with three-band routing.** Pair-encode
+ *    `[CLS] userMessage [SEP] assistantResponse [SEP]` via
+ *    [WordPieceTokenizer.encodePair] and read the classifier's
+ *    `presence` + `category` heads in one forward pass.
+ *
+ *    `p_has_extraction = softmax(presenceLogits)[HAS_EXTRACTION]` is then
+ *    routed against [MemoryConfig.thresholds]:
+ *
+ *      - `>= auto_save` → save now ([ExtractionReport.Created])
+ *      - `>= ask`       → return [ExtractionReport.PromptRequested] with
+ *        one [MemoryPromptCandidate] per active category. The UI surfaces
+ *        a Save / Dismiss card per candidate; nothing is written to the
+ *        store until [acceptPromptCandidate] is called.
+ *      - otherwise      → silent skip
+ *
+ *    The active-category set is the multi-label `category` sigmoid above
+ *    [MemoryThresholds.category] (default 0.5).
  *
  * **Candidate text (v1 simple).** The memory `text` is the verbatim user
  * message — Q3 in M5_PLAN.md §2. v1.x replaces with Gemma-generated
@@ -39,11 +53,15 @@ import kotlin.uuid.Uuid
  *
  * **Dedup.** Each candidate is embedded once; the embedding seeds both
  * `findCosineMatch` (skip if cosine > 0.85 against an existing row) and
- * the row that actually gets persisted.
+ * the row that actually gets persisted. For the prompt-card flow, dedup
+ * runs TWICE: once at proposal time (so we don't ask the user to save
+ * something we already remember) and again at [acceptPromptCandidate]
+ * time (in case another turn added a near-match between Show and Save).
  *
  * **Eviction.** [evictor.maybeEvict] runs once per extraction call before
  * any inserts so a burst-of-categories turn doesn't temporarily push
- * count past [MemoryEvictor.DEFAULT_CAPACITY].
+ * count past [MemoryEvictor.DEFAULT_CAPACITY]. For prompt-card saves
+ * eviction also runs inside [acceptPromptCandidate] just before insert.
  *
  * **Telemetry exclusion (PRD §4.4 + WS-12).** The injected [logger] emits
  * counts, IDs, and exception classes only — never memory text, user
@@ -61,7 +79,9 @@ class MemoryExtractor(
     private val detector: RememberForgetDetector,
     private val dateParser: TempContextDateParser,
     private val nowProvider: () -> Long,
+    private val configProvider: () -> MemoryConfig = { MemoryConfig.DEFAULT },
     private val creationEnabledProvider: () -> Boolean = { true },
+    private val questionDetector: QuestionDetector = QuestionDetector(),
     private val idGenerator: () -> String = { "mem-${Uuid.random()}" },
     private val logger: (String) -> Unit = {},
     private val counters: TelemetryCounters = NoOpTelemetryCounters,
@@ -69,9 +89,6 @@ class MemoryExtractor(
 
     /**
      * Run extraction on a completed turn. Always returns; never throws.
-     *
-     * @return a small report enumerating what (if anything) changed.
-     *   Useful for logging + tests; not part of the production code path.
      */
     suspend fun extract(
         userMessage: String,
@@ -102,6 +119,43 @@ class MemoryExtractor(
             logger("[memory-extract] unhandled failure: ${t.message}")
             ExtractionReport.Errored(t.message ?: t::class.simpleName ?: "unknown")
         }
+    }
+
+    /**
+     * Persist a middle-band candidate after the user tapped Save. Runs
+     * dedup again because another turn may have inserted a near-match
+     * between proposal time and acceptance. Returns `null` if dedup
+     * suppressed the insert, the embedding is missing, or persistence
+     * failed.
+     */
+    suspend fun acceptPromptCandidate(candidate: MemoryPromptCandidate): Memory? {
+        return try {
+            val now = nowProvider()
+            val existing = store.findCosineMatch(candidate.embedding, now = now)
+            if (existing != null) {
+                counters.increment(CounterNames.MEMORY_DEDUP_SKIPPED_TOTAL)
+                counters.increment(CounterNames.MEMORY_PROMPT_ACCEPTED_TOTAL)
+                logger("[memory-extract] accept candidate=${candidate.id} deduped=${existing.id}")
+                return null
+            }
+            evictor.maybeEvict(store, now)
+            val memory = candidate.toMemory(id = idGenerator(), now = now)
+            store.insert(memory)
+            counters.increment(CounterNames.MEMORY_EXTRACTED_TOTAL)
+            counters.increment(CounterNames.MEMORY_EXTRACTED_PROMPTED_TOTAL)
+            counters.increment(CounterNames.MEMORY_PROMPT_ACCEPTED_TOTAL)
+            logger("[memory-extract] accept candidate=${candidate.id} inserted=${memory.id}")
+            memory
+        } catch (t: Throwable) {
+            logger("[memory-extract] accept candidate=${candidate.id} failed: ${t.message}")
+            null
+        }
+    }
+
+    /** User tapped Dismiss (or a new turn auto-dismissed the card). */
+    fun dismissPromptCandidate(candidate: MemoryPromptCandidate) {
+        counters.increment(CounterNames.MEMORY_PROMPT_DISMISSED_TOTAL)
+        logger("[memory-extract] dismiss candidate=${candidate.id}")
     }
 
     // -- Remember path -------------------------------------------------------
@@ -144,6 +198,7 @@ class MemoryExtractor(
             created += memory
         }
         counters.increment(CounterNames.MEMORY_EXTRACTED_TOTAL, by = created.size.toLong())
+        counters.increment(CounterNames.MEMORY_EXTRACTED_AUTO_TOTAL, by = created.size.toLong())
         logger("[memory-extract] command=Remember created=${created.size}")
         return ExtractionReport.Created(created.map { it.id }, deduped = emptyList())
     }
@@ -181,17 +236,56 @@ class MemoryExtractor(
     ): ExtractionReport {
         if (assistantResponse.isBlank()) return ExtractionReport.NoOp
 
+        // Guard against the assistant-echoes-a-fact pattern: when the user
+        // asks a recall question and the agent answers from an existing
+        // memory, the pair classifier sees the memorable content in the
+        // assistant half and would otherwise save the QUESTION as a new
+        // memory (since memory text = user message). Skip these
+        // deterministically — explicit Remember/Forget commands ran above
+        // this branch so they're unaffected.
+        if (questionDetector.isQuestionOrRecall(userMessage)) {
+            logger("[memory-extract] presence=skip-question")
+            return ExtractionReport.NoOp
+        }
+
         val tokenized = tokenizer.encodePair(userMessage, assistantResponse)
         val output = classifier.classify(tokenized.inputIds, tokenized.attentionMask)
             ?: return ExtractionReport.SkippedNoClassifier
 
-        val presenceIdx = argMax(output.presenceLogits)
-        if (presenceIdx == ClassifierOutput.PRESENCE_INDEX_NO_EXTRACTION) {
+        val thresholds = configProvider().thresholds
+        val presenceProbs = softmax(output.presenceLogits)
+        val pHas = presenceProbs[ClassifierOutput.PRESENCE_INDEX_HAS_EXTRACTION]
+        // Cheap pre-formatted threshold tag so every band log line is grep-able
+        // with the same suffix shape (e.g. `adb logcat -s MemoryExtractor:I |
+        // grep '\[memory-extract\] presence='`). Per inv. #27 / #28, log
+        // numbers / counts only — never the memory text itself.
+        val bandTag = "p_has=${pHas.formatProb()} ask=${thresholds.ask.formatProb()} auto=${thresholds.autoSave.formatProb()}"
+
+        // Below `ask` — silent skip. No card, no insert.
+        if (pHas < thresholds.ask) {
+            logger("[memory-extract] presence=skip $bandTag")
             return ExtractionReport.NoOp
         }
 
-        val activeCategories = activeCategoriesOf(output.categoryLogits)
-        if (activeCategories.isEmpty()) return ExtractionReport.NoOp
+        // Category gate. Default path: every sigmoid prob > `category` is an
+        // active category. Fallback (auto/ask only): if presence crossed
+        // `ask` but no category did, take argMax of the category logits.
+        // Mirrors how an explicit "remember" command always settles on a
+        // single category — we'd rather pick the model's most-confident
+        // bucket than silently drop a confident-presence turn.
+        val categoryProbs = sigmoid(output.categoryLogits)
+        val activeCategoriesByThreshold = activeCategoriesIn(categoryProbs, thresholds.category)
+        val (activeCategories, categoryTag) = if (activeCategoriesByThreshold.isNotEmpty()) {
+            activeCategoriesByThreshold to "categories=${activeCategoriesByThreshold.size}"
+        } else {
+            val topIdx = argMax(categoryProbs)
+            val topCat = MemoryCategory.fromCategoryIndex(topIdx)
+            if (topCat == null) {
+                logger("[memory-extract] presence=${if (pHas >= thresholds.autoSave) "auto" else "ask"} $bandTag categories=0 (no valid argMax)")
+                return ExtractionReport.NoOp
+            }
+            setOf(topCat) to "categories=0 fallback=${topCat.wireName}@${categoryProbs[topIdx].formatProb()}"
+        }
 
         val embedding = embedder.embed(userMessage)?.vector
             ?: return ExtractionReport.SkippedNoEmbedder
@@ -200,25 +294,63 @@ class MemoryExtractor(
         val existing = store.findCosineMatch(embedding, now = now)
         if (existing != null) {
             counters.increment(CounterNames.MEMORY_DEDUP_SKIPPED_TOTAL)
+            logger("[memory-extract] presence=dedup $bandTag dedupedId=${existing.id}")
             return ExtractionReport.Created(emptyList(), deduped = listOf(existing.id))
         }
 
-        evictor.maybeEvict(store, now)
-        val created = mutableListOf<Memory>()
-        for (category in activeCategories) {
-            val memory = buildMemory(
-                text = userMessage,
-                category = category,
-                embedding = embedding,
-                conversationId = conversationId,
-                now = now,
-            )
-            store.insert(memory)
-            created += memory
+        return if (pHas >= thresholds.autoSave) {
+            // High band — save now.
+            evictor.maybeEvict(store, now)
+            val created = mutableListOf<Memory>()
+            for (category in activeCategories) {
+                val memory = buildMemory(
+                    text = userMessage,
+                    category = category,
+                    embedding = embedding,
+                    conversationId = conversationId,
+                    now = now,
+                )
+                store.insert(memory)
+                created += memory
+            }
+            counters.increment(CounterNames.MEMORY_EXTRACTED_TOTAL, by = created.size.toLong())
+            counters.increment(CounterNames.MEMORY_EXTRACTED_AUTO_TOTAL, by = created.size.toLong())
+            logger("[memory-extract] presence=auto $bandTag $categoryTag created=${created.size}")
+            ExtractionReport.Created(created.map { it.id }, deduped = emptyList())
+        } else {
+            // Middle band — propose a candidate per active category. No
+            // insert yet; the UI will surface a card per candidate and
+            // the user decides via acceptPromptCandidate / dismiss.
+            val candidates = activeCategories.map { category ->
+                MemoryPromptCandidate(
+                    id = idGenerator(),
+                    text = userMessage,
+                    category = category,
+                    embedding = embedding,
+                    conversationId = conversationId,
+                    proposedAtEpochMs = now,
+                    expiresAtEpochMs = if (category == MemoryCategory.TEMPORARY_CONTEXT) {
+                        dateParser.parse(userMessage) ?: (now + DEFAULT_TEMP_CONTEXT_EXPIRY_MS)
+                    } else {
+                        null
+                    },
+                )
+            }
+            counters.increment(CounterNames.MEMORY_PROMPT_SHOWN_TOTAL, by = candidates.size.toLong())
+            logger("[memory-extract] presence=ask $bandTag $categoryTag candidates=${candidates.size}")
+            ExtractionReport.PromptRequested(candidates)
         }
-        counters.increment(CounterNames.MEMORY_EXTRACTED_TOTAL, by = created.size.toLong())
-        logger("[memory-extract] presence=has categories=${activeCategories.size} created=${created.size}")
-        return ExtractionReport.Created(created.map { it.id }, deduped = emptyList())
+    }
+
+    /**
+     * Two-decimal probability formatter for logcat. Avoids `String.format`
+     * (not on KMP commonMain) and `kotlin.text.format` (Kotlin 2.x preview).
+     */
+    private fun Float.formatProb(): String {
+        val rounded = (this * 100f).toInt() // 0..100
+        val whole = rounded / 100
+        val frac = rounded % 100
+        return if (frac < 10) "$whole.0$frac" else "$whole.$frac"
     }
 
     // -- Helpers -------------------------------------------------------------
@@ -226,14 +358,17 @@ class MemoryExtractor(
     private suspend fun classifyCategories(text: String): Set<MemoryCategory>? {
         val tokenized = tokenizer.encodeSingle(text)
         val output = classifier.classify(tokenized.inputIds, tokenized.attentionMask) ?: return null
-        return activeCategoriesOf(output.categoryLogits).ifEmpty { null }
+        return activeCategoriesOf(output.categoryLogits, configProvider().thresholds.category)
+            .ifEmpty { null }
     }
 
-    private fun activeCategoriesOf(categoryLogits: FloatArray): Set<MemoryCategory> {
-        val probs = sigmoid(categoryLogits)
+    private fun activeCategoriesOf(categoryLogits: FloatArray, threshold: Float): Set<MemoryCategory> =
+        activeCategoriesIn(sigmoid(categoryLogits), threshold)
+
+    private fun activeCategoriesIn(categoryProbs: FloatArray, threshold: Float): Set<MemoryCategory> {
         val out = mutableSetOf<MemoryCategory>()
-        for (i in probs.indices) {
-            if (probs[i] > CATEGORY_THRESHOLD) {
+        for (i in categoryProbs.indices) {
+            if (categoryProbs[i] > threshold) {
                 MemoryCategory.fromCategoryIndex(i)?.let(out::add)
             }
         }
@@ -273,11 +408,16 @@ class MemoryExtractor(
         data object SkippedNoEmbedder : ExtractionReport
         data class Forgot(val deletedId: String?) : ExtractionReport
         data class Created(val createdIds: List<String>, val deduped: List<String>) : ExtractionReport
+        data class PromptRequested(val candidates: List<MemoryPromptCandidate>) : ExtractionReport
         data class Errored(val reason: String) : ExtractionReport
     }
 
     companion object {
-        /** Multi-label sigmoid threshold per M3 / model card §threshold defaults. */
+        /**
+         * Legacy hard-coded category cutoff. New callers should source
+         * [MemoryThresholds.category] from [MemoryConfig] instead — kept
+         * here so existing tests that don't supply a config keep building.
+         */
         const val CATEGORY_THRESHOLD: Float = 0.5f
 
         /** Q5 fallback in M5_PLAN.md §2 — when [TempContextDateParser] returns null. */

@@ -341,6 +341,206 @@ class MemoryExtractorTest {
         assertSame(MemoryExtractor.ExtractionReport.SkippedNoEmbedder, report)
     }
 
+    // -- Three-band routing (PR#4) -----------------------------------------
+
+    @Test
+    fun middle_band_returns_prompt_requested_without_inserting() = runTest {
+        // softmax([0, 1]) ≈ [0.27, 0.73] — comfortably between ask (0.15) and auto (0.85).
+        val store = TrackingStore()
+        val classifier = StubClassifier(
+            presenceLogits = floatArrayOf(0f, 1f),
+            categoryLogits = floatArrayOf(5f, -5f, 5f, -5f, -5f, -5f),
+        )
+        val extractor = buildExtractor(store = store, classifier = classifier, ids = listOf("cand-1", "cand-2"))
+
+        val report = extractor.extract(
+            userMessage = "i used to live in toronto",
+            assistantResponse = "noted",
+            conversationId = "conv-1",
+        ) as MemoryExtractor.ExtractionReport.PromptRequested
+
+        assertEquals(2, report.candidates.size)
+        assertTrue("no inserts in middle band", store.inserted.isEmpty())
+        assertEquals(setOf(MemoryCategory.PERSONAL_IDENTITY, MemoryCategory.PROFESSIONAL),
+            report.candidates.map { it.category }.toSet())
+        assertEquals("conv-1", report.candidates.first().conversationId)
+        assertEquals("i used to live in toronto", report.candidates.first().text)
+    }
+
+    @Test
+    fun low_band_silently_drops() = runTest {
+        // softmax([5, -5]) ≈ [0.9999, 0.0001] — far below ask (0.15).
+        val store = TrackingStore()
+        val classifier = StubClassifier(
+            presenceLogits = floatArrayOf(5f, -5f),
+            categoryLogits = floatArrayOf(5f, -5f, -5f, -5f, -5f, -5f),
+        )
+        val extractor = buildExtractor(store = store, classifier = classifier)
+
+        val report = extractor.extract(
+            userMessage = "what's the weather today",
+            assistantResponse = "let me check",
+            conversationId = null,
+        )
+        assertSame(MemoryExtractor.ExtractionReport.NoOp, report)
+        assertTrue(store.inserted.isEmpty())
+    }
+
+    @Test
+    fun high_band_saves_immediately_under_three_band_routing() = runTest {
+        // softmax([0, 5]) ≈ [0.0067, 0.9933] — comfortably above auto (0.85).
+        val store = TrackingStore()
+        val classifier = StubClassifier(
+            presenceLogits = floatArrayOf(0f, 5f),
+            categoryLogits = floatArrayOf(5f, -5f, -5f, -5f, -5f, -5f),
+        )
+        val extractor = buildExtractor(store = store, classifier = classifier, ids = listOf("m-1"))
+
+        val report = extractor.extract(
+            userMessage = "i'm a software engineer",
+            assistantResponse = "noted",
+            conversationId = null,
+        ) as MemoryExtractor.ExtractionReport.Created
+        assertEquals(1, report.createdIds.size)
+        assertEquals(1, store.inserted.size)
+    }
+
+    @Test
+    fun accept_prompt_candidate_inserts_into_store() = runTest {
+        val store = TrackingStore()
+        val classifier = StubClassifier(
+            presenceLogits = floatArrayOf(0f, 1f),
+            categoryLogits = floatArrayOf(5f, -5f, -5f, -5f, -5f, -5f),
+        )
+        val extractor = buildExtractor(store = store, classifier = classifier, ids = listOf("cand-1", "m-1"))
+
+        val report = extractor.extract(
+            userMessage = "i used to live in toronto",
+            assistantResponse = "noted",
+            conversationId = "conv-1",
+        ) as MemoryExtractor.ExtractionReport.PromptRequested
+        val candidate = report.candidates.single()
+
+        val inserted = extractor.acceptPromptCandidate(candidate)
+        assertNotNull(inserted)
+        assertEquals(1, store.inserted.size)
+        assertEquals("i used to live in toronto", store.inserted.single().text)
+        assertEquals(MemoryCategory.PERSONAL_IDENTITY, store.inserted.single().category)
+    }
+
+    @Test
+    fun accept_prompt_candidate_dedups_at_save_time() = runTest {
+        // Another memory was created between proposal and acceptance.
+        val store = TrackingStore(existingMatch = stubMemory("preexisting"))
+        val classifier = StubClassifier(
+            presenceLogits = floatArrayOf(0f, 1f),
+            categoryLogits = floatArrayOf(5f, -5f, -5f, -5f, -5f, -5f),
+        )
+        val extractor = buildExtractor(store = store, classifier = classifier, ids = listOf("cand-1"))
+
+        // Bypass the proposal-time dedup branch by constructing the candidate manually.
+        val candidate = MemoryPromptCandidate(
+            id = "cand-1",
+            text = "i used to live in toronto",
+            category = MemoryCategory.PERSONAL_IDENTITY,
+            embedding = FloatArray(Memory.EMBEDDING_DIM) { 0f },
+            conversationId = "conv-1",
+            proposedAtEpochMs = now,
+            expiresAtEpochMs = null,
+        )
+
+        val result = extractor.acceptPromptCandidate(candidate)
+        assertEquals(null, result)
+        assertTrue("dedup prevents insert", store.inserted.isEmpty())
+    }
+
+    @Test
+    fun auto_band_falls_back_to_argmax_category_when_none_cross_threshold() = runTest {
+        // Reproduces the on-device case: presence head is confident
+        // (p_has=0.93) but every category sigmoid sits below 0.5.
+        // Pre-fix this dropped silently; fix saves under argMax category.
+        val store = TrackingStore()
+        val classifier = StubClassifier(
+            presenceLogits = floatArrayOf(0f, 3f), // softmax ~ [0.05, 0.95] → auto band
+            // All negative logits → all sigmoid probs < 0.5. Index 1 (PREFERENCE)
+            // is the largest by a hair.
+            categoryLogits = floatArrayOf(-1f, -0.1f, -1f, -1f, -1f, -1f),
+        )
+        val extractor = buildExtractor(store = store, classifier = classifier, ids = listOf("m-1"))
+
+        val report = extractor.extract(
+            userMessage = "i'm a software engineer",
+            assistantResponse = "noted",
+            conversationId = null,
+        ) as MemoryExtractor.ExtractionReport.Created
+
+        assertEquals(1, report.createdIds.size)
+        assertEquals(1, store.inserted.size)
+        assertEquals(MemoryCategory.PREFERENCE, store.inserted.single().category)
+    }
+
+    @Test
+    fun ask_band_also_falls_back_to_argmax_category() = runTest {
+        val store = TrackingStore()
+        val classifier = StubClassifier(
+            presenceLogits = floatArrayOf(0f, 1f), // ~0.73 → ask band
+            categoryLogits = floatArrayOf(-1f, -1f, -0.2f, -1f, -1f, -1f),
+        )
+        val extractor = buildExtractor(store = store, classifier = classifier, ids = listOf("cand-1"))
+
+        val report = extractor.extract(
+            userMessage = "i'm a software engineer",
+            assistantResponse = "noted",
+            conversationId = null,
+        ) as MemoryExtractor.ExtractionReport.PromptRequested
+
+        // Index 2 (PROFESSIONAL) wins argMax even at <0.5 sigmoid.
+        assertEquals(1, report.candidates.size)
+        assertEquals(MemoryCategory.PROFESSIONAL, report.candidates.single().category)
+        assertTrue("still no insert pre-acceptance", store.inserted.isEmpty())
+    }
+
+    @Test
+    fun question_user_message_skips_extraction_even_when_classifier_says_yes() = runTest {
+        // Reproduces the bug: user asks a recall question, agent answers
+        // from existing memory, classifier sees memorable content in the
+        // assistant half and would otherwise save the QUESTION as a new
+        // memory. QuestionDetector cuts this off before classification.
+        val store = TrackingStore()
+        val classifier = StubClassifier(
+            // The stub would say "auto-save, preference category" if we asked.
+            presenceLogits = floatArrayOf(0f, 5f),
+            categoryLogits = floatArrayOf(-5f, 5f, -5f, -5f, -5f, -5f),
+        )
+        val extractor = buildExtractor(store = store, classifier = classifier)
+
+        val report = extractor.extract(
+            userMessage = "what is my favorite sports team",
+            assistantResponse = "Your favorite team is the Toronto Blue Jays.",
+            conversationId = "conv-1",
+        )
+
+        assertSame(MemoryExtractor.ExtractionReport.NoOp, report)
+        assertTrue("no inserts on a recall question", store.inserted.isEmpty())
+    }
+
+    @Test
+    fun dismiss_prompt_candidate_does_not_insert() = runTest {
+        val store = TrackingStore()
+        val extractor = buildExtractor(store = store)
+        val candidate = MemoryPromptCandidate(
+            id = "cand-1",
+            text = "i used to live in toronto",
+            category = MemoryCategory.PERSONAL_IDENTITY,
+            embedding = FloatArray(Memory.EMBEDDING_DIM) { 0f },
+            conversationId = null,
+            proposedAtEpochMs = now,
+            expiresAtEpochMs = null,
+        )
+        extractor.dismissPromptCandidate(candidate)
+        assertTrue(store.inserted.isEmpty())
+    }
+
     // -- Test fixtures -----------------------------------------------------
 
     private fun buildExtractor(

@@ -1,0 +1,8 @@
+{
+  "model_version": "preflight_memory_shared_v1.0.0",
+  "thresholds": {
+    "auto_save": 0.85,
+    "ask": 0.15,
+    "category": 0.5
+  }
+}

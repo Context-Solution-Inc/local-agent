@@ -10,15 +10,18 @@ import com.contextsolutions.mobileagent.db.MobileAgentDatabase
 import com.contextsolutions.mobileagent.telemetry.TelemetryCounters
 import com.contextsolutions.mobileagent.memory.EmbedderEngine
 import com.contextsolutions.mobileagent.memory.LiteRtEmbedderEngine
+import com.contextsolutions.mobileagent.memory.MemoryConfig
 import com.contextsolutions.mobileagent.memory.MemoryEvictor
 import com.contextsolutions.mobileagent.memory.MemoryExtractor
 import com.contextsolutions.mobileagent.memory.MemoryPreferences
 import com.contextsolutions.mobileagent.memory.MemoryRetriever
 import com.contextsolutions.mobileagent.memory.MemoryStore
+import com.contextsolutions.mobileagent.memory.QuestionDetector
 import com.contextsolutions.mobileagent.memory.RememberForgetDetector
 import com.contextsolutions.mobileagent.memory.SharedPreferencesMemoryPreferences
 import com.contextsolutions.mobileagent.memory.SqlDelightMemoryStore
 import com.contextsolutions.mobileagent.memory.TempContextDateParser
+import kotlinx.serialization.json.Json
 import com.contextsolutions.mobileagent.platform.AgentClock
 import com.contextsolutions.mobileagent.platform.LocaleProvider
 import dagger.Module
@@ -43,6 +46,24 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 object MemoryModule {
+
+    private const val TAG = "MemoryModule"
+    private const val MEMORY_CONFIG_ASSET_PATH = "memory_config.json"
+    private val configJson = Json { ignoreUnknownKeys = true; isLenient = true }
+
+    @Provides
+    @Singleton
+    fun provideMemoryConfig(@ApplicationContext context: Context): MemoryConfig = try {
+        val raw = context.assets.open(MEMORY_CONFIG_ASSET_PATH)
+            .bufferedReader(Charsets.UTF_8).use { it.readText() }
+        configJson.decodeFromString(MemoryConfig.serializer(), raw)
+    } catch (t: Throwable) {
+        Log.w(
+            TAG,
+            "Failed to load $MEMORY_CONFIG_ASSET_PATH; using DEFAULT thresholds (${t.message})",
+        )
+        MemoryConfig.DEFAULT
+    }
 
     @Provides
     @Singleton
@@ -90,6 +111,10 @@ object MemoryModule {
 
     @Provides
     @Singleton
+    fun provideQuestionDetector(): QuestionDetector = QuestionDetector()
+
+    @Provides
+    @Singleton
     fun provideTempContextDateParser(
         clock: AgentClock,
         localeProvider: LocaleProvider,
@@ -119,9 +144,11 @@ object MemoryModule {
         store: MemoryStore,
         evictor: MemoryEvictor,
         detector: RememberForgetDetector,
+        questionDetector: QuestionDetector,
         dateParser: TempContextDateParser,
         clock: AgentClock,
         preferences: MemoryPreferences,
+        config: MemoryConfig,
         counters: TelemetryCounters,
     ): MemoryExtractor = MemoryExtractor(
         classifier = classifier,
@@ -130,8 +157,13 @@ object MemoryModule {
         store = store,
         evictor = evictor,
         detector = detector,
+        questionDetector = questionDetector,
         dateParser = dateParser,
         nowProvider = { clock.nowEpochMs() },
+        // MemoryConfig is a @Singleton so reading it through a closure is
+        // effectively a constant; surfacing it as a Provider would let
+        // telemetry hot-swap thresholds without app restart later.
+        configProvider = { config },
         creationEnabledProvider = { preferences.creationEnabled() },
         logger = { Log.i("MemoryExtractor", it) },
         counters = counters,

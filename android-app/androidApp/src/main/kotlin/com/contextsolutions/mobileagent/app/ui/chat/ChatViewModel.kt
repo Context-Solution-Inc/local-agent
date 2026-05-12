@@ -15,7 +15,9 @@ import com.contextsolutions.mobileagent.classifier.ClassifierEngine
 import com.contextsolutions.mobileagent.inference.ThermalStatus
 import com.contextsolutions.mobileagent.inference.ThermalStatusProvider
 import com.contextsolutions.mobileagent.memory.EmbedderEngine
+import com.contextsolutions.mobileagent.memory.MemoryCategory
 import com.contextsolutions.mobileagent.memory.MemoryExtractor
+import com.contextsolutions.mobileagent.memory.MemoryPromptCandidate
 import com.contextsolutions.mobileagent.memory.MemoryStore
 import com.contextsolutions.mobileagent.search.SearchOutcome
 import kotlin.uuid.ExperimentalUuidApi
@@ -89,6 +91,17 @@ class ChatViewModel @Inject constructor(
 
     /** Internal full conversation as the agent sees it (includes tool_call/tool turns). */
     private var agentHistory: List<ChatMessage> = emptyList()
+
+    /**
+     * Middle-band memory candidates currently surfaced in the chat as
+     * Save / Dismiss cards. Keyed by candidate id so the UI callbacks
+     * can hand the real object back to [MemoryExtractor].
+     *
+     * Lifetime: cleared whenever a new turn produces a new
+     * [MemoryExtractor.ExtractionReport.PromptRequested]; lost on
+     * process kill (acceptable for v1).
+     */
+    private val pendingCandidates = mutableMapOf<String, MemoryPromptCandidate>()
 
     private var currentJob: Job? = null
 
@@ -254,7 +267,7 @@ class ChatViewModel @Inject constructor(
         val assistantText = event.message.text
         val cid = _conversationId.value
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching {
+            val report = runCatching {
                 memoryExtractor.extract(
                     userMessage = userMessage,
                     assistantResponse = assistantText,
@@ -262,13 +275,93 @@ class ChatViewModel @Inject constructor(
                 )
             }.onFailure {
                 Log.w(TAG, "memory extraction crashed; turn already complete", it)
+            }.getOrNull()
+
+            // Auto-dismiss any prior pending prompt cards before surfacing
+            // new ones. Mirrors the "only the latest candidate is visible"
+            // rule — keeps the chat focused on the most-recent decision
+            // without burying the user under stale prompts.
+            val hasNewPrompts = report is MemoryExtractor.ExtractionReport.PromptRequested
+            if (hasNewPrompts || pendingCandidates.isNotEmpty()) {
+                clearPendingPromptsAsAutoDismissed(hasNewPrompts)
             }
+
+            if (report is MemoryExtractor.ExtractionReport.PromptRequested) {
+                for (candidate in report.candidates) {
+                    pendingCandidates[candidate.id] = candidate
+                }
+                _ui.update { state ->
+                    state.copy(
+                        messages = state.messages + report.candidates.map { candidate ->
+                            UiMessage.MemoryPrompt(
+                                candidateId = candidate.id,
+                                text = candidate.text,
+                                category = candidate.category,
+                            )
+                        },
+                    )
+                }
+            }
+
             // Refresh the badge count after extraction settles. Sequencing
             // matters: the count must reflect the just-completed extract.
             if (cid != null) {
                 runCatching { _memoryCount.value = memoryStore.countForConversation(cid) }
             }
         }
+    }
+
+    /**
+     * Remove every pending prompt card from the chat list and notify the
+     * extractor so the dismissed counter bumps. [auto] is true when this
+     * fires automatically as a new turn arrives (vs. the user tapping
+     * Dismiss on a single card via [dismissMemoryPrompt]).
+     */
+    private fun clearPendingPromptsAsAutoDismissed(auto: Boolean) {
+        if (pendingCandidates.isEmpty()) return
+        val dismissed = pendingCandidates.values.toList()
+        pendingCandidates.clear()
+        _ui.update { state ->
+            state.copy(messages = state.messages.filterNot { it is UiMessage.MemoryPrompt })
+        }
+        for (candidate in dismissed) {
+            memoryExtractor.dismissPromptCandidate(candidate)
+        }
+        Log.i(TAG, "auto-dismissed ${dismissed.size} pending prompt(s) (auto=$auto)")
+    }
+
+    /** User tapped Save on a Memory prompt card. */
+    fun saveMemoryPrompt(candidateId: String) {
+        val candidate = pendingCandidates.remove(candidateId) ?: return
+        _ui.update { state ->
+            state.copy(
+                messages = state.messages.filterNot {
+                    it is UiMessage.MemoryPrompt && it.candidateId == candidateId
+                },
+            )
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            val inserted = memoryExtractor.acceptPromptCandidate(candidate)
+            if (inserted != null) {
+                val cid = candidate.conversationId
+                if (cid != null) {
+                    runCatching { _memoryCount.value = memoryStore.countForConversation(cid) }
+                }
+            }
+        }
+    }
+
+    /** User tapped Dismiss on a Memory prompt card. */
+    fun dismissMemoryPrompt(candidateId: String) {
+        val candidate = pendingCandidates.remove(candidateId) ?: return
+        _ui.update { state ->
+            state.copy(
+                messages = state.messages.filterNot {
+                    it is UiMessage.MemoryPrompt && it.candidateId == candidateId
+                },
+            )
+        }
+        memoryExtractor.dismissPromptCandidate(candidate)
     }
 
     private fun SearchOutcome.toSearchStatus(): SearchStatus = when (this) {
@@ -296,6 +389,16 @@ sealed interface UiMessage {
         val text: String,
         val citations: List<SearchSource>,
         val fromCache: Boolean = false,
+    ) : UiMessage
+
+    /**
+     * Middle-band memory proposal — rendered inline as a Save / Dismiss
+     * card immediately after the assistant bubble that produced it.
+     */
+    data class MemoryPrompt(
+        val candidateId: String,
+        val text: String,
+        val category: MemoryCategory,
     ) : UiMessage
 }
 

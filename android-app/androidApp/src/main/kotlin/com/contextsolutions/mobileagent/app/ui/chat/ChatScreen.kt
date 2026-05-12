@@ -190,6 +190,12 @@ fun ChatScreen(
                             citations = message.citations,
                             fromCache = message.fromCache,
                         )
+                        is UiMessage.MemoryPrompt -> MemoryPromptCard(
+                            text = message.text,
+                            category = message.category,
+                            onSave = { viewModel.saveMemoryPrompt(message.candidateId) },
+                            onDismiss = { viewModel.dismissMemoryPrompt(message.candidateId) },
+                        )
                     }
                 }
                 if (ui.partialText.isNotEmpty() || ui.isGenerating || ui.searchStatus !is SearchStatus.None) {

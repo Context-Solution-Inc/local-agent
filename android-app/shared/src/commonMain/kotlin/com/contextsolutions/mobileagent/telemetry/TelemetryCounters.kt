@@ -100,7 +100,32 @@ object CounterNames {
     const val SEARCH_NO_KEY_TOTAL = "search_no_key_total"
 
     // daily_memory
+    /**
+     * Rollup of every memory insertion. The auto / prompted split below
+     * sums to this — kept as-is for backward compatibility with M6 Phase C
+     * dashboards.
+     */
     const val MEMORY_EXTRACTED_TOTAL = "memory_extracted_total"
+
+    /** High-band saves (`p_has_extraction >= auto_save_threshold`). */
+    const val MEMORY_EXTRACTED_AUTO_TOTAL = "memory_extracted_auto_total"
+
+    /** Saves driven by the user tapping Save on a middle-band prompt card. */
+    const val MEMORY_EXTRACTED_PROMPTED_TOTAL = "memory_extracted_prompted_total"
+
+    /** Middle-band prompt cards rendered to the user. */
+    const val MEMORY_PROMPT_SHOWN_TOTAL = "memory_prompt_shown_total"
+
+    /** User tapped Save on a middle-band prompt card. */
+    const val MEMORY_PROMPT_ACCEPTED_TOTAL = "memory_prompt_accepted_total"
+
+    /**
+     * User tapped Dismiss OR a subsequent turn auto-dismissed an unanswered
+     * card. Combined into a single counter at v1; split into `_explicit` /
+     * `_auto` later if telemetry shows the question is interesting.
+     */
+    const val MEMORY_PROMPT_DISMISSED_TOTAL = "memory_prompt_dismissed_total"
+
     const val MEMORY_DEDUP_SKIPPED_TOTAL = "memory_dedup_skipped_total"
     const val MEMORY_FORGOTTEN_TOTAL = "memory_forgotten_total"
     /** Tag values: `expired` | `stale` | `lru`. */
