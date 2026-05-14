@@ -14,7 +14,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -23,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Brightness4
 import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.BrightnessHigh
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
@@ -34,18 +39,22 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -81,11 +90,72 @@ fun ChatScreen(
     val themeMode by themeModeViewModel.mode.collectAsState()
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
 
-    // Keep the latest message visible as new tokens arrive.
+    // PR #9 — Sticky-to-bottom + jump-to-latest. Token streaming used to
+    // fire animateScrollToItem on every chunk (keyed on partialText.length),
+    // which fought any user-initiated scroll. New behaviour:
+    //  - `isAtBottom` is derived from layoutInfo. True when the last item
+    //    is fully in the viewport (no clipping at the bottom edge).
+    //  - `stickyToBottom` tracks whether new tokens should auto-scroll.
+    //  - Sticky disengages ONLY when the user actively drags the list
+    //    away from the bottom — never just because the content grew past
+    //    the viewport. Otherwise every token would briefly flip
+    //    `isAtBottom` false before the next auto-scroll catches up, and
+    //    sticky would flip off mid-stream.
+    //  - Sticky re-engages whenever `isAtBottom` becomes true again
+    //    (user manually scrolled back, or FAB tap finished).
+    //  - The auto-scroll effect calls [followBottom] (defined below) so
+    //    a streaming bubble taller than the viewport still scrolls to
+    //    its actual bottom, not its top.
+    //  - A SmallFloatingActionButton appears at the bottom-end of the
+    //    list while sticky is off, letting the user jump back without
+    //    having to manually scroll all the way down.
+    val isAtBottom by remember {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            val visible = info.visibleItemsInfo
+            if (visible.isEmpty() || info.totalItemsCount == 0) return@derivedStateOf true
+            val last = visible.last()
+            // Fully visible bottom item + no items below it = at-bottom.
+            last.index >= info.totalItemsCount - 1 &&
+                last.offset + last.size <= info.viewportEndOffset
+        }
+    }
+    val isUserDragging by listState.interactionSource.collectIsDraggedAsState()
+    var stickyToBottom by remember { mutableStateOf(true) }
+    LaunchedEffect(isUserDragging, isAtBottom) {
+        // Disengage only on a user-initiated drag that ends away from the
+        // bottom. Content growing past the viewport during streaming
+        // doesn't qualify — `isUserDragging` is false for programmatic scrolls.
+        if (isUserDragging && !isAtBottom) stickyToBottom = false
+    }
+    LaunchedEffect(isAtBottom) {
+        // Re-engage whenever the list is back at the bottom — covers both
+        // "user manually scrolled back" and "auto-scroll just landed".
+        if (isAtBottom) stickyToBottom = true
+    }
+
+    /** Total item count in the LazyColumn (chat bubbles + optional streaming bubble). */
+    fun totalListItems(): Int =
+        ui.messages.size + (if (ui.partialText.isNotEmpty() || ui.isGenerating || ui.searchStatus !is SearchStatus.None) 1 else 0)
+
+    // Auto-scroll on new tokens / new messages — but only while sticky.
+    //
+    // The effect re-keys on partialText.length so each token chunk fires.
+    // The body is a no-op when the user has scrolled away.
+    //
+    // `animateScrollToItem(lastIndex)` alone is NOT enough: it scrolls
+    // until the item's TOP is at the viewport top. If the streaming
+    // bubble is taller than the viewport, the new tokens accumulate
+    // off-screen below. We therefore (a) make sure the last item is
+    // rendered, and (b) push past any overflow of its bottom beyond
+    // `viewportEndOffset`. Instant `scrollBy` instead of an animated
+    // call so token streaming doesn't queue up overlapping animations.
     LaunchedEffect(ui.messages.size, ui.partialText.length, ui.isGenerating) {
-        val total = ui.messages.size + (if (ui.partialText.isNotEmpty() || ui.isGenerating) 1 else 0)
-        if (total > 0) listState.animateScrollToItem(total - 1)
+        if (!stickyToBottom) return@LaunchedEffect
+        val total = totalListItems()
+        if (total > 0) listState.followBottom(lastIndex = total - 1, animate = false)
     }
 
     // M6 Phase E accessibility — announce a completed assistant response
@@ -154,10 +224,16 @@ fun ChatScreen(
             SessionBanner(session)
             Spacer(Modifier.height(8.dp))
 
-            LazyColumn(
+            // Wrap the LazyColumn in a Box so the "jump to latest" FAB can
+            // overlay the bottom-end of the message list (not the input bar).
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
+            ) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize(),
                 state = listState,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -217,6 +293,35 @@ fun ChatScreen(
                     }
                 }
             }
+
+            // "Jump to latest" — appears once the user has scrolled away
+            // from the bottom. Tapping it re-engages sticky-to-bottom and
+            // animates back to the newest item. Plain conditional rather
+            // than AnimatedVisibility to avoid scope ambiguity between
+            // the outer ColumnScope and this BoxScope.
+            if (!stickyToBottom && totalListItems() > 0) {
+                SmallFloatingActionButton(
+                    onClick = {
+                        coroutineScope.launch {
+                            stickyToBottom = true
+                            val total = totalListItems()
+                            if (total > 0) listState.followBottom(
+                                lastIndex = total - 1,
+                                animate = true,
+                            )
+                        }
+                    },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 8.dp, bottom = 8.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowDown,
+                        contentDescription = "Jump to latest",
+                    )
+                }
+            }
+            } // end overlay Box
 
             Spacer(Modifier.height(8.dp))
             if (ui.isGenerating) {
@@ -449,5 +554,35 @@ private fun ThemeModeToggle(mode: ThemeMode, onCycle: () -> Unit) {
     }
     IconButton(onClick = onCycle) {
         Icon(imageVector = icon, contentDescription = label)
+    }
+}
+
+/**
+ * Scroll the list so the bottom edge of [lastIndex] sits at the bottom
+ * edge of the viewport, even if that item is taller than the viewport
+ * itself. `animateScrollToItem(index)` alone is not enough — it stops
+ * once the item's TOP is at the viewport top, leaving the rest of a
+ * tall streaming bubble off-screen below.
+ *
+ * Two-step:
+ *  1. Ensure [lastIndex] is rendered (`scrollToItem` if it isn't yet).
+ *  2. Read `layoutInfo` and push past any overflow of the item's bottom
+ *     beyond `viewportEndOffset`.
+ *
+ * Set [animate] = false for the auto-scroll path (token streaming —
+ * overlapping animations would queue up and lag). Set true for the
+ * user-facing FAB tap so the scroll has visible feedback.
+ */
+private suspend fun LazyListState.followBottom(lastIndex: Int, animate: Boolean) {
+    if (lastIndex < 0) return
+    val needsJump = layoutInfo.visibleItemsInfo.none { it.index == lastIndex }
+    if (needsJump) {
+        if (animate) animateScrollToItem(lastIndex) else scrollToItem(lastIndex)
+    }
+    val info = layoutInfo
+    val last = info.visibleItemsInfo.firstOrNull { it.index == lastIndex } ?: return
+    val overflow = (last.offset + last.size) - info.viewportEndOffset
+    if (overflow > 0) {
+        if (animate) animateScrollBy(overflow.toFloat()) else scrollBy(overflow.toFloat())
     }
 }
