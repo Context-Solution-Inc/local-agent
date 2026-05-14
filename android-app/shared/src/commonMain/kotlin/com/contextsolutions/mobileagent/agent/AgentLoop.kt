@@ -6,6 +6,7 @@ import com.contextsolutions.mobileagent.inference.GenerationEvent
 import com.contextsolutions.mobileagent.inference.GenerationRequest
 import com.contextsolutions.mobileagent.inference.PendingToolCall
 import com.contextsolutions.mobileagent.inference.ToolDispatcher
+import com.contextsolutions.mobileagent.language.PreferredLanguage
 import com.contextsolutions.mobileagent.memory.Memory
 import com.contextsolutions.mobileagent.memory.MemoryRetriever
 import com.contextsolutions.mobileagent.search.SearchOutcome
@@ -60,6 +61,8 @@ class AgentLoop(
     private val memoryRetriever: MemoryRetriever? = null,
     private val maxToolCalls: Int = DEFAULT_MAX_TOOL_CALLS,
     private val counters: TelemetryCounters = NoOpTelemetryCounters,
+    private val responseLanguage: PreferredLanguage = PreferredLanguage.DEFAULT,
+    private val responseFilter: ResponseFilter = ResponseFilter.NoOp,
     private val nowEpochMs: () -> Long = { kotlinx.datetime.Clock.System.now().toEpochMilliseconds() },
 ) {
 
@@ -148,6 +151,7 @@ class AgentLoop(
             memoryBlock = PromptAssembler.renderMemoryBlock(retrievedMemories),
             preflightNotice = preflightNotice,
             searchAvailable = searchService.isAvailable(),
+            responseLanguage = responseLanguage,
         )
         val request = GenerationRequest(
             systemInstruction = structured.systemInstruction,
@@ -183,8 +187,18 @@ class AgentLoop(
                             )
                             firstTokenObserved = true
                         }
-                        finalText.append(event.text)
-                        send(AgentEvent.TokenChunk(event.text))
+                        // PR #10 — per-turn ResponseFilter strips disallowed
+                        // scripts from streamed tokens. The buffered finalText
+                        // therefore holds only allowed characters, so the
+                        // ChatMessage.Assistant assembled at line ~204 (which
+                        // lands in turnMessages and feeds the next turn's
+                        // prompt history) carries no leaked output the model
+                        // could re-prime on.
+                        val filteredChunk = responseFilter.filter(event.text)
+                        if (filteredChunk.isNotEmpty()) {
+                            finalText.append(filteredChunk)
+                            send(AgentEvent.TokenChunk(filteredChunk))
+                        }
                     }
                     is GenerationEvent.Done -> Unit // finalisation happens after collect
                     is GenerationEvent.Error -> {

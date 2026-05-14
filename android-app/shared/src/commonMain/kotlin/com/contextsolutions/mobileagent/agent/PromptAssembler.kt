@@ -4,6 +4,7 @@ import com.contextsolutions.mobileagent.inference.HistoryMessage
 import com.contextsolutions.mobileagent.inference.HistoryRole
 import com.contextsolutions.mobileagent.inference.HistoryToolCall
 import com.contextsolutions.mobileagent.inference.ToolDefinition
+import com.contextsolutions.mobileagent.language.PreferredLanguage
 import com.contextsolutions.mobileagent.memory.Memory
 import kotlinx.datetime.DayOfWeek
 import kotlinx.datetime.LocalDateTime
@@ -46,6 +47,7 @@ class PromptAssembler(
         preflightNotice: Boolean = false,
         searchAvailable: Boolean = true,
         forceFinalAnswer: Boolean = false,
+        responseLanguage: PreferredLanguage = PreferredLanguage.DEFAULT,
     ): StructuredPrompt {
         require(history.isNotEmpty()) { "history must not be empty" }
 
@@ -54,6 +56,7 @@ class PromptAssembler(
             preflightNotice = preflightNotice,
             searchAvailable = searchAvailable,
             forceFinalAnswer = forceFinalAnswer,
+            responseLanguage = responseLanguage,
         )
 
         // The engine inspects the LAST entry in `history` to decide what to
@@ -79,8 +82,11 @@ class PromptAssembler(
         preflightNotice: Boolean,
         searchAvailable: Boolean,
         forceFinalAnswer: Boolean,
+        responseLanguage: PreferredLanguage,
     ): String = buildString {
         append(BASE_TEMPLATE)
+        append("\n\n")
+        append(languageDirective(responseLanguage))
         append("\n\n")
         append(temporalContextBlock(timeContextProvider()))
         if (!memoryBlock.isNullOrBlank()) {
@@ -182,6 +188,10 @@ class PromptAssembler(
 }"""
 
         // Verbatim from SYSTEM_PROMPT.md §3 + §6 + §8 — keep in sync if those sections change.
+        // The "respond in {language}" directive used to be appended here as
+        // a hard-coded English line (PR `bff6e22`). It's now emitted as a
+        // separate block by [languageDirective] so it can be parameterised
+        // by the user's Settings preference (PR #10).
         const val BASE_TEMPLATE: String = """You are a helpful, accurate, and privacy-respecting AI assistant running
 entirely on the user's device. You answer questions, help with tasks, and
 have access to a web search tool for retrieving current information when
@@ -189,10 +199,28 @@ needed.
 
 You are direct and concise. You match the user's register: casual when they
 are casual, precise when they are precise. You do not pad responses with
-unnecessary preamble or filler.
+unnecessary preamble or filler."""
 
-Respond in English using Latin-script characters only, unless the user
-explicitly asks for another language."""
+        /**
+         * Renders the language directive for the system prompt. The user's
+         * [PreferredLanguage] selection drives both the displayed name and
+         * the [com.contextsolutions.mobileagent.agent.ResponseFilter]
+         * allow-list applied to the streamed output. The "unless the user
+         * asks for a translation" clause keeps the model free to emit other
+         * scripts when explicitly asked — paired with
+         * [TranslationIntentDetector] flipping the filter to NoOp for
+         * those turns.
+         */
+        fun languageDirective(language: PreferredLanguage): String {
+            val identifier = if (language == PreferredLanguage.EN) {
+                "English"
+            } else {
+                "${language.englishName} (${language.nativeName})"
+            }
+            return "Respond in $identifier, unless the user explicitly asks " +
+                "for a translation or for another language. Avoid mixing scripts " +
+                "or inserting characters from other writing systems into the response."
+        }
 
         const val NO_TOOLS_BLOCK: String = """=== Available tools ===
 You have no tools available in this turn. Web search is unavailable

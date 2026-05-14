@@ -2,8 +2,10 @@ package com.contextsolutions.mobileagent.app.di
 
 import com.contextsolutions.mobileagent.agent.AgentLoop
 import com.contextsolutions.mobileagent.agent.PromptAssembler
+import com.contextsolutions.mobileagent.agent.ResponseFilter
 import com.contextsolutions.mobileagent.agent.currentTimeContext
 import com.contextsolutions.mobileagent.classifier.PreflightRouter
+import com.contextsolutions.mobileagent.language.PreferredLanguage
 import com.contextsolutions.mobileagent.memory.MemoryRetriever
 import com.contextsolutions.mobileagent.platform.AgentClock
 import com.contextsolutions.mobileagent.platform.LocaleProvider
@@ -45,18 +47,36 @@ object AgentModule {
         preflightRouter: PreflightRouter,
         memoryRetriever: MemoryRetriever,
         counters: TelemetryCounters,
-    ): AgentLoopFactory = AgentLoopFactory { session ->
-        AgentLoop(
+    ): AgentLoopFactory = object : AgentLoopFactory {
+        override fun create(
+            session: com.contextsolutions.mobileagent.agent.InferenceSession,
+            responseLanguage: PreferredLanguage,
+            responseFilter: ResponseFilter,
+        ): AgentLoop = AgentLoop(
             session = session,
             assembler = assembler,
             searchService = searchService,
             preflightRouter = preflightRouter,
             memoryRetriever = memoryRetriever,
             counters = counters,
+            responseLanguage = responseLanguage,
+            responseFilter = responseFilter,
         )
     }
 }
 
-fun interface AgentLoopFactory {
-    fun create(session: com.contextsolutions.mobileagent.agent.InferenceSession): AgentLoop
+/**
+ * Builds a per-turn [AgentLoop]. The session lifetime is one user turn; the
+ * factory takes the user's [PreferredLanguage] + the matching
+ * [ResponseFilter] decided at the call-site so each turn can either enforce
+ * the filter (normal turn) or relax it (translation-intent turn). Defaults
+ * preserve pre-PR-#10 behaviour for tests and any caller that doesn't yet
+ * know about the language path.
+ */
+interface AgentLoopFactory {
+    fun create(
+        session: com.contextsolutions.mobileagent.agent.InferenceSession,
+        responseLanguage: PreferredLanguage = PreferredLanguage.DEFAULT,
+        responseFilter: ResponseFilter = ResponseFilter.NoOp,
+    ): AgentLoop
 }

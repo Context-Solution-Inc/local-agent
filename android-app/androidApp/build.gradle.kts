@@ -15,11 +15,32 @@ plugins {
     // FirebaseApp initializer + resources for FirebaseAnalytics. The .json
     // file is gitignored via the root .gitignore "**/google-services.json"
     // rule (see CLAUDE.md "Secrets" section).
-    alias(libs.plugins.google.services)
+    //
+    // PR #10 CI fix — declared `apply false` here and applied conditionally
+    // below so the unit-test workflow on GitHub (which does not have access
+    // to google-services.json) does not blow up at
+    // processDebugGoogleServices. Local development with the file present
+    // applies both plugins exactly as before.
+    alias(libs.plugins.google.services) apply false
     // M6 Phase D — uploads symbol mappings to Crashlytics for release builds
     // and wires the SDK's auto-collection of native + JVM crashes. Debug
     // builds skip the mappingFileUploadEnabled step automatically.
-    alias(libs.plugins.firebase.crashlytics)
+    alias(libs.plugins.firebase.crashlytics) apply false
+}
+
+// Apply the Firebase plugins only when google-services.json is present.
+// The file is gitignored (carries per-project Firebase identifiers) and
+// absent in CI + on fresh contributor checkouts. Without the conditional,
+// `processDebugGoogleServices` fails the build before unit tests run.
+//
+// Runtime impact when the file is missing: FirebaseApp.initializeApp() is
+// never auto-generated, so MobileAgentApplication.onCreate's
+// FirebaseAnalytics.getInstance(this) call throws on launch. CI does not
+// instantiate the Application (unit tests are pure JVM); developers
+// without the file should not install the APK on-device.
+if (file("google-services.json").exists()) {
+    apply(plugin = libs.plugins.google.services.get().pluginId)
+    apply(plugin = libs.plugins.firebase.crashlytics.get().pluginId)
 }
 
 kotlin {

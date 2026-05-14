@@ -15,6 +15,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -26,6 +28,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import com.contextsolutions.mobileagent.language.PreferredLanguage
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -191,6 +194,27 @@ fun SettingsScreen(
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
 
+            // PR #10 — preferred response language. Drives the system
+            // prompt's "respond in {language}" directive AND the streamed
+            // character filter that strips foreign-script tokens. Default
+            // English. Translation requests automatically relax the
+            // filter for that turn (TranslationIntentDetector).
+            SectionHeader("Response language")
+            Text(
+                "The assistant responds in this language by default. Translation " +
+                    "requests (\"translate hello to Japanese\", or any message " +
+                    "containing characters from another language) automatically " +
+                    "allow the requested script for that response.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(8.dp))
+            LanguageDropdown(
+                selected = state.preferredLanguage,
+                onSelected = { viewModel.setPreferredLanguage(it) },
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
+
             SectionHeaderWithToggle(
                 title = "Web search",
                 checked = state.searchEnabled,
@@ -350,6 +374,43 @@ private fun SectionHeaderWithToggle(
             modifier = Modifier.weight(1f),
         )
         Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+/**
+ * Material3 dropdown bound to the user's preferred-language preference.
+ * Uses the plain [DropdownMenu] anchored to an [OutlinedButton] rather
+ * than `ExposedDropdownMenuBox` to avoid pulling in the
+ * `compose-material3` `ExperimentalMaterial3Api` surface beyond the
+ * already-opted-in callsite.
+ *
+ * Each entry shows `{nativeName} · {englishName}` so users who can't
+ * read English still recognise their language at a glance.
+ */
+@Composable
+private fun LanguageDropdown(
+    selected: PreferredLanguage,
+    onSelected: (PreferredLanguage) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Column {
+        OutlinedButton(onClick = { expanded = true }) {
+            Text("${selected.nativeName} · ${selected.englishName}")
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            PreferredLanguage.values().forEach { language ->
+                DropdownMenuItem(
+                    text = { Text("${language.nativeName} · ${language.englishName}") },
+                    onClick = {
+                        onSelected(language)
+                        expanded = false
+                    },
+                )
+            }
+        }
     }
 }
 

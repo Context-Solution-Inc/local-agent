@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import android.content.Context
 import com.contextsolutions.mobileagent.app.BuildConfig
 import com.contextsolutions.mobileagent.app.service.TelemetryUploadWorker
+import com.contextsolutions.mobileagent.language.LanguagePreferences
+import com.contextsolutions.mobileagent.language.PreferredLanguage
 import com.contextsolutions.mobileagent.observability.SafeCrashReporter
 import com.contextsolutions.mobileagent.platform.SecureStorage
 import com.contextsolutions.mobileagent.platform.SecureStorageKeys
@@ -38,6 +40,7 @@ class SettingsViewModel @Inject constructor(
     private val cache: SearchCacheDao,
     private val telemetryConsent: TelemetryConsentManager,
     private val crashReporter: SafeCrashReporter,
+    private val languagePreferences: LanguagePreferences,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(initialState())
@@ -50,6 +53,13 @@ class SettingsViewModel @Inject constructor(
         // a manual refresh on return-to-Settings.
         telemetryConsent.enabledFlow()
             .onEach { enabled -> _state.update { it.copy(telemetryEnabled = enabled) } }
+            .launchIn(viewModelScope)
+        // PR #10 — mirror the preferred-language preference. Settings is
+        // the only surface that writes to this, but the same Flow pattern
+        // keeps the UI consistent if a future flow (e.g. an onboarding
+        // step) also writes.
+        languagePreferences.preferredLanguageFlow()
+            .onEach { lang -> _state.update { it.copy(preferredLanguage = lang) } }
             .launchIn(viewModelScope)
     }
 
@@ -117,6 +127,15 @@ class SettingsViewModel @Inject constructor(
     }
 
     /**
+     * PR #10 — persist the user's preferred response language. Picked up
+     * on the next chat turn (ChatViewModel reads `preferredLanguage()` at
+     * send-time); no need to interrupt an in-flight turn.
+     */
+    fun setPreferredLanguage(language: PreferredLanguage) {
+        languagePreferences.setPreferredLanguage(language)
+    }
+
+    /**
      * Debug-only — bypass the 24h periodic schedule and fire one telemetry
      * upload immediately. The button on [SettingsScreen] that calls this
      * is gated behind `BuildConfig.DEBUG`; the uploader itself still
@@ -181,6 +200,7 @@ class SettingsViewModel @Inject constructor(
             searchEnabled = searchEnabled,
             cacheCount = -1L,
             telemetryEnabled = telemetryConsent.enabled(),
+            preferredLanguage = languagePreferences.preferredLanguage(),
         ).also {
             // Load cache count off the main thread.
             viewModelScope.launch(Dispatchers.IO) {
@@ -200,6 +220,7 @@ data class SettingsUiState(
     /** -1 = not yet loaded. */
     val cacheCount: Long,
     val telemetryEnabled: Boolean = false,
+    val preferredLanguage: PreferredLanguage = PreferredLanguage.DEFAULT,
     val keyJustSaved: Boolean = false,
     val hfTokenJustSaved: Boolean = false,
     val cacheJustCleared: Boolean = false,

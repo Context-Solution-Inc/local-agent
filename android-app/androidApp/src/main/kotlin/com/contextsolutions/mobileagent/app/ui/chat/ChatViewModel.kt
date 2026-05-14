@@ -6,6 +6,8 @@ import android.util.Log
 import com.contextsolutions.mobileagent.agent.AgentEvent
 import com.contextsolutions.mobileagent.agent.AgentTurnInput
 import com.contextsolutions.mobileagent.agent.ChatMessage
+import com.contextsolutions.mobileagent.agent.ResponseFilter
+import com.contextsolutions.mobileagent.agent.TranslationIntentDetector
 import com.contextsolutions.mobileagent.app.di.AgentLoopFactory
 import com.contextsolutions.mobileagent.app.service.InferenceSessionAdapter
 import com.contextsolutions.mobileagent.app.service.InferenceSessionManager
@@ -13,6 +15,7 @@ import com.contextsolutions.mobileagent.app.service.ModelInventory
 import com.contextsolutions.mobileagent.app.service.SessionState
 import com.contextsolutions.mobileagent.inference.ThermalStatus
 import com.contextsolutions.mobileagent.inference.ThermalStatusProvider
+import com.contextsolutions.mobileagent.language.LanguagePreferences
 import com.contextsolutions.mobileagent.memory.MemoryCategory
 import com.contextsolutions.mobileagent.memory.MemoryExtractor
 import com.contextsolutions.mobileagent.memory.MemoryPromptCandidate
@@ -52,6 +55,8 @@ class ChatViewModel @Inject constructor(
     private val agentLoopFactory: AgentLoopFactory,
     private val sessionManager: InferenceSessionManager,
     private val inventory: ModelInventory,
+    private val languagePreferences: LanguagePreferences,
+    private val translationIntentDetector: TranslationIntentDetector,
     private val memoryExtractor: MemoryExtractor,
     private val memoryStore: MemoryStore,
     thermalStatusProvider: ThermalStatusProvider,
@@ -129,13 +134,25 @@ class ChatViewModel @Inject constructor(
         }
 
         val historySnapshot = agentHistory
+        // PR #10 — per-turn response language + character filter. The
+        // filter is enforced for normal turns and relaxed (NoOp) when the
+        // user's message looks like a translation request. Decisions are
+        // snapshotted at send-time so a Settings flip mid-stream doesn't
+        // affect the in-flight turn.
+        val language = languagePreferences.preferredLanguage()
+        val isTranslation = translationIntentDetector.isTranslationRequest(trimmed, language)
+        val filter = if (isTranslation) ResponseFilter.NoOp else ResponseFilter.allowedScripts(language)
         currentJob = viewModelScope.launch {
             try {
                 val session = InferenceSessionAdapter(
                     sessionManager = sessionManager,
                     modelPath = inventory.localFile().absolutePath,
                 )
-                val loop = agentLoopFactory.create(session)
+                val loop = agentLoopFactory.create(
+                    session = session,
+                    responseLanguage = language,
+                    responseFilter = filter,
+                )
                 loop.run(AgentTurnInput(userMessage = trimmed, history = historySnapshot)).collect { event ->
                     onAgentEvent(event)
                 }
@@ -235,6 +252,20 @@ class ChatViewModel @Inject constructor(
             .firstOrNull { it is ChatMessage.User }
             ?.text
             ?: return
+        // PR #10 follow-up — translation turns aren't memory-worthy:
+        // "translate hello world to Japanese" is a transient request, not
+        // a personal preference, and surfacing a "save this?" prompt for
+        // it confuses the user. Reuse the same detector that drives the
+        // streamed-token filter so both paths agree on what counts as a
+        // translation. Explicit `Remember: ...` commands still hit the
+        // RememberForgetDetector path inside MemoryExtractor, so users who
+        // want to save a translation preference can still do so via the
+        // explicit prefix.
+        val language = languagePreferences.preferredLanguage()
+        if (translationIntentDetector.isTranslationRequest(userMessage, language)) {
+            Log.i(TAG, "skip memory extraction: translation intent on user turn")
+            return
+        }
         val assistantText = event.message.text
         val cid = _conversationId.value
         viewModelScope.launch(Dispatchers.IO) {

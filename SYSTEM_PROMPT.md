@@ -44,9 +44,19 @@ You are direct and concise. You match the user's register: casual when they
 are casual, precise when they are precise. You do not pad responses with
 unnecessary preamble or filler.
 
-Respond in English using Latin-script characters only, unless the user
-explicitly asks for another language.
+Respond in {LanguageName}, unless the user explicitly asks for a
+translation or for another language. Avoid mixing scripts or inserting
+characters from other writing systems into the response.
 ```
+
+`{LanguageName}` is the user's Settings choice (PR #10). Default is
+`English`; non-English options are rendered as `{English name} ({Native
+name})` — for example, `Japanese (日本語)`. The runtime fills it from
+`LanguagePreferences.preferredLanguage()` at the start of each turn. The
+character-level safety net (`ResponseFilter.allowedScripts(language)`)
+strips foreign-script tokens that slip past the prompt directive;
+translation-intent turns swap it for `ResponseFilter.NoOp` so the model
+can emit the requested script.
 
 ---
 
@@ -247,8 +257,9 @@ You are direct and concise. You match the user's register: casual when they
 are casual, precise when they are precise. You do not pad responses with
 unnecessary preamble or filler.
 
-Respond in English using Latin-script characters only, unless the user
-explicitly asks for another language.
+Respond in English, unless the user explicitly asks for a translation or
+for another language. Avoid mixing scripts or inserting characters from
+other writing systems into the response.
 
 === Current date and time ===
 Date: 2026-05-03 (Sunday)
