@@ -107,16 +107,22 @@ object CounterNames {
      */
     const val MEMORY_EXTRACTED_TOTAL = "memory_extracted_total"
 
-    /** High-band saves (`p_has_extraction >= auto_save_threshold`). */
+    /**
+     * Auto-saves driven by an explicit `RememberForgetDetector.Command.Remember`
+     * ("remember that …"). Pre-PR#7 this also covered the high-band
+     * classifier path; PR#7 removed that band so every classifier-driven
+     * save now flows through `MEMORY_EXTRACTED_PROMPTED_TOTAL` via a user
+     * consent card. Counter name kept stable for dashboard continuity.
+     */
     const val MEMORY_EXTRACTED_AUTO_TOTAL = "memory_extracted_auto_total"
 
-    /** Saves driven by the user tapping Save on a middle-band prompt card. */
+    /** Saves driven by the user tapping Save on a classifier-path prompt card. */
     const val MEMORY_EXTRACTED_PROMPTED_TOTAL = "memory_extracted_prompted_total"
 
-    /** Middle-band prompt cards rendered to the user. */
+    /** Classifier-path prompt cards rendered to the user (PR#7: includes former high band). */
     const val MEMORY_PROMPT_SHOWN_TOTAL = "memory_prompt_shown_total"
 
-    /** User tapped Save on a middle-band prompt card. */
+    /** User tapped Save on a classifier-path prompt card. */
     const val MEMORY_PROMPT_ACCEPTED_TOTAL = "memory_prompt_accepted_total"
 
     /**

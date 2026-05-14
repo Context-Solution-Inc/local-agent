@@ -7,10 +7,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -56,9 +58,23 @@ fun MemoryPromptCard(
                 style = MaterialTheme.typography.bodyMedium,
             )
             Spacer(Modifier.height(10.dp))
+            // Anchor buttons to the card's own content color — dynamic-dark
+            // can pick a `primary` that nearly matches `tertiaryContainer`,
+            // making the default OutlinedButton's "Dismiss" text invisible.
+            val accent = MaterialTheme.colorScheme.onTertiaryContainer
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onSave) { Text("Save") }
-                OutlinedButton(onClick = onDismiss) { Text("Dismiss") }
+                FilledTonalButton(
+                    onClick = onSave,
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = accent,
+                        contentColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    ),
+                ) { Text("Save") }
+                OutlinedButton(
+                    onClick = onDismiss,
+                    border = BorderStroke(1.dp, accent),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = accent),
+                ) { Text("Dismiss") }
             }
         }
     }

@@ -28,7 +28,7 @@ import kotlin.uuid.Uuid
  *    in M5_PLAN.md §2. Explicit commands always save / forget immediately;
  *    the prompt-card flow below only applies to the classifier path.
  *
- * 2. **Classifier path with three-band routing.** Pair-encode
+ * 2. **Classifier path with two-band routing.** Pair-encode
  *    `[CLS] userMessage [SEP] assistantResponse [SEP]` via
  *    [WordPieceTokenizer.encodePair] and read the classifier's
  *    `presence` + `category` heads in one forward pass.
@@ -36,12 +36,15 @@ import kotlin.uuid.Uuid
  *    `p_has_extraction = softmax(presenceLogits)[HAS_EXTRACTION]` is then
  *    routed against [MemoryConfig.thresholds]:
  *
- *      - `>= auto_save` → save now ([ExtractionReport.Created])
- *      - `>= ask`       → return [ExtractionReport.PromptRequested] with
+ *      - `>= ask`  → return [ExtractionReport.PromptRequested] with
  *        one [MemoryPromptCandidate] per active category. The UI surfaces
  *        a Save / Dismiss card per candidate; nothing is written to the
  *        store until [acceptPromptCandidate] is called.
- *      - otherwise      → silent skip
+ *      - otherwise → silent skip
+ *
+ *    PR#7 dropped the high-band auto-save: every classifier-driven save
+ *    now requires explicit user consent via the prompt card. Only the
+ *    Remember command path above bypasses the card.
  *
  *    The active-category set is the multi-label `category` sigmoid above
  *    [MemoryThresholds.category] (default 0.5).
@@ -259,7 +262,7 @@ class MemoryExtractor(
         // with the same suffix shape (e.g. `adb logcat -s MemoryExtractor:I |
         // grep '\[memory-extract\] presence='`). Per inv. #27 / #28, log
         // numbers / counts only — never the memory text itself.
-        val bandTag = "p_has=${pHas.formatProb()} ask=${thresholds.ask.formatProb()} auto=${thresholds.autoSave.formatProb()}"
+        val bandTag = "p_has=${pHas.formatProb()} ask=${thresholds.ask.formatProb()}"
 
         // Below `ask` — silent skip. No card, no insert.
         if (pHas < thresholds.ask) {
@@ -268,11 +271,11 @@ class MemoryExtractor(
         }
 
         // Category gate. Default path: every sigmoid prob > `category` is an
-        // active category. Fallback (auto/ask only): if presence crossed
-        // `ask` but no category did, take argMax of the category logits.
-        // Mirrors how an explicit "remember" command always settles on a
-        // single category — we'd rather pick the model's most-confident
-        // bucket than silently drop a confident-presence turn.
+        // active category. Fallback: if presence crossed `ask` but no
+        // category did, take argMax of the category logits. Mirrors how an
+        // explicit "remember" command always settles on a single category —
+        // we'd rather pick the model's most-confident bucket than silently
+        // drop a confident-presence turn.
         val categoryProbs = sigmoid(output.categoryLogits)
         val activeCategoriesByThreshold = activeCategoriesIn(categoryProbs, thresholds.category)
         val (activeCategories, categoryTag) = if (activeCategoriesByThreshold.isNotEmpty()) {
@@ -281,7 +284,7 @@ class MemoryExtractor(
             val topIdx = argMax(categoryProbs)
             val topCat = MemoryCategory.fromCategoryIndex(topIdx)
             if (topCat == null) {
-                logger("[memory-extract] presence=${if (pHas >= thresholds.autoSave) "auto" else "ask"} $bandTag categories=0 (no valid argMax)")
+                logger("[memory-extract] presence=ask $bandTag categories=0 (no valid argMax)")
                 return ExtractionReport.NoOp
             }
             setOf(topCat) to "categories=0 fallback=${topCat.wireName}@${categoryProbs[topIdx].formatProb()}"
@@ -298,48 +301,27 @@ class MemoryExtractor(
             return ExtractionReport.Created(emptyList(), deduped = listOf(existing.id))
         }
 
-        return if (pHas >= thresholds.autoSave) {
-            // High band — save now.
-            evictor.maybeEvict(store, now)
-            val created = mutableListOf<Memory>()
-            for (category in activeCategories) {
-                val memory = buildMemory(
-                    text = userMessage,
-                    category = category,
-                    embedding = embedding,
-                    conversationId = conversationId,
-                    now = now,
-                )
-                store.insert(memory)
-                created += memory
-            }
-            counters.increment(CounterNames.MEMORY_EXTRACTED_TOTAL, by = created.size.toLong())
-            counters.increment(CounterNames.MEMORY_EXTRACTED_AUTO_TOTAL, by = created.size.toLong())
-            logger("[memory-extract] presence=auto $bandTag $categoryTag created=${created.size}")
-            ExtractionReport.Created(created.map { it.id }, deduped = emptyList())
-        } else {
-            // Middle band — propose a candidate per active category. No
-            // insert yet; the UI will surface a card per candidate and
-            // the user decides via acceptPromptCandidate / dismiss.
-            val candidates = activeCategories.map { category ->
-                MemoryPromptCandidate(
-                    id = idGenerator(),
-                    text = userMessage,
-                    category = category,
-                    embedding = embedding,
-                    conversationId = conversationId,
-                    proposedAtEpochMs = now,
-                    expiresAtEpochMs = if (category == MemoryCategory.TEMPORARY_CONTEXT) {
-                        dateParser.parse(userMessage) ?: (now + DEFAULT_TEMP_CONTEXT_EXPIRY_MS)
-                    } else {
-                        null
-                    },
-                )
-            }
-            counters.increment(CounterNames.MEMORY_PROMPT_SHOWN_TOTAL, by = candidates.size.toLong())
-            logger("[memory-extract] presence=ask $bandTag $categoryTag candidates=${candidates.size}")
-            ExtractionReport.PromptRequested(candidates)
+        // Post-PR#7: every classifier-path save above `ask` flows through a
+        // user-consent card. No high-band auto-save branch — explicit
+        // Remember commands are the only auto-save path.
+        val candidates = activeCategories.map { category ->
+            MemoryPromptCandidate(
+                id = idGenerator(),
+                text = userMessage,
+                category = category,
+                embedding = embedding,
+                conversationId = conversationId,
+                proposedAtEpochMs = now,
+                expiresAtEpochMs = if (category == MemoryCategory.TEMPORARY_CONTEXT) {
+                    dateParser.parse(userMessage) ?: (now + DEFAULT_TEMP_CONTEXT_EXPIRY_MS)
+                } else {
+                    null
+                },
+            )
         }
+        counters.increment(CounterNames.MEMORY_PROMPT_SHOWN_TOTAL, by = candidates.size.toLong())
+        logger("[memory-extract] presence=ask $bandTag $categoryTag candidates=${candidates.size}")
+        return ExtractionReport.PromptRequested(candidates)
     }
 
     /**

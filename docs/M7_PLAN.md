@@ -248,8 +248,29 @@ remaining polish.
    off explicitly weighing the no-features rule against the closed-
    beta UX. **No further pre-launch additions to be entertained.**
 
+6. **PR #7 — Always ask before saving a classifier-extracted memory**
+   (branch `pr7-always-prompt-memory-save`). Replaces PR #4's three-band
+   routing with two-band: anything `p_has_extraction >= ask (0.15)`
+   surfaces the user-consent card; the high-band auto-save above
+   `0.85` is gone. Drops the `auto_save` field from
+   `MemoryThresholds` / `assets/memory_config.json` (the parser still
+   accepts a stale key on disk so a downgraded config doesn't crash
+   first launch after upgrade). `MEMORY_EXTRACTED_AUTO_TOTAL` retains
+   its name for dashboard continuity but now counts explicit
+   `RememberForgetDetector.Command.Remember` saves only — the only
+   remaining auto-save path. `MemoryConfigTest` + `MemoryExtractorTest`
+   updated; one new regression test asserts the auto counter stays at
+   zero on the high-confidence classifier path. **Decision 10
+   exception:** UX-correction to PR #4 rather than a new feature —
+   Lawrence's call ("the app silently memorizes things even at high
+   classifier confidence; users should always decide"). Counterpoint
+   to PR #5's "no further pre-launch additions": this is a
+   refinement of an already-shipped Phase 0 behaviour, not a new
+   surface. Sign-off explicit.
+
 **Combined test movement:** 318 (end of M6) → 332 (after PR #2) →
-353 (after PR #4) → **362** (after PR #5). 0 failures throughout.
+353 (after PR #4) → 362 (after PR #5) → **363** (after PR #7). 0
+failures throughout.
 
 **Impact on the plan ahead:**
 - §6 risk register gains an entry for the GPU-saturation soft reboot,

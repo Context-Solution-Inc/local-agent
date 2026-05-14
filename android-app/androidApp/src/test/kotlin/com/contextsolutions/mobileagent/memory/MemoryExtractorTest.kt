@@ -6,6 +6,9 @@ import com.contextsolutions.mobileagent.classifier.ClassifierEngine
 import com.contextsolutions.mobileagent.classifier.ClassifierOutput
 import com.contextsolutions.mobileagent.classifier.Vocab
 import com.contextsolutions.mobileagent.classifier.WordPieceTokenizer
+import com.contextsolutions.mobileagent.telemetry.CounterNames
+import com.contextsolutions.mobileagent.telemetry.NoOpTelemetryCounters
+import com.contextsolutions.mobileagent.telemetry.TelemetryCounters
 import kotlinx.coroutines.test.runTest
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
@@ -109,38 +112,44 @@ class MemoryExtractorTest {
     }
 
     @Test
-    fun creates_one_memory_per_active_category() = runTest {
+    fun proposes_one_candidate_per_active_category() = runTest {
+        // Pre-PR#7 (PR #4 era) this test was
+        // `creates_one_memory_per_active_category` and asserted on the
+        // store. PR#7 collapsed the high band into the prompt path, so
+        // every classifier-driven extraction surfaces candidates instead
+        // of inserting directly. The accept-then-insert path is covered
+        // separately by the accept_* tests below.
         val store = TrackingStore()
         val classifier = StubClassifier(
             presenceLogits = floatArrayOf(0f, 5f), // HAS_EXTRACTION
             // PERSONAL_IDENTITY (idx 0) + PROFESSIONAL (idx 2) cross 0.5
             categoryLogits = floatArrayOf(5f, -5f, 5f, -5f, -5f, -5f),
         )
-        val extractor = buildExtractor(store = store, classifier = classifier, ids = listOf("m-1", "m-2"))
+        val extractor = buildExtractor(store = store, classifier = classifier, ids = listOf("cand-1", "cand-2"))
 
         val report = extractor.extract(
             userMessage = "i'm a software engineer in toronto",
             assistantResponse = "got it!",
             conversationId = "conv-1",
-        ) as MemoryExtractor.ExtractionReport.Created
+        ) as MemoryExtractor.ExtractionReport.PromptRequested
 
-        assertEquals(2, report.createdIds.size)
-        assertEquals(2, store.inserted.size)
+        assertEquals(2, report.candidates.size)
+        assertTrue("no inserts pre-acceptance", store.inserted.isEmpty())
         // Both share the same embedding (same user message).
         assertTrue(
-            "memories share embedding",
-            store.inserted[0].embedding.contentEquals(store.inserted[1].embedding),
+            "candidates share embedding",
+            report.candidates[0].embedding.contentEquals(report.candidates[1].embedding),
         )
         // Categories ordered by enum index.
-        assertEquals(MemoryCategory.PERSONAL_IDENTITY, store.inserted[0].category)
-        assertEquals(MemoryCategory.PROFESSIONAL, store.inserted[1].category)
+        assertEquals(MemoryCategory.PERSONAL_IDENTITY, report.candidates[0].category)
+        assertEquals(MemoryCategory.PROFESSIONAL, report.candidates[1].category)
         // Verbatim user-message text per Q3 / M5_PLAN.md §2.
-        assertEquals("i'm a software engineer in toronto", store.inserted[0].text)
-        assertEquals("conv-1", store.inserted[0].conversationId)
+        assertEquals("i'm a software engineer in toronto", report.candidates[0].text)
+        assertEquals("conv-1", report.candidates[0].conversationId)
     }
 
     @Test
-    fun temporary_context_memory_gets_expiration_from_user_message() = runTest {
+    fun temporary_context_candidate_gets_expiration_from_user_message() = runTest {
         val store = TrackingStore()
         val classifier = StubClassifier(
             presenceLogits = floatArrayOf(0f, 5f),
@@ -149,24 +158,24 @@ class MemoryExtractorTest {
         )
         val extractor = buildExtractor(store = store, classifier = classifier)
 
-        extractor.extract(
+        val report = extractor.extract(
             userMessage = "i'm traveling to tokyo next week",
             assistantResponse = "have a great trip",
             conversationId = null,
-        )
+        ) as MemoryExtractor.ExtractionReport.PromptRequested
 
-        val mem = store.inserted.single()
-        assertEquals(MemoryCategory.TEMPORARY_CONTEXT, mem.category)
-        assertNotNull("expiresAt must be set on temporary_context", mem.expiresAtEpochMs)
+        val candidate = report.candidates.single()
+        assertEquals(MemoryCategory.TEMPORARY_CONTEXT, candidate.category)
+        assertNotNull("expiresAt must be set on temporary_context", candidate.expiresAtEpochMs)
         // "next week" with the test clock at 2026-05-10 → 2026-05-17.
         // We just sanity-check the offset is roughly +7 days from `now`,
         // not exact ms (TempContextDateParserTest covers exactness).
-        val deltaDays = (mem.expiresAtEpochMs!! - now) / (24L * 60 * 60 * 1_000)
+        val deltaDays = (candidate.expiresAtEpochMs!! - now) / (24L * 60 * 60 * 1_000)
         assertTrue("expected ~7 days delta, got $deltaDays", deltaDays in 5..14)
     }
 
     @Test
-    fun temporary_context_falls_back_to_30_day_default_when_no_date() = runTest {
+    fun temporary_context_candidate_falls_back_to_30_day_default_when_no_date() = runTest {
         val store = TrackingStore()
         val classifier = StubClassifier(
             presenceLogits = floatArrayOf(0f, 5f),
@@ -174,14 +183,14 @@ class MemoryExtractorTest {
         )
         val extractor = buildExtractor(store = store, classifier = classifier)
 
-        extractor.extract(
+        val report = extractor.extract(
             userMessage = "i have a temporary thing going on",
             assistantResponse = "ok",
             conversationId = null,
-        )
+        ) as MemoryExtractor.ExtractionReport.PromptRequested
 
-        val mem = store.inserted.single()
-        val deltaDays = (mem.expiresAtEpochMs!! - now) / (24L * 60 * 60 * 1_000)
+        val candidate = report.candidates.single()
+        val deltaDays = (candidate.expiresAtEpochMs!! - now) / (24L * 60 * 60 * 1_000)
         assertEquals(30L, deltaDays)
     }
 
@@ -208,22 +217,34 @@ class MemoryExtractorTest {
     }
 
     @Test
-    fun runs_evictor_before_inserting() = runTest {
+    fun runs_evictor_before_inserting_on_prompt_acceptance() = runTest {
+        // Pre-PR#7 the high-band branch ran `maybeEvict` before insert
+        // inside `extract`. Post-PR#7 there's no insert in `extract`;
+        // the eviction now fires inside `acceptPromptCandidate`. Verify
+        // both: (a) `extract` is no longer the eviction trigger for the
+        // classifier path, (b) accepting the candidate is.
         val store = TrackingStore()
         val evictor = SpyEvictor()
         val classifier = StubClassifier(
             presenceLogits = floatArrayOf(0f, 5f),
             categoryLogits = floatArrayOf(5f, -5f, -5f, -5f, -5f, -5f),
         )
-        val extractor = buildExtractor(store = store, classifier = classifier, evictor = evictor)
+        val extractor = buildExtractor(
+            store = store,
+            classifier = classifier,
+            evictor = evictor,
+            ids = listOf("cand-1", "m-1"),
+        )
 
-        extractor.extract(
+        val report = extractor.extract(
             userMessage = "i'm a software engineer",
             assistantResponse = "noted",
             conversationId = null,
-        )
+        ) as MemoryExtractor.ExtractionReport.PromptRequested
+        assertEquals("extract should not evict in the prompt path", 0, evictor.calls)
 
-        assertEquals(1, evictor.calls)
+        extractor.acceptPromptCandidate(report.candidates.single())
+        assertEquals("acceptance triggers eviction", 1, evictor.calls)
     }
 
     // -- Remember command --------------------------------------------------
@@ -341,11 +362,11 @@ class MemoryExtractorTest {
         assertSame(MemoryExtractor.ExtractionReport.SkippedNoEmbedder, report)
     }
 
-    // -- Three-band routing (PR#4) -----------------------------------------
+    // -- Two-band routing (PR#7 — was three-band in PR#4) ------------------
 
     @Test
     fun middle_band_returns_prompt_requested_without_inserting() = runTest {
-        // softmax([0, 1]) ≈ [0.27, 0.73] — comfortably between ask (0.15) and auto (0.85).
+        // softmax([0, 1]) ≈ [0.27, 0.73] — above ask (0.15).
         val store = TrackingStore()
         val classifier = StubClassifier(
             presenceLogits = floatArrayOf(0f, 1f),
@@ -387,22 +408,54 @@ class MemoryExtractorTest {
     }
 
     @Test
-    fun high_band_saves_immediately_under_three_band_routing() = runTest {
-        // softmax([0, 5]) ≈ [0.0067, 0.9933] — comfortably above auto (0.85).
+    fun high_confidence_classifier_still_prompts_user() = runTest {
+        // softmax([0, 5]) ≈ [0.0067, 0.9933] — pre-PR#7 this auto-saved;
+        // post-PR#7 every classifier-driven save must pass through the
+        // user-consent card. Only explicit `remember` commands auto-save.
         val store = TrackingStore()
         val classifier = StubClassifier(
             presenceLogits = floatArrayOf(0f, 5f),
             categoryLogits = floatArrayOf(5f, -5f, -5f, -5f, -5f, -5f),
         )
-        val extractor = buildExtractor(store = store, classifier = classifier, ids = listOf("m-1"))
+        val extractor = buildExtractor(store = store, classifier = classifier, ids = listOf("cand-1"))
 
         val report = extractor.extract(
             userMessage = "i'm a software engineer",
             assistantResponse = "noted",
             conversationId = null,
-        ) as MemoryExtractor.ExtractionReport.Created
-        assertEquals(1, report.createdIds.size)
-        assertEquals(1, store.inserted.size)
+        ) as MemoryExtractor.ExtractionReport.PromptRequested
+        assertEquals(1, report.candidates.size)
+        assertTrue("no inserts pre-acceptance even at high confidence", store.inserted.isEmpty())
+        assertEquals(MemoryCategory.PERSONAL_IDENTITY, report.candidates.single().category)
+    }
+
+    @Test
+    fun high_confidence_classifier_path_does_not_bump_auto_counter() = runTest {
+        // Regression guard for PR#7: `MEMORY_EXTRACTED_AUTO_TOTAL` must
+        // only count explicit Remember commands. The classifier path —
+        // even at p_has ≈ 0.99 — flows through the prompt card and bumps
+        // `MEMORY_PROMPT_SHOWN_TOTAL` instead.
+        val store = TrackingStore()
+        val counters = RecordingCounters()
+        val classifier = StubClassifier(
+            presenceLogits = floatArrayOf(0f, 5f),
+            categoryLogits = floatArrayOf(5f, -5f, -5f, -5f, -5f, -5f),
+        )
+        val extractor = buildExtractor(
+            store = store,
+            classifier = classifier,
+            counters = counters,
+            ids = listOf("cand-1"),
+        )
+
+        extractor.extract(
+            userMessage = "i'm a software engineer",
+            assistantResponse = "noted",
+            conversationId = null,
+        )
+
+        assertEquals(0L, counters.totals[CounterNames.MEMORY_EXTRACTED_AUTO_TOTAL] ?: 0L)
+        assertEquals(1L, counters.totals[CounterNames.MEMORY_PROMPT_SHOWN_TOTAL])
     }
 
     @Test
@@ -455,28 +508,30 @@ class MemoryExtractorTest {
     }
 
     @Test
-    fun auto_band_falls_back_to_argmax_category_when_none_cross_threshold() = runTest {
+    fun high_confidence_falls_back_to_argmax_category_when_none_cross_threshold() = runTest {
         // Reproduces the on-device case: presence head is confident
-        // (p_has=0.93) but every category sigmoid sits below 0.5.
-        // Pre-fix this dropped silently; fix saves under argMax category.
+        // (p_has=0.95) but every category sigmoid sits below 0.5.
+        // Pre-fix this dropped silently; fix surfaces a prompt under
+        // argMax category. Pre-PR#7 the high band saved directly; post-PR#7
+        // the same input goes through the prompt card.
         val store = TrackingStore()
         val classifier = StubClassifier(
-            presenceLogits = floatArrayOf(0f, 3f), // softmax ~ [0.05, 0.95] → auto band
+            presenceLogits = floatArrayOf(0f, 3f), // softmax ~ [0.05, 0.95]
             // All negative logits → all sigmoid probs < 0.5. Index 1 (PREFERENCE)
             // is the largest by a hair.
             categoryLogits = floatArrayOf(-1f, -0.1f, -1f, -1f, -1f, -1f),
         )
-        val extractor = buildExtractor(store = store, classifier = classifier, ids = listOf("m-1"))
+        val extractor = buildExtractor(store = store, classifier = classifier, ids = listOf("cand-1"))
 
         val report = extractor.extract(
             userMessage = "i'm a software engineer",
             assistantResponse = "noted",
             conversationId = null,
-        ) as MemoryExtractor.ExtractionReport.Created
+        ) as MemoryExtractor.ExtractionReport.PromptRequested
 
-        assertEquals(1, report.createdIds.size)
-        assertEquals(1, store.inserted.size)
-        assertEquals(MemoryCategory.PREFERENCE, store.inserted.single().category)
+        assertEquals(1, report.candidates.size)
+        assertEquals(MemoryCategory.PREFERENCE, report.candidates.single().category)
+        assertTrue("still no insert pre-acceptance", store.inserted.isEmpty())
     }
 
     @Test
@@ -550,6 +605,7 @@ class MemoryExtractorTest {
         evictor: MemoryEvictor = MemoryEvictor(capacity = 10_000),
         creationEnabled: Boolean = true,
         ids: List<String> = listOf("m-1", "m-2", "m-3", "m-4", "m-5"),
+        counters: TelemetryCounters = NoOpTelemetryCounters,
     ): MemoryExtractor {
         val idIter = ids.iterator()
         val tokenizer = WordPieceTokenizer(stubVocab)
@@ -576,7 +632,22 @@ class MemoryExtractorTest {
             nowProvider = { now },
             creationEnabledProvider = { creationEnabled },
             idGenerator = { if (idIter.hasNext()) idIter.next() else "m-overflow" },
+            counters = counters,
         )
+    }
+
+    /**
+     * In-memory `TelemetryCounters` impl for asserting counter increments.
+     * The tagged-`increment` default impl joins to `name:tag`, so a tagged
+     * call lands under that joined key; PR#7 tests inspect untagged
+     * counters only and don't need to disambiguate.
+     */
+    private class RecordingCounters : TelemetryCounters {
+        val totals: MutableMap<String, Long> = mutableMapOf()
+        override fun increment(name: String, by: Long) {
+            totals[name] = (totals[name] ?: 0L) + by
+        }
+        override fun observeLatency(metric: String, durationMs: Long) = Unit
     }
 
     private val stubVocab = Vocab(

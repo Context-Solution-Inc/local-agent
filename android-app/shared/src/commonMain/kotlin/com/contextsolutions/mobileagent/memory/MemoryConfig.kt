@@ -26,22 +26,25 @@ data class MemoryConfig(
 }
 
 /**
- * Three-band routing thresholds for `p_has_extraction`
+ * Two-band routing thresholds for `p_has_extraction`
  * (= softmax(presenceLogits) at
  * [com.contextsolutions.mobileagent.classifier.ClassifierOutput.PRESENCE_INDEX_HAS_EXTRACTION]):
  *
- *  - `>= autoSave` → save the memory automatically (no user interaction)
- *  - `>= ask`      → surface a Save / Dismiss card to the user
- *  - otherwise     → silent skip
+ *  - `>= ask` → surface a Save / Dismiss card to the user
+ *  - otherwise → silent skip
+ *
+ * Pre-PR#7 a third "high band" auto-saved at `>= autoSave`. Removed so
+ * every classifier-driven save passes through explicit user consent —
+ * Lawrence's UX call: the model is not confident enough at v1.0 to
+ * justify silent writes, and the prompt card is cheap. Explicit
+ * `RememberForgetDetector.Command.Remember` still auto-saves (the user
+ * literally typed "remember …").
  *
  * [category] is the existing multi-label sigmoid cutoff used to decide
  * which `MemoryCategory` heads are active for a given turn.
  */
 @Serializable
 data class MemoryThresholds(
-    @SerialName("auto_save")
-    val autoSave: Float,
-
     @SerialName("ask")
     val ask: Float,
 
@@ -49,18 +52,13 @@ data class MemoryThresholds(
     val category: Float,
 ) {
     init {
-        require(autoSave in 0f..1f) { "autoSave must be in [0, 1], was $autoSave" }
         require(ask in 0f..1f) { "ask must be in [0, 1], was $ask" }
         require(category in 0f..1f) { "category must be in [0, 1], was $category" }
-        require(ask < autoSave) {
-            "ask ($ask) must be strictly less than autoSave ($autoSave)"
-        }
     }
 
     companion object {
-        /** v1.0 ship defaults — match the pre-flight 0.85 / 0.15 bands per PRD §3.2.1. */
+        /** v1.0 ship defaults — `ask` matches PRD §3.2.1's low band; no auto-save band post-PR#7. */
         val DEFAULT: MemoryThresholds = MemoryThresholds(
-            autoSave = 0.85f,
             ask = 0.15f,
             category = 0.5f,
         )
