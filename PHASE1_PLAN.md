@@ -364,6 +364,83 @@ tool rows) via a small `PersistedCitations` JSON envelope. No schema
 migration: pre-PR#13 rows have NULL in that column and decode cleanly to
 an empty list.
 
+### M2.4 — On-device TODO list with chat regex commands ✅ COMPLETE 2026-05-15
+
+PR #15 adds a third deterministic chat surface (alongside timers and
+alarms): a TODO list reachable from a new header-bar icon to the LEFT of
+the timer icon, plus chat commands `add / list / complete / delete / edit
+/ clear completed`. Same playbook as the M2-era clock work — a
+`TodoIntentDetector` + `TodoCommandParser` short-circuit in `AgentLoop.run`
+catch the turn before Gemma sees it; on intent-detected-but-parser-missed
+the agent emits a static `TODO_GUIDANCE_TEXT` reply and never falls
+through to the LLM. The clock branch runs first so phrases containing both
+keywords resolve to clock (preserves the older, more battle-tested path).
+
+Storage is SQLDelight, not SharedPreferences. New `todos` table at schema
+v5 via `4.sqm`: priority enum (`LOW`/`MEDIUM`/`HIGH` stored as TEXT for
+self-documenting CASE ordering), nullable `due_date_epoch_ms`, completed
+flag (0/1), created/updated timestamps, optional notes. `SqlDelightTodoRepository`
+owns a `MutableStateFlow<List<Todo>>` so the management screen and the
+chat handler share one live source — chat-side mutations propagate
+to the UI without cross-coupling, and vice versa. Schema snapshot dance
+per invariant #20: `4.db` generated first against v4, then `4.sqm` and
+`Todos.sq` added.
+
+Management screen is a full-screen route (`MainRoute.TodoManagement`,
+opt for parity with the existing memory-management surface — bottom
+sheet would have been faster but the date picker + edit dialog wanted
+the room). 614 unit tests, including a load-bearing `AgentLoopTodoTest`
+that asserts `engine.generate` is never invoked on a TODO turn (the
+no-LLM-fallback contract).
+
+### M2.5 — Proactive memory pressure handling ✅ COMPLETE 2026-05-15
+
+PR #16 closes a Pixel 7 failure mode the M0 memory budget (§2.2) warned
+about: another app starts after we've eager-loaded Gemma, system free
+RAM drops, our resident ~2.58 GB model goes from "preloaded for snappy
+first turn" to "what the OS is desperate to reclaim" — jank, slowdown,
+sometimes crashes. Eager warm-up is left intact for the common case;
+three new defenses backstop it:
+
+- **`MemoryPressureWatchdog`** (singleton, started from
+  `MobileAgentApplication.onCreate`) polls `ActivityManager.getMemoryInfo().availMem`
+  every 5 seconds while `SessionState.Loaded`. Below **1 GiB free** it
+  calls `forceUnload(UnloadReason.LowMemory)` on both
+  `InferenceSessionManager` and `AuxModelLifecycleCoordinator`. Mirrors
+  the `MainThreadHeartbeatWatchdog` pattern but watches a different
+  signal. New `UnloadReason.LowMemory` enum value +
+  `INFERENCE_UNLOADED_LOW_MEMORY_TOTAL` telemetry counter keep this
+  signal separate from `TrimMemory` / `MainThreadWatchdog` in dashboards.
+  Existing deferred-unload contract preserved — mid-generation turns
+  finish before the unload lands.
+
+- **`warmUpIfPossible()` memory gate**: refuses the cold load when
+  `availMem < EAGER_WARMUP_MIN_FREE_BYTES` (**2.0 GiB**). New
+  `WarmUpOutcome.SkippedMemory` outcome + matching counter. Without
+  this gate, on a memory-tight start we'd pay a full GPU init + 2.58 GB
+  I/O only to have the watchdog yank it back ~1 ms later (observed
+  on-device).
+
+- **Send-time gate in `ChatViewModel.send()`** with two thresholds:
+  cold-load path (state Unloaded/Failed) requires **2.0 GiB** free,
+  hot path (state Loaded/Loading) requires **1.0 GiB**. Hot-path
+  matters because without it a send during a transient memory dip
+  could start a turn the watchdog yanks mid-stream — the user saw a
+  blank assistant bubble with web-search references in the on-device
+  repro. On gate hit, a new `MemoryWarning` surfaces an `AlertDialog`
+  ("Low memory — close some apps and try again") with Retry / Cancel
+  buttons; Retry preserves the pending prompt and re-checks. Dialog
+  copy differentiates "load the AI model" vs "safely process this
+  request" based on whether the model is already resident.
+
+Thresholds (2.0 / 1.0 GiB) were tuned after on-device validation —
+initial 2.5 / 1.5 GiB values refused sends Pixel 7 could have handled.
+Hot-path threshold equals the watchdog floor, so a transient mid-turn
+dip can still trip the watchdog; the deferred-unload contract means the
+turn finishes before unload, and the next send pays a cold load via
+the agent loop's lazy path. Worth revisiting if telemetry shows
+mid-turn unloads becoming common.
+
 ### M3 — Datasets & classifier training ✅ COMPLETE 2026-05-09 — see `docs/M3_PLAN.md`
 
 Detailed phase-by-phase plan, ratified decisions, and exit criteria live in
