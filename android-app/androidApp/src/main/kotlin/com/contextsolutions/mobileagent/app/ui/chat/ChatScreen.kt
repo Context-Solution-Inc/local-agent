@@ -24,12 +24,16 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccessAlarm
 import androidx.compose.material.icons.filled.Brightness4
 import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.BrightnessHigh
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -63,6 +67,9 @@ import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.contextsolutions.mobileagent.app.service.SessionState
+import com.contextsolutions.mobileagent.app.ui.clock.AlarmSheet
+import com.contextsolutions.mobileagent.app.ui.clock.ClockViewModel
+import com.contextsolutions.mobileagent.app.ui.clock.TimerSheet
 import com.contextsolutions.mobileagent.app.ui.memory.ConversationMemoryBadge
 import com.contextsolutions.mobileagent.app.ui.theme.ThemeMode
 import com.contextsolutions.mobileagent.app.ui.theme.ThemeModeViewModel
@@ -82,12 +89,17 @@ fun ChatScreen(
     onOpenConversationMemory: (conversationId: String) -> Unit,
     viewModel: ChatViewModel = hiltViewModel(),
     themeModeViewModel: ThemeModeViewModel = hiltViewModel(),
+    clockViewModel: ClockViewModel = hiltViewModel(),
 ) {
     val ui by viewModel.ui.collectAsState()
     val session by viewModel.sessionState.collectAsState()
     val memoryCount by viewModel.memoryCount.collectAsState()
     val conversationId by viewModel.conversationId.collectAsState()
     val themeMode by themeModeViewModel.mode.collectAsState()
+    val timers by clockViewModel.timers.collectAsState()
+    val alarms by clockViewModel.alarms.collectAsState()
+    var timerSheetOpen by remember { mutableStateOf(false) }
+    var alarmSheetOpen by remember { mutableStateOf(false) }
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
@@ -199,6 +211,21 @@ fun ChatScreen(
                             onClick = { onOpenConversationMemory(cid) },
                         )
                     }
+                    // PR #11 — clock entry points. Always shown so the user
+                    // can create the first timer/alarm. A small numeric badge
+                    // surfaces the count when ≥1 is active.
+                    ClockIconButton(
+                        icon = Icons.Filled.Timer,
+                        count = timers.size,
+                        contentDescription = "Timers (${timers.size} active)",
+                        onClick = { timerSheetOpen = true },
+                    )
+                    ClockIconButton(
+                        icon = Icons.Filled.AccessAlarm,
+                        count = alarms.count { it.enabled },
+                        contentDescription = "Alarms (${alarms.count { it.enabled }} active)",
+                        onClick = { alarmSheetOpen = true },
+                    )
                     ThemeModeToggle(
                         mode = themeMode,
                         onCycle = { themeModeViewModel.cycle() },
@@ -365,6 +392,31 @@ fun ChatScreen(
                 }
             }
             Spacer(Modifier.height(8.dp))
+        }
+
+        if (timerSheetOpen) {
+            TimerSheet(onDismiss = { timerSheetOpen = false }, viewModel = clockViewModel)
+        }
+        if (alarmSheetOpen) {
+            AlarmSheet(onDismiss = { alarmSheetOpen = false }, viewModel = clockViewModel)
+        }
+    }
+}
+
+@Composable
+private fun ClockIconButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    count: Int,
+    contentDescription: String,
+    onClick: () -> Unit,
+) {
+    IconButton(onClick = onClick) {
+        if (count > 0) {
+            BadgedBox(badge = { Badge { Text(count.toString()) } }) {
+                Icon(imageVector = icon, contentDescription = contentDescription)
+            }
+        } else {
+            Icon(imageVector = icon, contentDescription = contentDescription)
         }
     }
 }

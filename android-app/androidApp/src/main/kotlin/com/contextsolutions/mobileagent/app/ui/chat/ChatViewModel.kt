@@ -248,6 +248,16 @@ class ChatViewModel @Inject constructor(
      * we just gate on having a real user message to work with.
      */
     private fun runMemoryExtraction(event: AgentEvent.Done) {
+        // Deterministic clock commands ("what alarms do I have", "set a 5
+        // minute timer") aren't memorable — the user is driving a tool,
+        // not telling us anything about themselves. AgentLoop tags these
+        // turns explicitly so we skip the extractor and avoid surfacing
+        // a "save this as a preference?" prompt for trivial drive-by
+        // interactions.
+        if (event.skipMemoryExtraction) {
+            Log.i(TAG, "skip memory extraction: turn flagged by agent loop")
+            return
+        }
         val userMessage = event.turnMessages
             .firstOrNull { it is ChatMessage.User }
             ?.text

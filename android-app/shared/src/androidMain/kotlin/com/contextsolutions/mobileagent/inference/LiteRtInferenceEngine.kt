@@ -208,6 +208,12 @@ class LiteRtInferenceEngine(private val context: Context) : InferenceEngine {
             automaticToolCalling = false,
         )
 
+        android.util.Log.i(
+            "LiteRtEngine",
+            "createConversation toolsRegistered=" +
+                request.tools.joinToString(",") { it.name } +
+                " systemPromptLen=${request.systemInstruction?.length ?: 0}",
+        )
         val conversation = typed.engine.createConversation(convoConfig)
         var tokenIndex = 0
         try {

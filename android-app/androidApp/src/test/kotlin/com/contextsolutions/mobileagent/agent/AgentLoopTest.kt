@@ -142,14 +142,18 @@ class AgentLoopTest {
     }
 
     @Test
-    fun `engine error propagates to AgentEvent_Error`() = runTest {
+    fun `engine error surfaces a friendly message to the user`() = runTest {
+        // Raw engine errors used to land in chat verbatim (including the
+        // stack trace from a tool-parse failure). The agent loop now wraps
+        // any unrecovered engine error in a single user-friendly sentence
+        // so the UI doesn't blast the user with internals.
         val session = FakeSession(error = "engine crashed")
         val loop = newLoop(session, FakeBraveSearchClient())
 
         val events = loop.run(AgentTurnInput("hi")).toList()
 
         val err = events.filterIsInstance<AgentEvent.Error>().single()
-        assertEquals("engine crashed", err.message)
+        assertEquals(AgentLoop.FRIENDLY_ENGINE_ERROR, err.message)
         assertFalse(events.any { it is AgentEvent.Done })
     }
 

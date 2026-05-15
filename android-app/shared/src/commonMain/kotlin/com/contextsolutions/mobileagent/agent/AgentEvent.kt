@@ -38,6 +38,14 @@ sealed interface AgentEvent {
     data class Done(
         val message: ChatMessage.Assistant,
         val turnMessages: List<ChatMessage>,
+        /**
+         * Set when this turn should NOT trigger downstream memory
+         * extraction — e.g. deterministic clock commands ("what alarms
+         * do I have", "set a 5 minute timer"). The user isn't saying
+         * anything memorable, just driving a tool. Default false
+         * preserves the existing LLM-turn behaviour.
+         */
+        val skipMemoryExtraction: Boolean = false,
     ) : AgentEvent
 
     /** Unrecoverable failure (engine error, parser exhaustion, etc.). The loop has stopped. */

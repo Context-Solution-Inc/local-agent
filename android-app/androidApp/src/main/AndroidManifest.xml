@@ -16,9 +16,24 @@
          (FOREGROUND_SERVICE_TYPE_DATA_SYNC) so the 2.58 GB Gemma artifact survives
          backgrounding without the OS reaping us mid-stream. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- PR #11 — AlarmFiringService plays the looping alarm sound while an
+         alarm is ringing. mediaPlayback is the policy-correct FGS type for
+         real audio output. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
     <!-- WorkManager handles the model download in the background. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- PR #11 — alarm clock + timer scheduling.
+         USE_EXACT_ALARM is install-granted for apps whose primary purpose is
+         alarm-clock functionality (calendar / reminder / alarm). We use it
+         instead of SCHEDULE_EXACT_ALARM so there's no runtime permission
+         prompt. RECEIVE_BOOT_COMPLETED + ACTION_LOCKED_BOOT_COMPLETED let
+         the boot receiver re-arm pending AlarmManager fires after a reboot
+         or app upgrade. VIBRATE drives the alarm vibration pattern. -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <!-- Pixel 7 has 8GB RAM; we declare the app expects substantial heap for Gemma 4 E4B. -->
     <application
@@ -73,6 +88,40 @@
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"
             tools:node="merge" />
+
+        <!-- PR #11 — AlarmFiringService loops the alarm sound + re-posts the
+             notification every 10s while an alarm is ringing. mediaPlayback
+             FGS type matches the looping ringtone playback. -->
+        <service
+            android:name=".service.clock.AlarmFiringService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+
+        <!-- PR #11 — AlarmManager fires PendingIntent broadcasts here for both
+             timers (ACTION_TIMER_FIRE) and alarms (ACTION_ALARM_FIRE). The
+             receiver hands timers off to a single chime notification and
+             starts AlarmFiringService for alarms. -->
+        <receiver
+            android:name=".service.clock.ClockEventReceiver"
+            android:exported="false" />
+
+        <!-- PR #11 — Snooze / Off-for-today / Dismiss buttons on the firing
+             notifications route here. -->
+        <receiver
+            android:name=".service.clock.ClockActionReceiver"
+            android:exported="false" />
+
+        <!-- PR #11 — Re-arms persisted timers + alarms after a device boot or
+             app upgrade (AlarmManager drops scheduled fires across both). -->
+        <receiver
+            android:name=".service.clock.ClockBootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
     </application>
 </manifest>

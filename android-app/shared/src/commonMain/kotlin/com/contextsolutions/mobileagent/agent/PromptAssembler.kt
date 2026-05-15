@@ -48,6 +48,7 @@ class PromptAssembler(
         searchAvailable: Boolean = true,
         forceFinalAnswer: Boolean = false,
         responseLanguage: PreferredLanguage = PreferredLanguage.DEFAULT,
+        extraTools: List<ToolDefinition> = emptyList(),
     ): StructuredPrompt {
         require(history.isNotEmpty()) { "history must not be empty" }
 
@@ -67,11 +68,29 @@ class PromptAssembler(
 
         // Tool registration is handled by the engine via ConversationConfig.tools
         // — the model only treats tools as callable when they come through that
-        // channel. We attach the definition here so the engine can pass it on.
-        val tools = if (searchAvailable) listOf(WEB_SEARCH_TOOL_DEFINITION) else emptyList()
+        // channel. We attach definitions here so the engine can pass them on.
+        // web_search is gated by [searchAvailable] (drives the "no tools" prompt
+        // branch); [extraTools] are pluggable handlers the agent layer registers.
+        val tools = buildList {
+            if (searchAvailable) add(WEB_SEARCH_TOOL_DEFINITION)
+            addAll(extraTools)
+        }
+
+        // PR #11: when clock tools are registered, append a short directive
+        // to the system prompt so the model treats them as the right answer
+        // for clock commands and doesn't over-confirm. The base tool-call
+        // description JSON tells Gemma *what* the tool does; this block
+        // tells it *to actually call the tool* without asking for
+        // confirmation when intent is unambiguous.
+        val hasClockTools = extraTools.any { it.name in CLOCK_TOOL_NAMES }
+        val finalSystemInstruction = if (hasClockTools) {
+            systemInstruction + "\n\n" + CLOCK_TOOLS_BLOCK
+        } else {
+            systemInstruction
+        }
 
         return StructuredPrompt(
-            systemInstruction = systemInstruction,
+            systemInstruction = finalSystemInstruction,
             history = structuredHistory,
             tools = tools,
         )
@@ -235,6 +254,43 @@ information and suggest the user enable web search in settings."""
 You have already invoked tools the maximum number of times for this turn.
 Do not emit another tool call. Answer the user with the information you
 already have, citing the search results you've received."""
+
+        /**
+         * Tool names that, when registered as `extraTools`, trigger the
+         * [CLOCK_TOOLS_BLOCK] directive in the system instruction. Kept
+         * here (vs. in [ClockToolHandler]) so PromptAssembler stays free
+         * of an agent→android cycle.
+         */
+        val CLOCK_TOOL_NAMES: Set<String> = setOf(
+            "set_timer", "set_alarm",
+            "cancel_timer", "cancel_alarm",
+            "list_timers", "list_alarms",
+        )
+
+        const val CLOCK_TOOLS_BLOCK: String = """=== Clock tools ===
+You have tools to set, cancel, list, or modify timers and alarms
+(set_timer, set_alarm, cancel_timer, cancel_alarm, list_timers,
+list_alarms). When the user asks to perform any of these actions, call
+the appropriate tool IMMEDIATELY. Do NOT ask for confirmation if the
+duration, time of day, or intent is already clear from the message —
+just execute and confirm what you did in a short reply.
+
+Examples:
+- "set a 5 minute timer for tea" -> call set_timer with minutes=5, label="tea"
+- "wake me at 7am every weekday" -> call set_alarm with hour=7, minute=0, days=["mon","tue","wed","thu","fri"]
+- "cancel my tea timer" -> call cancel_timer with label="tea"
+- "what alarms do I have?" -> call list_alarms
+
+Only ask for clarification when the request is genuinely ambiguous
+(e.g., "set a timer" with no duration). Clock tools do NOT need a web
+search — never call web_search to figure out how to set a timer.
+
+set_timer vs set_alarm: set_timer is for RELATIVE durations ("in 5
+minutes", "for 25 minutes"). set_alarm is for ABSOLUTE wall-clock
+times ("at 7am", "11:45 AM", "wake me at 6:30"). If the user says
+the word "timer" but gives a clock time like "11:45 AM", call
+set_alarm — the user wants to be alerted at that time of day, not
+after a duration."""
 
         const val PREFLIGHT_NOTICE: String = """=== Note on this turn ===
 A web search has already been performed on your behalf for this query, and

@@ -1,6 +1,8 @@
 package com.contextsolutions.mobileagent.app.di
 
+import android.util.Log
 import com.contextsolutions.mobileagent.agent.AgentLoop
+import com.contextsolutions.mobileagent.agent.ClockToolHandler
 import com.contextsolutions.mobileagent.agent.PromptAssembler
 import com.contextsolutions.mobileagent.agent.ResponseFilter
 import com.contextsolutions.mobileagent.agent.currentTimeContext
@@ -47,6 +49,7 @@ object AgentModule {
         preflightRouter: PreflightRouter,
         memoryRetriever: MemoryRetriever,
         counters: TelemetryCounters,
+        clockToolHandler: ClockToolHandler,
     ): AgentLoopFactory = object : AgentLoopFactory {
         override fun create(
             session: com.contextsolutions.mobileagent.agent.InferenceSession,
@@ -58,6 +61,8 @@ object AgentModule {
             searchService = searchService,
             preflightRouter = preflightRouter,
             memoryRetriever = memoryRetriever,
+            toolHandlers = listOf(clockToolHandler),
+            logger = { Log.i("AgentLoop", it) },
             counters = counters,
             responseLanguage = responseLanguage,
             responseFilter = responseFilter,
