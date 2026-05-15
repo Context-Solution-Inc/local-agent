@@ -404,7 +404,7 @@ three new defenses backstop it:
 
 - **`MemoryPressureWatchdog`** (singleton, started from
   `MobileAgentApplication.onCreate`) polls `ActivityManager.getMemoryInfo().availMem`
-  every 5 seconds while `SessionState.Loaded`. Below **1 GiB free** it
+  every 5 seconds while `SessionState.Loaded`. Below **800 MB free** it
   calls `forceUnload(UnloadReason.LowMemory)` on both
   `InferenceSessionManager` and `AuxModelLifecycleCoordinator`. Mirrors
   the `MainThreadHeartbeatWatchdog` pattern but watches a different
@@ -433,13 +433,24 @@ three new defenses backstop it:
   copy differentiates "load the AI model" vs "safely process this
   request" based on whether the model is already resident.
 
-Thresholds (2.0 / 1.0 GiB) were tuned after on-device validation —
-initial 2.5 / 1.5 GiB values refused sends Pixel 7 could have handled.
-Hot-path threshold equals the watchdog floor, so a transient mid-turn
-dip can still trip the watchdog; the deferred-unload contract means the
-turn finishes before unload, and the next send pays a cold load via
+Thresholds tuned after on-device validation:
+
+| Surface | Threshold |
+|---|---|
+| Watchdog unload floor | **800 MB** |
+| Send-time hot-path gate | **1.0 GiB** |
+| Send-time cold-load gate | **2.0 GiB** |
+| Eager warm-up gate | **2.0 GiB** |
+
+Initial values (1 GiB / 1.5 / 2.5 / 2.5 GiB) refused sends Pixel 7 could
+have handled and churned the model load/unload cycle on routine
+background-app spikes. The hot-path gate now sits ~200 MB above the
+watchdog floor, so a steady-state turn that starts above 1 GiB has
+breathing room before the watchdog catches a transient dip. If a dip
+does fire the watchdog mid-turn, the existing deferred-unload contract
+lets the turn finish before unload; the next send pays a cold load via
 the agent loop's lazy path. Worth revisiting if telemetry shows
-mid-turn unloads becoming common.
+mid-turn unloads becoming common or if dialog-fire rates spike.
 
 ### M3 — Datasets & classifier training ✅ COMPLETE 2026-05-09 — see `docs/M3_PLAN.md`
 
