@@ -5,6 +5,10 @@ import com.contextsolutions.mobileagent.agent.AgentLoop
 import com.contextsolutions.mobileagent.agent.ClockToolHandler
 import com.contextsolutions.mobileagent.agent.PromptAssembler
 import com.contextsolutions.mobileagent.agent.ResponseFilter
+import com.contextsolutions.mobileagent.agent.TodoCommandParser
+import com.contextsolutions.mobileagent.agent.TodoIntentDetector
+import com.contextsolutions.mobileagent.agent.TodoResponseFormatter
+import com.contextsolutions.mobileagent.agent.TodoToolHandler
 import com.contextsolutions.mobileagent.agent.currentTimeContext
 import com.contextsolutions.mobileagent.classifier.PreflightRouter
 import com.contextsolutions.mobileagent.language.PreferredLanguage
@@ -50,6 +54,10 @@ object AgentModule {
         memoryRetriever: MemoryRetriever,
         counters: TelemetryCounters,
         clockToolHandler: ClockToolHandler,
+        todoToolHandler: TodoToolHandler,
+        todoIntentDetector: TodoIntentDetector,
+        todoCommandParser: TodoCommandParser,
+        todoResponseFormatter: TodoResponseFormatter,
     ): AgentLoopFactory = object : AgentLoopFactory {
         override fun create(
             session: com.contextsolutions.mobileagent.agent.InferenceSession,
@@ -61,7 +69,10 @@ object AgentModule {
             searchService = searchService,
             preflightRouter = preflightRouter,
             memoryRetriever = memoryRetriever,
-            toolHandlers = listOf(clockToolHandler),
+            toolHandlers = listOf(clockToolHandler, todoToolHandler),
+            todoIntentDetector = todoIntentDetector,
+            todoCommandParser = todoCommandParser,
+            todoResponseFormatter = todoResponseFormatter,
             logger = { Log.i("AgentLoop", it) },
             counters = counters,
             responseLanguage = responseLanguage,

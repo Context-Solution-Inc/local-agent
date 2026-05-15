@@ -1,0 +1,78 @@
+-- TODO list (PR #15). New table introduced at schema v5 via 4.sqm.
+--
+-- Conventions follow Memories.sq / Conversations.sq: timestamps as
+-- *_epoch_ms INTEGER, booleans as 0/1 INTEGER, nullable fields with no
+-- DEFAULT, and new columns appended at the END of CREATE TABLE so
+-- verifyMigrations doesn't flag column-order drift against the migration
+-- snapshot (CLAUDE.md invariant #20).
+--
+-- `priority` is stored as TEXT ('LOW' | 'MEDIUM' | 'HIGH') rather than an
+-- ordinal int so the CASE-based ordering below is self-documenting and the
+-- column survives a future re-ordering of the Kotlin enum.
+
+CREATE TABLE todos (
+    id TEXT NOT NULL PRIMARY KEY,
+    title TEXT NOT NULL,
+    priority TEXT NOT NULL,
+    due_date_epoch_ms INTEGER,
+    completed INTEGER NOT NULL DEFAULT 0,
+    created_at_epoch_ms INTEGER NOT NULL,
+    updated_at_epoch_ms INTEGER NOT NULL,
+    notes TEXT
+);
+
+CREATE INDEX todos_by_completed_due ON todos(completed, due_date_epoch_ms);
+
+-- -- Inserts -----------------------------------------------------------------
+
+insertTodo:
+INSERT INTO todos(
+    id, title, priority, due_date_epoch_ms, completed,
+    created_at_epoch_ms, updated_at_epoch_ms, notes
+)
+VALUES (?, ?, ?, ?, 0, ?, ?, ?);
+
+-- -- Reads ------------------------------------------------------------------
+
+-- Full ordered list for the management screen. Completed rows sink to the
+-- bottom; within each completion group HIGH > MEDIUM > LOW; within each
+-- priority dated rows precede undated, soonest-due first; ties break on
+-- created_at.
+selectAll:
+SELECT * FROM todos
+ORDER BY completed ASC,
+         CASE priority WHEN 'HIGH' THEN 0 WHEN 'MEDIUM' THEN 1 ELSE 2 END ASC,
+         CASE WHEN due_date_epoch_ms IS NULL THEN 1 ELSE 0 END ASC,
+         due_date_epoch_ms ASC,
+         created_at_epoch_ms ASC;
+
+-- Active-only list — used by the chat list_todos tool so completed rows
+-- don't crowd the reply.
+selectActive:
+SELECT * FROM todos WHERE completed = 0
+ORDER BY CASE priority WHEN 'HIGH' THEN 0 WHEN 'MEDIUM' THEN 1 ELSE 2 END ASC,
+         CASE WHEN due_date_epoch_ms IS NULL THEN 1 ELSE 0 END ASC,
+         due_date_epoch_ms ASC,
+         created_at_epoch_ms ASC;
+
+selectById:
+SELECT * FROM todos WHERE id = ?;
+
+countActive:
+SELECT COUNT(*) FROM todos WHERE completed = 0;
+
+-- -- Mutations -------------------------------------------------------------
+
+update:
+UPDATE todos
+SET title = ?, priority = ?, due_date_epoch_ms = ?, notes = ?, updated_at_epoch_ms = ?
+WHERE id = ?;
+
+setCompleted:
+UPDATE todos SET completed = ?, updated_at_epoch_ms = ? WHERE id = ?;
+
+deleteById:
+DELETE FROM todos WHERE id = ?;
+
+deleteCompleted:
+DELETE FROM todos WHERE completed = 1;

@@ -64,6 +64,9 @@ class AgentLoop(
     private val memoryRetriever: MemoryRetriever? = null,
     private val toolHandlers: List<ToolHandler> = emptyList(),
     private val clockIntentDetector: ClockIntentDetector = ClockIntentDetector(),
+    private val todoIntentDetector: TodoIntentDetector = TodoIntentDetector(),
+    private val todoCommandParser: TodoCommandParser = TodoCommandParser(),
+    private val todoResponseFormatter: TodoResponseFormatter = TodoResponseFormatter(),
     private val logger: (String) -> Unit = {},
     private val maxToolCalls: Int = DEFAULT_MAX_TOOL_CALLS,
     private val counters: TelemetryCounters = NoOpTelemetryCounters,
@@ -116,6 +119,27 @@ class AgentLoop(
                 emitClockGuidance(input.userMessage)
                 return@channelFlow
             }
+            // TODO list shares the same reliability constraint as the clock
+            // surface (PR #15): structured CRUD over a typed schema that
+            // Gemma cannot be trusted to produce. Clock runs first because
+            // its verbs (`set`, `cancel`, `remind`) overlap todo verbs
+            // (`set priority`, `remind me to <task>`) — clock wins
+            // precedence so the older, more battle-tested path stays
+            // authoritative on ambiguous turns. The static guidance below
+            // is the explicit no-LLM-fallback contract: an intent-but-no-
+            // parse turn returns a fixed reply listing valid command
+            // shapes, never falls through to Gemma.
+            val todoCommand = todoCommandParser.parse(input.userMessage)
+            if (todoCommand != null) {
+                logger("[turn] deterministic todo command: ${todoCommand::class.simpleName}")
+                runTodoCommandDirect(input.userMessage, todoCommand)
+                return@channelFlow
+            }
+            if (todoIntentDetector.isTodoIntent(input.userMessage)) {
+                logger("[turn] todo intent but unmatched parser; emitting guidance")
+                emitTodoGuidance(input.userMessage)
+                return@channelFlow
+            }
         }
 
         // Treat the inbound user message as the trailing turn in history.
@@ -157,7 +181,8 @@ class AgentLoop(
             add(userMessage)
         }
         val skipPreflight = toolHandlers.isNotEmpty() &&
-            clockIntentDetector.isClockIntent(input.userMessage)
+            (clockIntentDetector.isClockIntent(input.userMessage) ||
+                todoIntentDetector.isTodoIntent(input.userMessage))
         val decision = if (skipPreflight) {
             logger("[turn] skipping pre-flight (clock intent detected)")
             PreflightDecision.FallThrough(
@@ -726,6 +751,140 @@ class AgentLoop(
     }
 
     /**
+     * Deterministic TODO path. Synthesises the same User → Assistant(toolCall)
+     * → Tool → Assistant(final) chain that [runClockCommandDirect] does so
+     * memory extraction and conversation persistence see a complete tool
+     * round-trip. Bypasses pre-flight + the engine — TODO is a structured
+     * CRUD surface Gemma cannot drive reliably.
+     */
+    private suspend fun ProducerScope<AgentEvent>.runTodoCommandDirect(
+        userMessageText: String,
+        command: TodoCommand,
+    ) {
+        val (toolName, argsJson) = todoCommandToCall(command)
+        val handler = toolHandlers.firstOrNull { it.handles(toolName) }
+        if (handler == null) {
+            send(AgentEvent.Error(FRIENDLY_ENGINE_ERROR, null))
+            return
+        }
+
+        val callId = "deterministic-todo-0"
+        val userMessage = ChatMessage.User(userMessageText)
+        val toolCallMessage = ChatMessage.Assistant(
+            text = "",
+            toolCall = ToolCall(callId, toolName, argsJson),
+        )
+
+        val result = handler.execute(PendingToolCall(toolName, argsJson))
+        val isError = result.startsWith("Error:") || result.contains("\"status\":\"error\"")
+        val toolResultMessage = ChatMessage.Tool(
+            callId = callId,
+            toolName = toolName,
+            text = result,
+            isError = isError,
+        )
+
+        val rendered = todoResponseFormatter.format(toolName, result)
+        val finalMessage = ChatMessage.Assistant(text = rendered)
+
+        send(AgentEvent.TokenChunk(rendered))
+        send(
+            AgentEvent.Done(
+                message = finalMessage,
+                turnMessages = listOf(
+                    userMessage,
+                    toolCallMessage,
+                    toolResultMessage,
+                    finalMessage,
+                ),
+                skipMemoryExtraction = true,
+            ),
+        )
+        logger(
+            "[turn] done via deterministic todo path tool=$toolName " +
+                "finalTextLen=${rendered.length}",
+        )
+    }
+
+    /**
+     * Static guidance message for "intent detected, parser unmatched" TODO
+     * turns. Same reliability rationale as [emitClockGuidance] — see the
+     * structural comment at the call site in [run] (lines 100–149).
+     */
+    private suspend fun ProducerScope<AgentEvent>.emitTodoGuidance(userMessageText: String) {
+        val message = TODO_GUIDANCE_TEXT
+        val userMessage = ChatMessage.User(userMessageText)
+        val finalMessage = ChatMessage.Assistant(text = message)
+        send(AgentEvent.TokenChunk(message))
+        send(
+            AgentEvent.Done(
+                message = finalMessage,
+                turnMessages = listOf(userMessage, finalMessage),
+                skipMemoryExtraction = true,
+            ),
+        )
+    }
+
+    private fun todoCommandToCall(command: TodoCommand): Pair<String, String> = when (command) {
+        is TodoCommand.Add -> TodoToolHandler.ADD_TODO_NAME to Json.encodeToString(
+            kotlinx.serialization.json.JsonObject.serializer(),
+            buildJsonObject {
+                put("title", JsonPrimitive(command.title))
+                command.priority?.let { put("priority", JsonPrimitive(it.name)) }
+                command.dueDateEpochMs?.let { put("due_date_epoch_ms", JsonPrimitive(it)) }
+            },
+        )
+        is TodoCommand.List -> TodoToolHandler.LIST_TODOS_NAME to Json.encodeToString(
+            kotlinx.serialization.json.JsonObject.serializer(),
+            buildJsonObject {
+                put("include_completed", JsonPrimitive(command.includeCompleted))
+            },
+        )
+        is TodoCommand.SetCompleted -> TodoToolHandler.COMPLETE_TODO_NAME to Json.encodeToString(
+            kotlinx.serialization.json.JsonObject.serializer(),
+            buildJsonObject {
+                putRef(command.ref)
+                put("completed", JsonPrimitive(command.completed))
+            },
+        )
+        is TodoCommand.Delete -> TodoToolHandler.DELETE_TODO_NAME to Json.encodeToString(
+            kotlinx.serialization.json.JsonObject.serializer(),
+            buildJsonObject {
+                putRef(command.ref)
+            },
+        )
+        is TodoCommand.SetPriority -> TodoToolHandler.EDIT_TODO_NAME to Json.encodeToString(
+            kotlinx.serialization.json.JsonObject.serializer(),
+            buildJsonObject {
+                putRef(command.ref)
+                put("priority", JsonPrimitive(command.priority.name))
+            },
+        )
+        is TodoCommand.SetDueDate -> TodoToolHandler.EDIT_TODO_NAME to Json.encodeToString(
+            kotlinx.serialization.json.JsonObject.serializer(),
+            buildJsonObject {
+                putRef(command.ref)
+                command.dueDateEpochMs?.let { put("due_date_epoch_ms", JsonPrimitive(it)) }
+            },
+        )
+        is TodoCommand.SetTitle -> TodoToolHandler.EDIT_TODO_NAME to Json.encodeToString(
+            kotlinx.serialization.json.JsonObject.serializer(),
+            buildJsonObject {
+                putRef(command.ref)
+                put("title", JsonPrimitive(command.title))
+            },
+        )
+        TodoCommand.ClearCompleted -> TodoToolHandler.CLEAR_COMPLETED_TODOS_NAME to "{}"
+    }
+
+    private fun kotlinx.serialization.json.JsonObjectBuilder.putRef(ref: TodoRef) {
+        when (ref) {
+            is TodoRef.Index -> put("index", JsonPrimitive(ref.oneBased))
+            is TodoRef.TitleSubstring -> put("title_substring", JsonPrimitive(ref.needle))
+        }
+    }
+
+    /**
      * Translates a [ClockCommand] into the (toolName, argsJson) pair the
      * [ClockToolHandler] expects. The handler's arg parsing is already
      * tolerant of integer or float JSON numbers, so we emit ints directly.
@@ -839,6 +998,14 @@ class AgentLoop(
                 "phrasings like \"set a 5 minute timer\", \"set an alarm for " +
                 "7am every weekday\", \"cancel my tea timer\", or \"what " +
                 "alarms do I have\"."
+
+        const val TODO_GUIDANCE_TEXT: String =
+            "Sorry, I didn't quite understand that todo command. Try " +
+                "phrasings like \"add buy milk to my todos\", \"add finish " +
+                "report with high priority by tomorrow\", \"list my todos\", " +
+                "\"complete #2\", \"delete the gym task\", or \"set #1 to " +
+                "high priority\". Due dates accept today, tomorrow, or an " +
+                "ISO date like 2026-05-20."
 
         // Per-field heuristic extractors. Each matches a single
         // `key: value` pair independently so stray tokens between fields

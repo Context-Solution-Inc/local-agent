@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.AccessAlarm
 import androidx.compose.material.icons.filled.Brightness4
 import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.BrightnessHigh
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
@@ -73,6 +74,7 @@ import com.contextsolutions.mobileagent.app.ui.clock.ClockViewModel
 import com.contextsolutions.mobileagent.app.ui.clock.TimerSheet
 import com.contextsolutions.mobileagent.app.ui.memory.ConversationMemoryBadge
 import com.contextsolutions.mobileagent.app.ui.theme.ThemeMode
+import com.contextsolutions.mobileagent.app.ui.todo.TodoViewModel
 import com.contextsolutions.mobileagent.app.ui.theme.ThemeModeViewModel
 import com.contextsolutions.mobileagent.inference.Accelerator
 import com.contextsolutions.mobileagent.inference.ThermalStatus
@@ -88,9 +90,11 @@ import com.contextsolutions.mobileagent.search.SearchSource
 fun ChatScreen(
     onOpenSettings: () -> Unit,
     onOpenConversationMemory: (conversationId: String) -> Unit,
+    onOpenTodos: () -> Unit,
     viewModel: ChatViewModel = hiltViewModel(),
     themeModeViewModel: ThemeModeViewModel = hiltViewModel(),
     clockViewModel: ClockViewModel = hiltViewModel(),
+    todoViewModel: TodoViewModel = hiltViewModel(),
 ) {
     val ui by viewModel.ui.collectAsState()
     val session by viewModel.sessionState.collectAsState()
@@ -99,6 +103,7 @@ fun ChatScreen(
     val themeMode by themeModeViewModel.mode.collectAsState()
     val timers by clockViewModel.timers.collectAsState()
     val alarms by clockViewModel.alarms.collectAsState()
+    val activeTodoCount by todoViewModel.activeCount.collectAsState()
     var timerSheetOpen by remember { mutableStateOf(false) }
     var alarmSheetOpen by remember { mutableStateOf(false) }
     var input by remember { mutableStateOf("") }
@@ -212,6 +217,16 @@ fun ChatScreen(
                             onClick = { onOpenConversationMemory(cid) },
                         )
                     }
+                    // PR #15 — TODO entry point. Sits immediately to the
+                    // LEFT of the timer icon. Badge mirrors the clock
+                    // pattern, surfacing the count of OPEN (not-completed)
+                    // todos when ≥1 is active.
+                    ClockIconButton(
+                        icon = Icons.Filled.Checklist,
+                        count = activeTodoCount,
+                        contentDescription = "Todos ($activeTodoCount open)",
+                        onClick = onOpenTodos,
+                    )
                     // PR #11 — clock entry points. Always shown so the user
                     // can create the first timer/alarm. A small numeric badge
                     // surfaces the count when ≥1 is active.

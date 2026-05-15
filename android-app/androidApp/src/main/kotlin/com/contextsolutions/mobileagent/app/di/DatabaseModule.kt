@@ -8,6 +8,7 @@ import com.contextsolutions.mobileagent.db.ConversationsQueries
 import com.contextsolutions.mobileagent.db.MobileAgentDatabase
 import com.contextsolutions.mobileagent.db.SearchCacheQueries
 import com.contextsolutions.mobileagent.db.TelemetryAggregateQueries
+import com.contextsolutions.mobileagent.db.TodosQueries
 import com.contextsolutions.mobileagent.telemetry.TelemetryCounters
 import dagger.Module
 import dagger.Provides
@@ -74,4 +75,9 @@ object DatabaseModule {
         queries: ConversationsQueries,
         counters: TelemetryCounters,
     ): ConversationRepository = SqlDelightConversationRepository(queries, counters)
+
+    @Provides
+    @Singleton
+    fun provideTodosQueries(database: MobileAgentDatabase): TodosQueries =
+        database.todosQueries
 }

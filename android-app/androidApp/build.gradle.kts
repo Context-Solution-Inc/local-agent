@@ -343,6 +343,12 @@ dependencies {
     // of the Android wiring.
     implementation(libs.sqldelight.android.driver)
 
+    // PR #15 — kotlinx-datetime for the TODO management screen (relative
+    // date labels, DatePicker → local-tz midnight conversion). :shared
+    // uses it but only as an `implementation` dep, so it doesn't leak
+    // here transitively.
+    implementation(libs.kotlinx.datetime)
+
     // Tests
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

@@ -18,6 +18,7 @@ import com.contextsolutions.mobileagent.app.ui.memory.ConversationMemoryListScre
 import com.contextsolutions.mobileagent.app.ui.memory.MemoryScreen
 import com.contextsolutions.mobileagent.app.ui.onboarding.OnboardingHost
 import com.contextsolutions.mobileagent.app.ui.settings.SettingsScreen
+import com.contextsolutions.mobileagent.app.ui.todo.TodoManagementScreen
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -100,8 +101,13 @@ fun MainScreen(
             onOpenConversationMemory = { conversationId ->
                 route = MainRoute.ConversationMemory(conversationId)
             },
+            onOpenTodos = { route = MainRoute.TodoManagement },
             viewModel = chatViewModel,
         )
+        MainRoute.TodoManagement -> {
+            BackHandler { route = MainRoute.Chat }
+            TodoManagementScreen(onBack = { route = MainRoute.Chat })
+        }
         MainRoute.Settings -> {
             BackHandler { route = MainRoute.Chat }
             SettingsScreen(
@@ -150,11 +156,12 @@ fun MainScreen(
  */
 private const val EAGER_WARMUP_DEBOUNCE_MS = 300L
 
-private sealed interface MainRoute {
+internal sealed interface MainRoute {
     data object Chat : MainRoute
     data object Settings : MainRoute
     data object MemoryManagement : MainRoute
     data object ConversationHistory : MainRoute
+    data object TodoManagement : MainRoute
     data class ConversationMemory(val conversationId: String) : MainRoute
 
     companion object {
@@ -172,6 +179,7 @@ private sealed interface MainRoute {
                         Settings -> "settings"
                         MemoryManagement -> "mem"
                         ConversationHistory -> "history"
+                        TodoManagement -> "todos"
                         is ConversationMemory -> "cmem:${it.conversationId}"
                     }
                 },
@@ -181,6 +189,7 @@ private sealed interface MainRoute {
                         encoded == "settings" -> Settings
                         encoded == "mem" -> MemoryManagement
                         encoded == "history" -> ConversationHistory
+                        encoded == "todos" -> TodoManagement
                         encoded.startsWith("cmem:") -> ConversationMemory(encoded.substringAfter("cmem:"))
                         else -> Chat
                     }
