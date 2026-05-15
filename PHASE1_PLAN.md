@@ -337,6 +337,33 @@ New telemetry counters live in `daily_inference` via the fallthrough route
 `conversations_deleted_total:explicit|capacity`,
 `conversation_overflow_warned_total`, `conversation_turnpairs_dropped_total`.
 
+Two same-day follow-ups landed alongside PR #13:
+
+- **Empty-bubble fix** (PR #13 commit `94846b8`): `ChatViewModel.toUiMessage()`
+  was emitting a UI bubble for every persisted assistant row, including the
+  intermediate `Assistant(text="", toolCall=...)` turn that precedes a Tool
+  result. Live conversations dodge this because Done only appends the FINAL
+  assistant to `ui.messages`; reload paths replayed every row. Filter
+  assistant turns with non-null `toolCall` on the rebuild path so loaded
+  UIs match live ones.
+- **Active-delete clears chat** (PR #13 commit `3402868`): deleting the
+  currently-open conversation from Manage Conversations now resets the chat
+  surface via a new `ChatViewModel.onConversationDeleted(id)` hook wired
+  through `MainScreen`. Avoids the ghost-state where the chat shows messages
+  for a row that no longer exists in the DB and the next send would FK-fail.
+
+### M2.3 — Persist assistant citations across resume ✅ COMPLETE 2026-05-15
+
+PR #14 follow-up: `SqlDelightConversationRepository` was dropping
+`ChatMessage.Assistant.citations` on write, so resuming a conversation
+rebuilt assistant bubbles with empty citation lists — the `(espn.com)` /
+`(yahoo.com)` source chips visible during the live turn disappeared on
+reload. Citations now serialise into the existing `tool_result_json`
+column (free for assistant rows since tool *result* payloads only live on
+tool rows) via a small `PersistedCitations` JSON envelope. No schema
+migration: pre-PR#13 rows have NULL in that column and decode cleanly to
+an empty list.
+
 ### M3 — Datasets & classifier training ✅ COMPLETE 2026-05-09 — see `docs/M3_PLAN.md`
 
 Detailed phase-by-phase plan, ratified decisions, and exit criteria live in
