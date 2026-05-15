@@ -1,24 +1,32 @@
 package com.contextsolutions.mobileagent.app.ui.clock
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -35,21 +43,24 @@ import com.contextsolutions.mobileagent.clock.TimerEntry
 import kotlinx.coroutines.delay
 
 /**
- * Bottom sheet listing active timers + a small form to start a new one.
- * Each row shows a live-ticking remaining countdown driven by a 1 s
- * `LaunchedEffect` — pure local state, no service ticks needed.
+ * Full-screen timers surface (PR #17). Replaces the prior
+ * `ModalBottomSheet`-based `TimerSheet`. Mirrors `TodoManagementScreen`'s
+ * shape: top bar + LazyColumn + FAB → create-dialog.
  *
- * "Add 1 min" / "Add 5 min" buttons call into the ViewModel which extends
- * `fireAtEpochMs` and re-arms AlarmManager. Cancel removes the row + arm.
+ * Each row shows a live-ticking remaining countdown driven by a single
+ * screen-level 1 s `LaunchedEffect`, so per-row launches aren't needed.
+ *
+ * "+1 min" / "+5 min" extend `fireAtEpochMs` and re-arm AlarmManager via
+ * `ClockViewModel.extendTimer`. Cancel removes the row + arm.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TimerSheet(
-    onDismiss: () -> Unit,
+fun TimerManagementScreen(
+    onBack: () -> Unit,
     viewModel: ClockViewModel = hiltViewModel(),
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val timers by viewModel.timers.collectAsState()
+    var creating by remember { mutableStateOf(false) }
 
     // Tick a local clock once a second so the per-row remaining-time labels
     // update without each row spinning up its own LaunchedEffect.
@@ -61,25 +72,31 @@ fun TimerSheet(
         }
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Timers") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+            )
+        },
+        floatingActionButton = {
+            FloatingActionButton(onClick = { creating = true }) {
+                Icon(Icons.Filled.Add, contentDescription = "New timer")
+            }
+        },
+    ) { padding ->
         Column(
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxSize()
+                .padding(padding)
                 .padding(horizontal = 16.dp, vertical = 8.dp),
         ) {
-            Text(
-                text = "Timers",
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Spacer(Modifier.height(8.dp))
-
             if (timers.isEmpty()) {
-                Text(
-                    text = "No active timers.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(8.dp))
+                EmptyTimers()
             } else {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     items(timers, key = { it.id }) { timer ->
@@ -89,19 +106,38 @@ fun TimerSheet(
                             onExtend = { extraMs -> viewModel.extendTimer(timer.id, extraMs) },
                             onCancel = { viewModel.cancelTimer(timer.id) },
                         )
+                        HorizontalDivider()
                     }
                 }
-                Spacer(Modifier.height(8.dp))
             }
+        }
+    }
 
-            HorizontalDivider()
-            Spacer(Modifier.height(8.dp))
-            NewTimerForm(
-                onCreate = { ms, label ->
-                    viewModel.createTimer(ms, label)
-                },
+    if (creating) {
+        NewTimerDialog(
+            onDismiss = { creating = false },
+            onCreate = { ms, label ->
+                viewModel.createTimer(ms, label)
+                creating = false
+            },
+        )
+    }
+}
+
+@Composable
+private fun EmptyTimers() {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                "No active timers.",
+                style = MaterialTheme.typography.titleMedium,
             )
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Tap + to start one, or ask in chat — try \"set a timer for 5 minutes\".",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -136,43 +172,49 @@ private fun TimerRow(
 }
 
 @Composable
-private fun NewTimerForm(onCreate: (Long, String?) -> Unit) {
+private fun NewTimerDialog(
+    onDismiss: () -> Unit,
+    onCreate: (Long, String?) -> Unit,
+) {
     var hours by remember { mutableStateOf("") }
     var minutes by remember { mutableStateOf("") }
     var seconds by remember { mutableStateOf("") }
     var label by remember { mutableStateOf("") }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            text = "New timer",
-            style = MaterialTheme.typography.titleSmall,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            DurationField(value = hours, onValueChange = { hours = it }, label = "h", modifier = Modifier.weight(1f))
-            DurationField(value = minutes, onValueChange = { minutes = it }, label = "m", modifier = Modifier.weight(1f))
-            DurationField(value = seconds, onValueChange = { seconds = it }, label = "s", modifier = Modifier.weight(1f))
-        }
-        OutlinedTextField(
-            value = label,
-            onValueChange = { label = it },
-            label = { Text("Label (optional)") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Button(
-            onClick = {
-                val ms = ((hours.toIntOrNull() ?: 0) * 3600L +
-                    (minutes.toIntOrNull() ?: 0) * 60L +
-                    (seconds.toIntOrNull() ?: 0)) * 1000L
-                if (ms > 0) {
-                    onCreate(ms, label.takeIf { it.isNotBlank() })
-                    hours = ""; minutes = ""; seconds = ""; label = ""
+    val totalMs = ((hours.toIntOrNull() ?: 0) * 3600L +
+        (minutes.toIntOrNull() ?: 0) * 60L +
+        (seconds.toIntOrNull() ?: 0)) * 1000L
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("New timer") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DurationField(value = hours, onValueChange = { hours = it }, label = "h", modifier = Modifier.weight(1f))
+                    DurationField(value = minutes, onValueChange = { minutes = it }, label = "m", modifier = Modifier.weight(1f))
+                    DurationField(value = seconds, onValueChange = { seconds = it }, label = "s", modifier = Modifier.weight(1f))
                 }
-            },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Start timer")
-        }
-    }
+                OutlinedTextField(
+                    value = label,
+                    onValueChange = { label = it },
+                    label = { Text("Label (optional)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = totalMs > 0,
+                onClick = { onCreate(totalMs, label.takeIf { it.isNotBlank() }) },
+            ) {
+                Text("Start")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
 }
 
 @Composable

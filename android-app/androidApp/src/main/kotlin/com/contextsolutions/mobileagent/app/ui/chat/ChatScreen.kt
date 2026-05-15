@@ -69,9 +69,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.contextsolutions.mobileagent.app.service.SessionState
-import com.contextsolutions.mobileagent.app.ui.clock.AlarmSheet
 import com.contextsolutions.mobileagent.app.ui.clock.ClockViewModel
-import com.contextsolutions.mobileagent.app.ui.clock.TimerSheet
 import com.contextsolutions.mobileagent.app.ui.memory.ConversationMemoryBadge
 import com.contextsolutions.mobileagent.app.ui.theme.ThemeMode
 import com.contextsolutions.mobileagent.app.ui.todo.TodoViewModel
@@ -91,6 +89,8 @@ fun ChatScreen(
     onOpenSettings: () -> Unit,
     onOpenConversationMemory: (conversationId: String) -> Unit,
     onOpenTodos: () -> Unit,
+    onOpenTimers: () -> Unit,
+    onOpenAlarms: () -> Unit,
     viewModel: ChatViewModel = hiltViewModel(),
     themeModeViewModel: ThemeModeViewModel = hiltViewModel(),
     clockViewModel: ClockViewModel = hiltViewModel(),
@@ -104,8 +104,6 @@ fun ChatScreen(
     val timers by clockViewModel.timers.collectAsState()
     val alarms by clockViewModel.alarms.collectAsState()
     val activeTodoCount by todoViewModel.activeCount.collectAsState()
-    var timerSheetOpen by remember { mutableStateOf(false) }
-    var alarmSheetOpen by remember { mutableStateOf(false) }
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
@@ -234,13 +232,13 @@ fun ChatScreen(
                         icon = Icons.Filled.Timer,
                         count = timers.size,
                         contentDescription = "Timers (${timers.size} active)",
-                        onClick = { timerSheetOpen = true },
+                        onClick = onOpenTimers,
                     )
                     ClockIconButton(
                         icon = Icons.Filled.AccessAlarm,
                         count = alarms.count { it.enabled },
                         contentDescription = "Alarms (${alarms.count { it.enabled }} active)",
-                        onClick = { alarmSheetOpen = true },
+                        onClick = onOpenAlarms,
                     )
                     ThemeModeToggle(
                         mode = themeMode,
@@ -408,13 +406,6 @@ fun ChatScreen(
                 }
             }
             Spacer(Modifier.height(8.dp))
-        }
-
-        if (timerSheetOpen) {
-            TimerSheet(onDismiss = { timerSheetOpen = false }, viewModel = clockViewModel)
-        }
-        if (alarmSheetOpen) {
-            AlarmSheet(onDismiss = { alarmSheetOpen = false }, viewModel = clockViewModel)
         }
 
         // PR#13 — context-full warning. Fires once per conversation: the

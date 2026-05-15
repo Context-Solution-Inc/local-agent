@@ -12,6 +12,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.contextsolutions.mobileagent.app.ui.chat.ChatScreen
 import com.contextsolutions.mobileagent.app.ui.chat.ChatViewModel
+import com.contextsolutions.mobileagent.app.ui.clock.AlarmManagementScreen
+import com.contextsolutions.mobileagent.app.ui.clock.TimerManagementScreen
 import com.contextsolutions.mobileagent.app.ui.download.DownloadScreen
 import com.contextsolutions.mobileagent.app.ui.history.ConversationHistoryScreen
 import com.contextsolutions.mobileagent.app.ui.memory.ConversationMemoryListScreen
@@ -102,11 +104,21 @@ fun MainScreen(
                 route = MainRoute.ConversationMemory(conversationId)
             },
             onOpenTodos = { route = MainRoute.TodoManagement },
+            onOpenTimers = { route = MainRoute.TimerManagement },
+            onOpenAlarms = { route = MainRoute.AlarmManagement },
             viewModel = chatViewModel,
         )
         MainRoute.TodoManagement -> {
             BackHandler { route = MainRoute.Chat }
             TodoManagementScreen(onBack = { route = MainRoute.Chat })
+        }
+        MainRoute.TimerManagement -> {
+            BackHandler { route = MainRoute.Chat }
+            TimerManagementScreen(onBack = { route = MainRoute.Chat })
+        }
+        MainRoute.AlarmManagement -> {
+            BackHandler { route = MainRoute.Chat }
+            AlarmManagementScreen(onBack = { route = MainRoute.Chat })
         }
         MainRoute.Settings -> {
             BackHandler { route = MainRoute.Chat }
@@ -162,6 +174,8 @@ internal sealed interface MainRoute {
     data object MemoryManagement : MainRoute
     data object ConversationHistory : MainRoute
     data object TodoManagement : MainRoute
+    data object TimerManagement : MainRoute
+    data object AlarmManagement : MainRoute
     data class ConversationMemory(val conversationId: String) : MainRoute
 
     companion object {
@@ -180,6 +194,8 @@ internal sealed interface MainRoute {
                         MemoryManagement -> "mem"
                         ConversationHistory -> "history"
                         TodoManagement -> "todos"
+                        TimerManagement -> "timers"
+                        AlarmManagement -> "alarms"
                         is ConversationMemory -> "cmem:${it.conversationId}"
                     }
                 },
@@ -190,6 +206,8 @@ internal sealed interface MainRoute {
                         encoded == "mem" -> MemoryManagement
                         encoded == "history" -> ConversationHistory
                         encoded == "todos" -> TodoManagement
+                        encoded == "timers" -> TimerManagement
+                        encoded == "alarms" -> AlarmManagement
                         encoded.startsWith("cmem:") -> ConversationMemory(encoded.substringAfter("cmem:"))
                         else -> Chat
                     }
