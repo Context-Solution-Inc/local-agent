@@ -46,6 +46,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -488,6 +489,10 @@ fun ChatScreen(
     }
 }
 
+// Count badges on the TODO / Timer / Alarm header icons. The bubble matches
+// the icon's own tint (LocalContentColor — set by the surrounding IconButton),
+// so the badge reads as a piece of the icon rather than an alert. The digit
+// uses the header surface color for contrast.
 @Composable
 private fun ClockIconButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -496,8 +501,17 @@ private fun ClockIconButton(
     onClick: () -> Unit,
 ) {
     IconButton(onClick = onClick) {
+        val iconTint = LocalContentColor.current
+        val digitColor = MaterialTheme.colorScheme.surface
         if (count > 0) {
-            BadgedBox(badge = { Badge { Text(count.toString()) } }) {
+            BadgedBox(
+                badge = {
+                    Badge(
+                        containerColor = iconTint,
+                        contentColor = digitColor,
+                    ) { Text(count.toString()) }
+                },
+            ) {
                 Icon(imageVector = icon, contentDescription = contentDescription)
             }
         } else {
