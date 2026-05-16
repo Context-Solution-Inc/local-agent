@@ -2,6 +2,8 @@
 
 Privacy-first on-device assistant running Gemma 4 E2B locally on Android, with Brave Search as the only outbound network dependency. See [PRD.md](PRD.md) for the full product spec and [PHASE1_PLAN.md](PHASE1_PLAN.md) for the implementation plan.
 
+<img width="1048" height="1220" alt="image" src="agent_loop_state_diagram.svg" />
+
 ## Repository layout
 
 ```
