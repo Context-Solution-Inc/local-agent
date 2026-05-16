@@ -636,7 +636,8 @@ generating. The native cancelProcess() round-trip can only be
 verified on-device because LiteRT-LM types aren't mockable from common
 test fixtures — manual verification ran on Pixel 7 against several
 streaming prompts that previously hung for 3-5 s after Cancel was
-tapped.
+tapped. 639 unit tests at end of M2.10 (+3 over M2.7; M2.8 and M2.9
+had no test deltas).
 
 ### M3 — Datasets & classifier training ✅ COMPLETE 2026-05-09 — see `docs/M3_PLAN.md`
 
