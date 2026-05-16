@@ -559,6 +559,85 @@ truncation — they pass with 5 × ≈200-char snippets landing under 4096
 bytes. Cache rows from existing devices (capped at 2KB at insert) still
 deserialize cleanly; new rows can grow to 4KB.
 
+### M2.9 — Neutral count-badge styling on header icons ✅ COMPLETE 2026-05-16
+
+PR #21 retints the TODO / Timer / Alarm count badges. Material 3's
+`Badge` defaults `containerColor` to `colorScheme.error`, which renders
+as a loud red in light theme and pink in dark — visually it read as an
+alert rather than a count, and clashed with the otherwise neutral
+header chrome.
+
+The first two passes (hardcoded green; then hardcoded black/grey via
+`isSystemInDarkTheme()`) were rejected on-device: `isSystemInDarkTheme()`
+reads the **system** uiMode, but `MobileAgentTheme` accepts an
+explicit `themeMode` override (`Light` / `Dark` / `System`, see
+`ui/theme/Theme.kt`) so when the user's theme choice diverges from the
+system setting the badge logic and the rendered color scheme drift
+apart. Landed solution uses `LocalContentColor.current` for the badge
+`containerColor` and `MaterialTheme.colorScheme.surface` for the digit —
+the badge now picks up whatever color the surrounding `Icon` is being
+tinted with (typically `onSurfaceVariant`), so it reads as part of the
+icon and contrast stays correct regardless of themeMode override,
+Material You dynamic colors, or future scheme changes.
+
+Single-point edit in `ClockIconButton` (`ChatScreen.kt`); no other
+Material `Badge` call-sites exist in the app so the change propagates
+to all three icons automatically. Pure UI styling — no test deltas,
+no behaviour change.
+
+### M2.10 — Responsive cancel of in-flight generation ✅ COMPLETE 2026-05-16
+
+PR #22 fixes the long-standing complaint that tapping Cancel during
+LLM generation often did nothing for several seconds and left the app
+visually frozen while tokens kept arriving. Root cause: `Job.cancel()`
+in Kotlin only detaches the Flow chain; LiteRT-LM's native decode loop
+inside `Conversation.sendMessageAsync` keeps producing tokens on its
+own worker thread until end-of-turn, holding GPU/CPU and starving the
+UI thread. The Conversation chunks were being silently discarded by
+the cancelled flow but the GPU stayed pinned.
+
+Fix has three parts:
+
+1. **Native abort wiring** (`LiteRtInferenceEngine.kt`).
+   `com.google.ai.edge.litertlm.Conversation` exposes a `cancelProcess()`
+   primitive in 0.10.2 that asks the native side to stop the in-flight
+   decode. We now bind it to the consumer coroutine's `Job` via
+   `invokeOnCompletion` for both the legacy and structured generation
+   paths, so a `cancel()` propagates from Kotlin → JNI → LiteRT-LM
+   immediately. The finally block also calls `cancelProcess()` defensively
+   before `close()` in case the invokeOnCompletion handler hasn't run
+   yet. This is the load-bearing change.
+2. **Cooperative cancellation in the tool-call sub-loop**. Added
+   `currentCoroutineContext().ensureActive()` at the top of `stepLoop`
+   and before each `toolDispatcher.execute()` call so a cancel during
+   a slow tool (web search) bails before we round-trip back to Gemma
+   for another decode pass. Without this, cancel during the
+   "tools-running" portion of a multi-step turn would wait for the
+   tool to finish, then Gemma to finish, then the next tool, etc.
+3. **Two-stage UI feedback** (`ChatViewModel.kt` + `ChatScreen.kt`).
+   Added `ChatUiState.isCancelling`. `ChatViewModel.cancel()` flips
+   it synchronously before calling `job.cancel()`, and the catch on
+   `CancellationException` clears it. The Cancel button now renders
+   "Cancelling…" and disables itself the moment the user taps —
+   without this, the still-active "Cancel" label invited repeated
+   taps that did nothing and made the app feel broken even during
+   the (now-much-shorter) gap between tap and actual abort.
+
+Discovered LiteRT-LM 0.10.2's `cancelProcess()` by inspecting the
+api.jar with `javap`; the existing engine code closed the conversation
+on flow termination but never asked the native side to abort. The
+public LiteRT-LM Android docs don't mention this primitive directly —
+this is now captured in CLAUDE.md alongside invariants #1–#11 about
+the engine layer.
+
+Test coverage: `ChatViewModelCancelTest` exercises the synchronous
+isCancelling flip, idempotent re-taps, and the no-op when nothing is
+generating. The native cancelProcess() round-trip can only be
+verified on-device because LiteRT-LM types aren't mockable from common
+test fixtures — manual verification ran on Pixel 7 against several
+streaming prompts that previously hung for 3-5 s after Cancel was
+tapped.
+
 ### M3 — Datasets & classifier training ✅ COMPLETE 2026-05-09 — see `docs/M3_PLAN.md`
 
 Detailed phase-by-phase plan, ratified decisions, and exit criteria live in

@@ -13,6 +13,9 @@ import com.google.ai.edge.litertlm.OpenApiTool
 import com.google.ai.edge.litertlm.SamplerConfig
 import com.google.ai.edge.litertlm.tool
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -173,7 +176,14 @@ class LiteRtInferenceEngine(private val context: Context) : InferenceEngine {
         if (!isStructured) {
             val convoConfig = ConversationConfig(samplerConfig = samplerConfig)
             var tokenIndex = 0
-            typed.engine.createConversation(convoConfig).use { conversation ->
+            val conversation = typed.engine.createConversation(convoConfig)
+            // Wire coroutine cancellation to the native abort primitive: without
+            // this, Job.cancel() only detaches the Kotlin flow — LiteRT-LM's
+            // worker thread keeps decoding for the rest of the turn, holding GPU
+            // and freezing the UI. cancelProcess() tells the native side to stop
+            // the in-flight decode immediately. See PR #22 root cause.
+            val cancelHandle = bindCancellation(conversation)
+            try {
                 conversation.sendMessageAsync(request.prompt)
                     .catch { t -> emit(GenerationEvent.Error(t.message ?: "unknown error", t)) }
                     .collect { chunk ->
@@ -185,6 +195,10 @@ class LiteRtInferenceEngine(private val context: Context) : InferenceEngine {
                             tokenIndex++
                         }
                     }
+            } finally {
+                cancelHandle?.dispose()
+                runCatching { conversation.cancelProcess() }
+                runCatching { conversation.close() }
             }
             emit(GenerationEvent.Done(tokenIndex, FinishReason.END_OF_TURN))
             return@flow
@@ -215,6 +229,14 @@ class LiteRtInferenceEngine(private val context: Context) : InferenceEngine {
                 " systemPromptLen=${request.systemInstruction?.length ?: 0}",
         )
         val conversation = typed.engine.createConversation(convoConfig)
+        // Wire coroutine cancellation to LiteRT-LM's native abort primitive.
+        // Without this, ChatViewModel.cancel() → Job.cancel() only detaches
+        // the Kotlin flow — the native decode loop keeps running on
+        // LiteRT-LM's worker thread until end-of-turn, holding the GPU and
+        // making the app feel unresponsive. cancelProcess() asks the native
+        // side to stop immediately; the upstream Flow then completes and the
+        // finally block tears the conversation down. See PR #22 root cause.
+        val cancelHandle = bindCancellation(conversation)
         var tokenIndex = 0
         try {
             // First leg: send the current message (typically a User string;
@@ -223,6 +245,7 @@ class LiteRtInferenceEngine(private val context: Context) : InferenceEngine {
             var nextMessage: Any = current.toCurrentMessage()
 
             stepLoop@ while (true) {
+                currentCoroutineContext().ensureActive()
                 val pendingCalls = mutableMapOf<String, com.google.ai.edge.litertlm.ToolCall>()
                 val flow = when (nextMessage) {
                     is String -> conversation.sendMessageAsync(nextMessage as String)
@@ -255,7 +278,10 @@ class LiteRtInferenceEngine(private val context: Context) : InferenceEngine {
 
                 // Execute tools, build a tool-response message, send it back to
                 // the SAME conversation. Gemma's correlation depends on this.
+                // ensureActive before each dispatch so a cancel during a slow
+                // tool (web search) bails before we round-trip back to Gemma.
                 val responses = pendingCalls.values.map { call ->
+                    currentCoroutineContext().ensureActive()
                     val argsJson = serializeToolArguments(call.arguments)
                     val responseText = toolDispatcher.execute(
                         PendingToolCall(name = call.name, argumentsJson = argsJson),
@@ -266,10 +292,39 @@ class LiteRtInferenceEngine(private val context: Context) : InferenceEngine {
                 nextMessage = Message.tool(Contents.of(responses))
             }
         } finally {
-            conversation.close()
+            cancelHandle?.dispose()
+            runCatching { conversation.cancelProcess() }
+            runCatching { conversation.close() }
         }
         emit(GenerationEvent.Done(tokenIndex, FinishReason.END_OF_TURN))
     }.flowOn(Dispatchers.IO)
+
+    /**
+     * Bridge Kotlin coroutine cancellation to LiteRT-LM's native
+     * [com.google.ai.edge.litertlm.Conversation.cancelProcess].
+     *
+     * `Conversation.sendMessageAsync(...)` returns a Flow that wraps a native
+     * decode loop. Cancelling the Kotlin Job alone closes the channel but
+     * leaves the native worker computing tokens until end-of-turn —
+     * symptomatically, the user taps Cancel, the UI clears the bubble, then
+     * the device stutters for several seconds while LiteRT-LM finishes the
+     * response no one is listening to. `cancelProcess()` is the documented
+     * primitive on `Conversation` (LiteRT-LM 0.10.2) for asking the native
+     * side to abort. Returns the [kotlinx.coroutines.DisposableHandle] so the
+     * finally block can detach the listener on normal completion (otherwise
+     * the handle would fire on every coroutine end and run a redundant
+     * cancelProcess + leak the handle reference).
+     */
+    private suspend fun bindCancellation(
+        conversation: com.google.ai.edge.litertlm.Conversation,
+    ): kotlinx.coroutines.DisposableHandle? {
+        val job = currentCoroutineContext()[Job] ?: return null
+        return job.invokeOnCompletion { cause ->
+            if (cause != null) {
+                runCatching { conversation.cancelProcess() }
+            }
+        }
+    }
 
     /**
      * The "current" message for sendMessageAsync. For a User turn we return a

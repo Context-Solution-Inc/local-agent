@@ -213,6 +213,9 @@ class ChatViewModel @Inject constructor(
         }
 
         // Add user bubble immediately so it appears even before the model loads.
+        // isCancelling is cleared here in case a prior turn left it set (e.g.
+        // the user cancelled then immediately re-sent before the prior turn's
+        // CancellationException catch ran).
         _ui.update {
             it.copy(
                 messages = it.messages + UiMessage.User(trimmed),
@@ -220,6 +223,7 @@ class ChatViewModel @Inject constructor(
                 searchStatus = SearchStatus.None,
                 error = null,
                 isGenerating = true,
+                isCancelling = false,
             )
         }
 
@@ -268,12 +272,20 @@ class ChatViewModel @Inject constructor(
                     onAgentEvent(event)
                 }
             } catch (e: CancellationException) {
-                _ui.update { it.copy(isGenerating = false, partialText = "", searchStatus = SearchStatus.None) }
+                _ui.update {
+                    it.copy(
+                        isGenerating = false,
+                        isCancelling = false,
+                        partialText = "",
+                        searchStatus = SearchStatus.None,
+                    )
+                }
                 throw e
             } catch (t: Throwable) {
                 _ui.update {
                     it.copy(
                         isGenerating = false,
+                        isCancelling = false,
                         partialText = "",
                         searchStatus = SearchStatus.None,
                         error = t.message ?: t::class.simpleName,
@@ -283,8 +295,25 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Cancel the in-flight turn. The button calls this; UI feedback must be
+     * immediate even though the underlying [Job.cancel] is asynchronous (the
+     * coroutine only checks cancellation at suspension points, and the native
+     * decode loop inside LiteRT-LM keeps running until
+     * [com.google.ai.edge.litertlm.Conversation.cancelProcess] propagates).
+     *
+     * Two-stage UX: flip `isCancelling = true` synchronously so the Cancel
+     * button immediately re-renders as a disabled "Cancelling…" affordance,
+     * then call `cancel()` on the job. The catch block clears the flag once
+     * the coroutine actually unwinds — typically tens of ms after the native
+     * abort lands.
+     */
     fun cancel() {
-        currentJob?.cancel()
+        val job = currentJob ?: return
+        if (job.isCancelled || job.isCompleted) return
+        if (!_ui.value.isGenerating) return
+        _ui.update { it.copy(isCancelling = true) }
+        job.cancel()
     }
 
     /**
@@ -470,6 +499,7 @@ class ChatViewModel @Inject constructor(
                         partialText = "",
                         searchStatus = SearchStatus.None,
                         isGenerating = false,
+                        isCancelling = false,
                     )
                 }
                 persistAgentTurnMessages(event.turnMessages)
@@ -481,6 +511,7 @@ class ChatViewModel @Inject constructor(
                     partialText = "",
                     searchStatus = SearchStatus.None,
                     isGenerating = false,
+                    isCancelling = false,
                 )
             }
         }
@@ -654,12 +685,20 @@ class ChatViewModel @Inject constructor(
     }
 }
 
-/** UI-shaped state. The Compose layer reads this directly. */
+/**
+ * UI-shaped state. The Compose layer reads this directly.
+ *
+ * [isCancelling] (PR #22) is `true` between the user tapping Cancel and the
+ * coroutine actually unwinding. The Cancel button reads it to render
+ * "Cancelling…" + disable itself so the user gets immediate feedback even
+ * though the underlying native decode loop may take tens of ms to abort.
+ */
 data class ChatUiState(
     val messages: List<UiMessage> = emptyList(),
     val partialText: String = "",
     val searchStatus: SearchStatus = SearchStatus.None,
     val isGenerating: Boolean = false,
+    val isCancelling: Boolean = false,
     val error: String? = null,
 )
 

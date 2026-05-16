@@ -417,7 +417,19 @@ fun ChatScreen(
                     Text("Send")
                 }
                 if (ui.isGenerating) {
-                    OutlinedButton(onClick = { viewModel.cancel() }) { Text("Cancel") }
+                    // PR #22 — two-stage feedback. The moment the user taps,
+                    // `isCancelling` flips synchronously and we re-render as
+                    // a disabled "Cancelling…" button. Without this, the
+                    // button stays active and clickable while the native
+                    // decode loop aborts (tens of ms to a few hundred ms),
+                    // so repeated taps queue up as additional cancel signals
+                    // on an already-cancelled job and the UI looks frozen.
+                    OutlinedButton(
+                        onClick = { viewModel.cancel() },
+                        enabled = !ui.isCancelling,
+                    ) {
+                        Text(if (ui.isCancelling) "Cancelling…" else "Cancel")
+                    }
                 }
             }
             Spacer(Modifier.height(8.dp))
