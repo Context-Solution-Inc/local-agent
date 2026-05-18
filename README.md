@@ -121,8 +121,8 @@ To skip the 5–10 minute download during dev iteration, push the model to the a
 
 ```bash
 adb push gemma-4-E2B-it.litertlm /data/local/tmp/
-adb shell run-as com.contextsolutions.mobileagent.debug \
-  sh -c 'mkdir -p files/models && cp /data/local/tmp/gemma-4-E2B-it.litertlm files/models/'
+adb shell "run-as com.contextsolutions.mobileagent.debug \
+  sh -c 'mkdir -p files/models && cp /data/local/tmp/gemma-4-E2B-it.litertlm files/models/'"
 ```
 
 ### Hosted CI
