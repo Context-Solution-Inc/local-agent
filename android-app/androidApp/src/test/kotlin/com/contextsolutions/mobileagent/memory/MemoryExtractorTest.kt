@@ -366,7 +366,7 @@ class MemoryExtractorTest {
 
     @Test
     fun middle_band_returns_prompt_requested_without_inserting() = runTest {
-        // softmax([0, 1]) ≈ [0.27, 0.73] — above ask (0.15).
+        // softmax([0, 1]) ≈ [0.27, 0.73] — above ask (0.6).
         val store = TrackingStore()
         val classifier = StubClassifier(
             presenceLogits = floatArrayOf(0f, 1f),
@@ -390,7 +390,7 @@ class MemoryExtractorTest {
 
     @Test
     fun low_band_silently_drops() = runTest {
-        // softmax([5, -5]) ≈ [0.9999, 0.0001] — far below ask (0.15).
+        // softmax([5, -5]) ≈ [0.9999, 0.0001] — far below ask (0.6).
         val store = TrackingStore()
         val classifier = StubClassifier(
             presenceLogits = floatArrayOf(5f, -5f),

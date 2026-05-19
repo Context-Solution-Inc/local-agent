@@ -39,14 +39,11 @@ import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -221,27 +218,23 @@ fun ChatScreen(
                     // drift out of sync with what actually gates inference.
                     SystemMemoryStatusIndicator()
                     // PR #15 — TODO entry point. Sits immediately to the
-                    // LEFT of the timer icon. Badge mirrors the clock
-                    // pattern, surfacing the count of OPEN (not-completed)
-                    // todos when ≥1 is active.
+                    // LEFT of the timer icon. Count is folded into the
+                    // accessibility label only; the visual badge was
+                    // removed in PR #26.
                     ClockIconButton(
                         icon = Icons.Filled.Checklist,
-                        count = activeTodoCount,
                         contentDescription = "Todos ($activeTodoCount open)",
                         onClick = onOpenTodos,
                     )
                     // PR #11 — clock entry points. Always shown so the user
-                    // can create the first timer/alarm. A small numeric badge
-                    // surfaces the count when ≥1 is active.
+                    // can create the first timer/alarm.
                     ClockIconButton(
                         icon = Icons.Filled.Timer,
-                        count = timers.size,
                         contentDescription = "Timers (${timers.size} active)",
                         onClick = onOpenTimers,
                     )
                     ClockIconButton(
                         icon = Icons.Filled.AccessAlarm,
-                        count = alarms.count { it.enabled },
                         contentDescription = "Alarms (${alarms.count { it.enabled }} active)",
                         onClick = onOpenAlarms,
                     )
@@ -474,34 +467,14 @@ fun ChatScreen(
     }
 }
 
-// Count badges on the TODO / Timer / Alarm header icons. The bubble matches
-// the icon's own tint (LocalContentColor — set by the surrounding IconButton),
-// so the badge reads as a piece of the icon rather than an alert. The digit
-// uses the header surface color for contrast.
 @Composable
 private fun ClockIconButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
-    count: Int,
     contentDescription: String,
     onClick: () -> Unit,
 ) {
     IconButton(onClick = onClick) {
-        val iconTint = LocalContentColor.current
-        val digitColor = MaterialTheme.colorScheme.surface
-        if (count > 0) {
-            BadgedBox(
-                badge = {
-                    Badge(
-                        containerColor = iconTint,
-                        contentColor = digitColor,
-                    ) { Text(count.toString()) }
-                },
-            ) {
-                Icon(imageVector = icon, contentDescription = contentDescription)
-            }
-        } else {
-            Icon(imageVector = icon, contentDescription = contentDescription)
-        }
+        Icon(imageVector = icon, contentDescription = contentDescription)
     }
 }
 

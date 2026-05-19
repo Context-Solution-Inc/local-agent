@@ -57,9 +57,15 @@ data class MemoryThresholds(
     }
 
     companion object {
-        /** v1.0 ship defaults — `ask` matches PRD §3.2.1's low band; no auto-save band post-PR#7. */
+        /**
+         * Defaults. PR #26 raised `ask` from 0.15 (PRD §3.2.1 low band) to
+         * 0.6 — above the presence head's argmax operating point (0.5,
+         * model card: 92.2% precision) for an extra margin against
+         * false-positive save prompts on marginal turns. Still
+         * configurable via `memory_config.json`.
+         */
         val DEFAULT: MemoryThresholds = MemoryThresholds(
-            ask = 0.15f,
+            ask = 0.6f,
             category = 0.5f,
         )
     }

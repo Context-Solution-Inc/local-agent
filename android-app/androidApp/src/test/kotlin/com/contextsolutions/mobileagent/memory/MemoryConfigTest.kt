@@ -12,7 +12,7 @@ class MemoryConfigTest {
     @Test
     fun default_thresholds_match_pr_spec() {
         val d = MemoryConfig.DEFAULT.thresholds
-        assertEquals(0.15f, d.ask, 1e-6f)
+        assertEquals(0.6f, d.ask, 1e-6f)
         assertEquals(0.5f, d.category, 1e-6f)
     }
 
@@ -21,7 +21,7 @@ class MemoryConfigTest {
         val raw = """
             {
               "model_version": "preflight_memory_shared_v1.0.0",
-              "thresholds": { "ask": 0.15, "category": 0.5 }
+              "thresholds": { "ask": 0.6, "category": 0.5 }
             }
         """.trimIndent()
         val parsed = json.decodeFromString(MemoryConfig.serializer(), raw)
@@ -36,7 +36,7 @@ class MemoryConfigTest {
         val raw = """
             {
               "model_version": "preflight_memory_shared_v1.0.0",
-              "thresholds": { "auto_save": 0.85, "ask": 0.15, "category": 0.5 }
+              "thresholds": { "auto_save": 0.85, "ask": 0.6, "category": 0.5 }
             }
         """.trimIndent()
         val parsed = json.decodeFromString(MemoryConfig.serializer(), raw)
