@@ -129,6 +129,9 @@ data class VerticalPreferences(
         SearchSubtype.WEATHER -> weather
         SearchSubtype.SPORTS -> sports
         SearchSubtype.FINANCE -> finance
+        // STOCKS uses a fixed endpoint (stockanalysis.com) — no user-editable
+        // source list, so it never carries SiteConfigs.
+        SearchSubtype.STOCKS -> emptyList()
     }
 
     fun withSites(subtype: SearchSubtype, sites: List<SiteConfig>): VerticalPreferences =
@@ -138,5 +141,7 @@ data class VerticalPreferences(
             SearchSubtype.WEATHER -> copy(weather = sites)
             SearchSubtype.SPORTS -> copy(sports = sites)
             SearchSubtype.FINANCE -> copy(finance = sites)
+            // STOCKS has no configurable sources — no-op.
+            SearchSubtype.STOCKS -> this
         }
 }

@@ -280,4 +280,7 @@ private fun defaultKindFor(subtype: SearchSubtype): SourceKind = when (subtype) 
     SearchSubtype.WEATHER -> SourceKind.RSS
     SearchSubtype.SPORTS -> SourceKind.RSS
     SearchSubtype.FINANCE -> SourceKind.RSS
+    // STOCKS has no user-editable sources; this screen never lists it, so the
+    // branch only exists to keep the `when` exhaustive.
+    SearchSubtype.STOCKS -> SourceKind.HTML
 }

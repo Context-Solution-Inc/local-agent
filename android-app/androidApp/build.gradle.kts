@@ -354,6 +354,8 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.turbine)
     testImplementation(libs.mockk)
+    // Ktor MockEngine for offline adapter tests (StockLookupAdapter).
+    testImplementation(libs.ktor.client.mock)
     // JDBC in-memory SQLite for unit-testing :shared's SQLDelight schema
     // without an Android Context.
     testImplementation(libs.sqldelight.sqlite.driver)

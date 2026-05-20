@@ -57,6 +57,11 @@ object VerticalSearchDispatcherFactory {
                 readability = readability,
                 logger = logger,
             ),
+            SearchSubtype.STOCKS to StockLookupAdapter(
+                httpClient = client,
+                readability = readability,
+                logger = logger,
+            ),
         )
         return VerticalSearchDispatcher(
             adapters = adapters,

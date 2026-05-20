@@ -1,7 +1,7 @@
 package com.contextsolutions.mobileagent.search
 
 /**
- * The five vertical channels the pre-flight router can dispatch search work to
+ * The vertical channels the pre-flight router can dispatch search work to
  * once the classifier decides "search is needed". Selected by
  * [SearchSubtypeDetector] from the user's literal query (regex/keyword), then
  * threaded onto [com.contextsolutions.mobileagent.classifier.PreflightDecision.FireSearch]
@@ -18,4 +18,14 @@ enum class SearchSubtype {
     WEATHER,
     SPORTS,
     FINANCE,
+
+    /**
+     * Single-instrument stock/ETF lookup (e.g. "Nvidia stock price"). Distinct
+     * from [FINANCE], which serves market *news* via RSS. Routed to
+     * [com.contextsolutions.mobileagent.search.vertical.StockLookupAdapter],
+     * which resolves the company name to a ticker via stockanalysis.com's search
+     * API, then fetches that ticker's page. Uses a fixed endpoint, so it has no
+     * user-editable source list (not shown in Settings → Search sources).
+     */
+    STOCKS,
 }

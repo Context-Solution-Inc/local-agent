@@ -29,13 +29,36 @@ class SearchSubtypeDetectorTest {
 
     @Test
     fun finance_queries_route_to_FINANCE() {
-        assertEquals(SearchSubtype.FINANCE, detector.detect("AAPL stock price"))
-        assertEquals(SearchSubtype.FINANCE, detector.detect("what's the market cap of nvidia"))
+        // Macro / market-wide / crypto / forex vocabulary — not a single
+        // instrument, so these stay on the FINANCE (market-news) vertical.
         assertEquals(SearchSubtype.FINANCE, detector.detect("S&P 500 today"))
         assertEquals(SearchSubtype.FINANCE, detector.detect("TSX close yesterday"))
-        assertEquals(SearchSubtype.FINANCE, detector.detect("\$NVDA earnings call"))
         assertEquals(SearchSubtype.FINANCE, detector.detect("bitcoin price"))
         assertEquals(SearchSubtype.FINANCE, detector.detect("EUR/USD exchange rate"))
+        assertEquals(SearchSubtype.FINANCE, detector.detect("interest rate decision"))
+        assertEquals(SearchSubtype.FINANCE, detector.detect("inflation report"))
+    }
+
+    @Test
+    fun single_instrument_queries_route_to_STOCKS() {
+        // Checked before FINANCE: a specific stock/ETF price or quote intent
+        // routes to the ticker resolver, not the market-news feed.
+        assertEquals(SearchSubtype.STOCKS, detector.detect("AAPL stock price"))
+        assertEquals(SearchSubtype.STOCKS, detector.detect("what's nvidia's stock price"))
+        assertEquals(SearchSubtype.STOCKS, detector.detect("tsla share price"))
+        assertEquals(SearchSubtype.STOCKS, detector.detect("price of apple shares"))
+        assertEquals(SearchSubtype.STOCKS, detector.detect("tesla stock"))
+        assertEquals(SearchSubtype.STOCKS, detector.detect("what's the market cap of nvidia"))
+        assertEquals(SearchSubtype.STOCKS, detector.detect("\$NVDA earnings call"))
+    }
+
+    @Test
+    fun market_wide_stock_phrases_stay_FINANCE_not_STOCKS() {
+        // "stock market / exchange" and queries that *start* with "stock"
+        // (no preceding company entity) must not be captured by STOCKS.
+        assertEquals(SearchSubtype.FINANCE, detector.detect("stock market today"))
+        assertEquals(SearchSubtype.FINANCE, detector.detect("the stock market is down"))
+        assertEquals(SearchSubtype.FINANCE, detector.detect("how is the stock exchange doing"))
     }
 
     @Test
