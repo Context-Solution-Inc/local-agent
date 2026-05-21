@@ -46,6 +46,18 @@ sealed interface AgentEvent {
          * preserves the existing LLM-turn behaviour.
          */
         val skipMemoryExtraction: Boolean = false,
+        /**
+         * Set by the deterministic WEATHER path (PR #37) when the user named a
+         * city + state/province *in this turn's query* that resolved to a
+         * catalog location AND no equivalent location memory exists yet. The UI
+         * layer hands this to the memory extractor to remember the user's
+         * location (deduped), so a later bare "what's the weather?" can reuse
+         * it. Holds a natural-language statement like "I live in Miami,
+         * Florida". Null on every other turn (and when the location came from
+         * an existing memory). Independent of [skipMemoryExtraction], which the
+         * weather path still sets true to suppress the *classifier* extractor.
+         */
+        val locationToRemember: String? = null,
     ) : AgentEvent
 
     /** Unrecoverable failure (engine error, parser exhaustion, etc.). The loop has stopped. */

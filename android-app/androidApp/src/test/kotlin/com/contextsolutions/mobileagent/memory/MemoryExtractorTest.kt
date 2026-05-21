@@ -290,6 +290,49 @@ class MemoryExtractorTest {
         assertTrue(store.inserted.isEmpty())
     }
 
+    // -- proposeLocationMemory (PR #37 weather path) -----------------------
+
+    @Test
+    fun proposeLocationMemory_proposes_personal_identity_consent_card() = runTest {
+        val store = TrackingStore()
+        val extractor = buildExtractor(store = store, ids = listOf("loc-1"))
+
+        val report = extractor.proposeLocationMemory(
+            locationText = "I live in Miami, Florida",
+            conversationId = null,
+        ) as MemoryExtractor.ExtractionReport.PromptRequested
+
+        val candidate = report.candidates.single()
+        assertEquals("loc-1", candidate.id)
+        assertEquals("I live in Miami, Florida", candidate.text)
+        assertEquals(MemoryCategory.PERSONAL_IDENTITY, candidate.category)
+        // Consent card only — nothing is saved until the user taps Save.
+        assertTrue(store.inserted.isEmpty())
+    }
+
+    @Test
+    fun proposeLocationMemory_skips_when_location_already_known() = runTest {
+        val store = TrackingStore(existingMatch = stubMemory("existing-loc"))
+        val extractor = buildExtractor(store = store)
+
+        // Already-known location → no re-prompt (NoOp), no insert.
+        val report = extractor.proposeLocationMemory("I live in Miami, Florida", conversationId = null)
+
+        assertSame(MemoryExtractor.ExtractionReport.NoOp, report)
+        assertTrue(store.inserted.isEmpty())
+    }
+
+    @Test
+    fun proposeLocationMemory_respects_creation_disabled() = runTest {
+        val store = TrackingStore()
+        val extractor = buildExtractor(store = store, creationEnabled = false)
+
+        val report = extractor.proposeLocationMemory("I live in Miami, Florida", conversationId = null)
+
+        assertSame(MemoryExtractor.ExtractionReport.SkippedDisabled, report)
+        assertTrue(store.inserted.isEmpty())
+    }
+
     // -- Forget command ----------------------------------------------------
 
     @Test

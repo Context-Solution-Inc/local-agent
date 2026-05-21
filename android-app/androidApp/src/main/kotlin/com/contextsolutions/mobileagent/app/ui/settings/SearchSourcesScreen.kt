@@ -84,7 +84,11 @@ fun SearchSourcesScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            val locationLabel = state.location?.let { "${it.city}, ${it.regionCode}, ${it.country}" }
+            // Onboarding captures country only (PR #37); region/city are empty
+            // and resolved per-query for weather, so show whatever is present.
+            val locationLabel = state.location
+                ?.let { listOf(it.city, it.regionCode, it.country).filter(String::isNotBlank).joinToString(", ") }
+                ?.takeIf { it.isNotBlank() }
                 ?: "no location set"
             Text(
                 text = "Defaults seeded from: $locationLabel",

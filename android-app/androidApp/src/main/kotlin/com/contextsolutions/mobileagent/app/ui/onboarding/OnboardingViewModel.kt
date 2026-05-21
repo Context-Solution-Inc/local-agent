@@ -99,15 +99,16 @@ class OnboardingViewModel @Inject constructor(
     }
 
     /**
-     * Persist [country], [regionCode], [city] and mark the location step
-     * decided. The repo also auto-seeds the per-vertical default source
-     * lists for the new country so the user can immediately ask weather/
-     * news/sports/finance questions without visiting Settings.
+     * Persist the chosen [country] and mark the location step decided. The
+     * repo auto-seeds the per-vertical default source lists for the country so
+     * the user can immediately ask weather/news/sports/finance questions
+     * without visiting Settings. Region/city are left empty — the weather path
+     * asks for the specific city + state/province at query time (PR #37).
      */
-    fun saveLocation(country: String, regionCode: String, city: String) {
+    fun saveLocation(country: String) {
         viewModelScope.launch {
             searchPreferences.setLocation(
-                UserLocation(country = country, regionCode = regionCode, city = city),
+                UserLocation(country = country, regionCode = "", city = ""),
             )
             onboardingPreferences.markLocationDecided()
         }
@@ -123,11 +124,7 @@ class OnboardingViewModel @Inject constructor(
             val fallback = locationCatalog.countries().firstOrNull()
             if (fallback != null) {
                 searchPreferences.setLocation(
-                    UserLocation(
-                        country = fallback.code,
-                        regionCode = fallback.regions.firstOrNull()?.code.orEmpty(),
-                        city = fallback.regions.firstOrNull()?.cities?.firstOrNull()?.name.orEmpty(),
-                    ),
+                    UserLocation(country = fallback.code, regionCode = "", city = ""),
                 )
             }
             onboardingPreferences.markLocationDecided()

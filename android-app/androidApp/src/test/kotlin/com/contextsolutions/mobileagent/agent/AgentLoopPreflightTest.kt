@@ -16,9 +16,15 @@ import com.contextsolutions.mobileagent.inference.GenerationRequest
 import com.contextsolutions.mobileagent.inference.HistoryRole
 import com.contextsolutions.mobileagent.inference.PendingToolCall
 import com.contextsolutions.mobileagent.inference.ToolDispatcher
+import com.contextsolutions.mobileagent.preferences.DefaultSiteResolver
 import com.contextsolutions.mobileagent.preferences.GpsCoordinates
+import com.contextsolutions.mobileagent.preferences.LocationCatalog
+import com.contextsolutions.mobileagent.preferences.SearchPreferencesRepository
+import com.contextsolutions.mobileagent.preferences.SiteConfig
+import com.contextsolutions.mobileagent.preferences.SourceKind
 import com.contextsolutions.mobileagent.preferences.UserLocation
 import com.contextsolutions.mobileagent.preferences.VerticalPreferences
+import com.contextsolutions.mobileagent.preferences.WeatherLocationResolver
 import com.contextsolutions.mobileagent.search.BraveKeyProvider
 import com.contextsolutions.mobileagent.search.BraveSearchClient
 import com.contextsolutions.mobileagent.search.BraveSearchResult
@@ -40,6 +46,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -317,6 +324,174 @@ class AgentLoopPreflightTest {
         assertEquals(2, done.turnMessages.size)
     }
 
+    // -- PR #37: query-time weather location resolution -------------------
+
+    @Test
+    fun weather_with_no_city_asks_for_location_and_skips_search_and_engine() = runTest {
+        val adapter = CapturingWeatherAdapter()
+        val service = SearchService(StubKeyProvider, FakeBraveSearchClient(), dao)
+        val dispatcher = VerticalSearchDispatcher(
+            adapters = mapOf(SearchSubtype.WEATHER to adapter),
+            generalAdapter = GeneralSearchAdapter(service),
+        )
+        val session = RecordingSession(FakeSession(emitText = "Gemma should NOT speak."))
+        val loop = buildWeatherLocationLoop(session, service, dispatcher, floatArrayOf(5f, 0f, 0f), storedCountry = "US")
+
+        val events = loop.run(AgentTurnInput("what's the weather right now?")).toList()
+
+        // No search, no engine — just the deterministic ask.
+        assertTrue("adapter must not be hit", adapter.callCount == 0)
+        assertTrue("no SearchStarted", events.filterIsInstance<AgentEvent.SearchStarted>().isEmpty())
+        assertTrue("engine untouched", session.requests.isEmpty())
+        val done = events.filterIsInstance<AgentEvent.Done>().single()
+        assertEquals(AgentLoop.WEATHER_LOCATION_PROMPT_TEXT, done.message.text)
+        assertNull("nothing to remember when no city given", done.locationToRemember)
+    }
+
+    @Test
+    fun weather_with_city_in_query_resolves_coords_and_remembers_location() = runTest {
+        val adapter = CapturingWeatherAdapter()
+        val service = SearchService(StubKeyProvider, FakeBraveSearchClient(), dao)
+        val dispatcher = VerticalSearchDispatcher(
+            adapters = mapOf(SearchSubtype.WEATHER to adapter),
+            generalAdapter = GeneralSearchAdapter(service),
+        )
+        val session = RecordingSession(FakeSession(emitText = "Gemma should NOT speak."))
+        val loop = buildWeatherLocationLoop(session, service, dispatcher, floatArrayOf(5f, 0f, 0f), storedCountry = "US")
+
+        val events = loop.run(AgentTurnInput("weather in Miami, Florida")).toList()
+
+        // Adapter received Miami's coords; same-country keeps the stored
+        // (US) weather source.
+        assertEquals(25.7617, adapter.lastGps?.latitude)
+        assertEquals("weather.gov", adapter.lastPrefs?.weather?.firstOrNull()?.domain)
+        assertEquals("US", adapter.lastLocation?.country)
+        assertTrue("engine untouched on weather direct path", session.requests.isEmpty())
+        val done = events.filterIsInstance<AgentEvent.Done>().single()
+        assertTrue("rendered weather bubble", done.message.text.contains("Weather for Miami"))
+        assertEquals("I live in Miami, Florida", done.locationToRemember)
+    }
+
+    @Test
+    fun weather_for_city_in_another_country_uses_that_countrys_source() = runTest {
+        val adapter = CapturingWeatherAdapter()
+        val service = SearchService(StubKeyProvider, FakeBraveSearchClient(), dao)
+        val dispatcher = VerticalSearchDispatcher(
+            adapters = mapOf(SearchSubtype.WEATHER to adapter),
+            generalAdapter = GeneralSearchAdapter(service),
+        )
+        val session = RecordingSession(FakeSession(emitText = "Gemma should NOT speak."))
+        // User onboarded in the US, asks about a Canadian city.
+        val loop = buildWeatherLocationLoop(session, service, dispatcher, floatArrayOf(5f, 0f, 0f), storedCountry = "US")
+
+        loop.run(AgentTurnInput("weather in Toronto, Ontario")).toList()
+
+        // Cross-country: Environment Canada source + Toronto coords.
+        assertEquals(43.6532, adapter.lastGps?.latitude)
+        assertEquals("weather.gc.ca", adapter.lastPrefs?.weather?.firstOrNull()?.domain)
+        assertEquals("CA", adapter.lastLocation?.country)
+    }
+
+    @Test
+    fun weather_intent_forces_search_even_when_classifier_underfires() = runTest {
+        val adapter = CapturingWeatherAdapter()
+        val service = SearchService(StubKeyProvider, FakeBraveSearchClient(), dao)
+        val dispatcher = VerticalSearchDispatcher(
+            adapters = mapOf(SearchSubtype.WEATHER to adapter),
+            generalAdapter = GeneralSearchAdapter(service),
+        )
+        val session = RecordingSession(FakeSession(emitText = "Gemma should NOT speak."))
+        // Classifier says NO search needed (low p_search_required) — the exact
+        // middle-band miss seen in production for "what's the weather".
+        val loop = buildWeatherLocationLoop(session, service, dispatcher, floatArrayOf(0f, 5f, 0f), storedCountry = "US")
+
+        val events = loop.run(AgentTurnInput("what's the weather")).toList()
+
+        // Despite the classifier, the weather path runs deterministically: with
+        // no city + no saved location it asks the user, and the LLM is untouched.
+        assertTrue("engine must not run on a weather turn", session.requests.isEmpty())
+        val done = events.filterIsInstance<AgentEvent.Done>().single()
+        assertEquals(AgentLoop.WEATHER_LOCATION_PROMPT_TEXT, done.message.text)
+    }
+
+    @Test
+    fun bare_weather_pattern_matches_only_tight_location_requests() {
+        val p = AgentLoop.BARE_WEATHER_PATTERN
+        // Accept: tight "use my location" requests.
+        for (q in listOf(
+            "what is the weather", "what's the weather", "whats the weather",
+            "What is the weather today", "what's the weather tomorrow",
+            "how's the weather right now", "weather", "weather today",
+            "what is the weather like", "what's the forecast", "weather forecast today",
+        )) {
+            assertTrue("should match: \"$q\"", p.matches(q.trim()))
+        }
+        // Reject: general questions / anything naming a place.
+        for (q in listOf(
+            "what is the weather typically like in England",
+            "what is the weather like in England",
+            "why is the weather so weird lately",
+            "weather in Miami", "weather patterns explained", "is the weather affecting flights",
+        )) {
+            assertFalse("should NOT match: \"$q\"", p.matches(q.trim()))
+        }
+    }
+
+    @Test
+    fun general_weather_question_is_not_hijacked_by_the_weather_path() = runTest {
+        val adapter = CapturingWeatherAdapter()
+        val service = SearchService(StubKeyProvider, FakeBraveSearchClient(), dao)
+        val dispatcher = VerticalSearchDispatcher(
+            adapters = mapOf(SearchSubtype.WEATHER to adapter),
+            generalAdapter = GeneralSearchAdapter(service),
+        )
+        val session = RecordingSession(FakeSession(emitText = "England is typically mild and rainy."))
+        // Even with the classifier firing, a general "weather" question that
+        // names no resolvable city and isn't a bare request must NOT be
+        // answered from the saved location — it reaches the LLM.
+        val loop = buildWeatherLocationLoop(session, service, dispatcher, floatArrayOf(5f, 0f, 0f), storedCountry = "US")
+
+        val events = loop.run(
+            AgentTurnInput("what is the weather typically like in England"),
+        ).toList()
+
+        assertTrue("engine should run for a general weather question", session.requests.isNotEmpty())
+        val done = events.filterIsInstance<AgentEvent.Done>().single()
+        assertFalse("must not ask for a city", done.message.text == AgentLoop.WEATHER_LOCATION_PROMPT_TEXT)
+        assertFalse("must not render a weather bubble", done.message.text.contains("Weather for"))
+    }
+
+    private fun buildWeatherLocationLoop(
+        session: InferenceSession,
+        searchService: SearchService,
+        verticalDispatcher: VerticalSearchDispatcher,
+        preflightLogits: FloatArray,
+        storedCountry: String,
+    ): AgentLoop {
+        val assembler = PromptAssembler(timeContextProvider = { timeContext })
+        val router = PreflightRouter(
+            engine = StubClassifierEngine(preflightLogits),
+            tokenizer = WordPieceTokenizer(stubVocab),
+            rewriter = QueryRewriter { timeContext },
+            configProvider = { PreflightConfig.DEFAULT },
+            searchAvailableProvider = { searchService.isAvailable() },
+            logger = {},
+        )
+        val catalog = LocationCatalog(weatherCatalogJson)
+        return AgentLoop(
+            session = session,
+            assembler = assembler,
+            searchService = searchService,
+            preflightRouter = router,
+            verticalDispatcher = verticalDispatcher,
+            searchPreferences = FakeSearchPreferences(storedCountry),
+            locationCatalog = catalog,
+            weatherLocationResolver = WeatherLocationResolver(catalog),
+            defaultSiteResolver = DefaultSiteResolver(weatherDefaultsJson),
+            weatherResponseFormatter = WeatherResponseFormatter,
+        )
+    }
+
     private fun buildWeatherDirectLoop(
         session: InferenceSession,
         searchService: SearchService,
@@ -417,5 +592,77 @@ class AgentLoopPreflightTest {
             requests.add(request)
             return delegate.generate(request, toolDispatcher)
         }
+    }
+
+    /** Records what the dispatcher handed the weather adapter. Mirrors the
+     *  real FeedAdapter: with no coords it can't fetch a forecast, so it
+     *  errors (the GPS-templated source gets skipped); with coords it returns
+     *  a renderable DWML-shaped payload so the direct path produces a bubble. */
+    private class CapturingWeatherAdapter : VerticalSearchAdapter {
+        var callCount = 0
+        var lastGps: GpsCoordinates? = null
+        var lastLocation: UserLocation? = null
+        var lastPrefs: VerticalPreferences? = null
+        override suspend fun fetch(
+            query: String,
+            prefs: VerticalPreferences,
+            location: UserLocation?,
+            gps: GpsCoordinates?,
+        ): SearchOutcome {
+            callCount++
+            lastGps = gps
+            lastLocation = location
+            lastPrefs = prefs
+            return if (gps == null) {
+                SearchOutcome.Error(SearchOutcome.ErrorKind.Network, "no coords")
+            } else {
+                SearchOutcome.Success(RENDERABLE_WEATHER_PAYLOAD, fromCache = false)
+            }
+        }
+    }
+
+    private class FakeSearchPreferences(private val country: String) : SearchPreferencesRepository {
+        // Stored (onboarded) weather source for the country = US NWS.
+        private val prefs = VerticalPreferences(
+            weather = listOf(
+                SiteConfig("weather.gov", "NWS", SourceKind.DWML, "https://forecast.weather.gov/MapClick.php?lat={lat}&lon={lon}"),
+            ),
+        )
+        override suspend fun snapshot(): VerticalPreferences = prefs
+        override fun flow(): Flow<VerticalPreferences> = flow { emit(prefs) }
+        override suspend fun location(): UserLocation = UserLocation(country, "", "")
+        override suspend fun setLocation(location: UserLocation) = Unit
+        override suspend fun setSites(subtype: SearchSubtype, sites: List<SiteConfig>) = Unit
+        override suspend fun isOnboarded(): Boolean = true
+    }
+
+    private companion object {
+        val RENDERABLE_WEATHER_PAYLOAD = FormattedSearchPayload(
+            json = """
+                {"sources":[{"domain":"weather.gov","url":"https://forecast.weather.gov/MapClick.php?lat=1&lon=2","payload":[
+                  {"title":"Current Conditions: Sunny","description":"72°F","published":"2026-05-21T08:00:00-04:00"},
+                  {"title":"Today: Sunny","description":"","published":"2026-05-21T08:00:00-04:00"}
+                ]}]}
+            """.trimIndent(),
+            sources = listOf(SearchSource("NWS", "https://forecast.weather.gov/MapClick.php?lat=1&lon=2", "")),
+        )
+
+        val weatherCatalogJson = """
+            {"countries":[
+              {"code":"US","name":"United States","regions":[
+                {"code":"FL","name":"Florida","cities":[{"name":"Miami","lat":25.7617,"lon":-80.1918}]}
+              ]},
+              {"code":"CA","name":"Canada","regions":[
+                {"code":"ON","name":"Ontario","cities":[{"name":"Toronto","lat":43.6532,"lon":-79.3832}]}
+              ]}
+            ]}
+        """.trimIndent()
+
+        val weatherDefaultsJson = """
+            {"fallback":"US","countries":{
+              "US":{"weather":[{"domain":"weather.gov","displayName":"NWS","kind":"DWML","endpointTemplate":"https://forecast.weather.gov/MapClick.php?lat={lat}&lon={lon}&FcstType=dwml"}]},
+              "CA":{"weather":[{"domain":"weather.gc.ca","displayName":"Environment Canada","kind":"RSS","endpointTemplate":"https://weather.gc.ca/rss/weather/{lat}_{lon}_e.xml"}]}
+            }}
+        """.trimIndent()
     }
 }

@@ -51,18 +51,18 @@ interface SearchPreferencesRepository {
 
 /**
  * Where the user lives, used to pick country-appropriate default sources
- * (weather.gc.ca for CA, api.weather.gov for US, etc.). The fields are
- * captured at onboarding via the three-stage Country → Region → City
- * dropdowns and persisted verbatim.
+ * (weather.gc.ca for CA, weather.gov for US, etc.). Onboarding captures only
+ * [country] (PR #37); [regionCode] / [city] are empty for new installs — the
+ * weather path asks for the specific city + state/province at query time and
+ * resolves it via [WeatherLocationResolver]. Older installs may still carry a
+ * region/city from the pre-PR-#37 picker; both are tolerated.
  *
  * @property country ISO-3166-1 alpha-2 country code, uppercase (e.g. "CA").
- * @property regionCode ISO-3166-2 subdivision suffix (e.g. "ON" for Ontario;
- *   the full code is composed as `"$country-$regionCode"` only when needed).
- *   Empty string when the country has no subdivisions in the bundled
- *   `locations.json`.
+ * @property regionCode ISO-3166-2 subdivision suffix (e.g. "ON" for Ontario).
+ *   Empty string under PR #37 onboarding (and when the country has no
+ *   subdivisions in the bundled `locations.json`).
  * @property city Free-form city name as it appears in `locations.json`
- *   ("Toronto", "San Francisco"). Used for URL substitution in vertical
- *   adapters that take a city parameter.
+ *   ("Toronto", "San Francisco"). Empty string under PR #37 onboarding.
  */
 @Serializable
 data class UserLocation(
@@ -98,6 +98,10 @@ data class SiteConfig(
  *
  * - [JSON] — GET the endpoint, deserialise via the per-vertical typed model.
  * - [RSS] — GET, parse as RSS 2.0 / Atom, format top-N entries.
+ * - [DWML] — GET, parse NWS Digital Weather Markup Language XML via
+ *   [com.contextsolutions.mobileagent.search.vertical.DwmlParser] into the same
+ *   entry shape as RSS, so [com.contextsolutions.mobileagent.agent.WeatherResponseFormatter]
+ *   renders US weather deterministically (the way RSS handles Environment Canada).
  * - [HTML] — GET, run through [com.contextsolutions.mobileagent.search.vertical.HtmlReadabilityExtractor].
  * - [BRAVE_SITE_FILTER] — reuses the Brave web search with a `site:` filter for
  *   this domain (NEWS / SPORTS / FINANCE).
@@ -106,6 +110,7 @@ data class SiteConfig(
 enum class SourceKind {
     JSON,
     RSS,
+    DWML,
     HTML,
     BRAVE_SITE_FILTER,
 }

@@ -47,6 +47,19 @@ class CitationUrlRewriteTest {
     }
 
     @Test
+    fun rewrites_nws_dwml_feed_to_mapclick_html_page() {
+        // The DWML fetch URL carries machine-readable params (FcstType=dwml,
+        // unit, lg); strip them so the chip lands on the human MapClick page.
+        val out = toHumanReadableUrl(
+            "https://forecast.weather.gov/MapClick.php?lat=25.7751&lon=-80.1947&unit=0&lg=english&FcstType=dwml",
+        )
+        assertEquals(
+            "https://forecast.weather.gov/MapClick.php?lat=25.7751&lon=-80.1947",
+            out,
+        )
+    }
+
+    @Test
     fun rewrites_all_default_sports_feeds_to_consumer_pages() {
         val expected = mapOf(
             "https://www.tsn.ca/rss/news" to "https://www.tsn.ca/",

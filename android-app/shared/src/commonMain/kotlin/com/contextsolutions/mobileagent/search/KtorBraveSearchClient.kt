@@ -22,16 +22,27 @@ import kotlinx.coroutines.CancellationException
  *
  * The Brave key is passed in rather than pulled from a key provider so callers
  * can short-circuit the no-key case before hitting the network.
+ *
+ * [logger] is a diagnostic logcat sink — every outgoing Brave request logs its
+ * actual `q` here. This is the single authoritative chokepoint for "what query
+ * hit Brave" across all verticals (GENERAL, plus the `site:`-augmented NEWS /
+ * SPORTS / FINANCE queries). It is intentional local diagnostics, NOT telemetry
+ * egress, and is distinct from the redacting HTTP error logger (PRD §4.4) that
+ * scrubs query strings out of error logs.
  */
 class KtorBraveSearchClient internal constructor(
     private val httpClient: HttpClient,
     private val endpoint: String = DEFAULT_ENDPOINT,
+    private val logger: (String) -> Unit = {},
 ) : BraveSearchClient {
 
     constructor(httpEngineFactory: HttpEngineFactory) : this(httpEngineFactory.create())
     constructor(httpEngineFactory: HttpEngineFactory, endpoint: String) : this(httpEngineFactory.create(), endpoint)
+    constructor(httpEngineFactory: HttpEngineFactory, logger: (String) -> Unit) :
+        this(httpEngineFactory.create(), logger = logger)
 
     override suspend fun search(query: String, apiKey: String): BraveSearchResult {
+        logger("q=\"$query\"")
         val response = try {
             httpClient.get(endpoint) {
                 parameter("q", query)

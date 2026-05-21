@@ -155,6 +155,50 @@ class MemoryExtractor(
         }
     }
 
+    /**
+     * Propose remembering the user's location, stated in a weather query
+     * (PR #37). The deterministic weather path resolves a city + state/province
+     * from the user's own words and calls this so a later bare "what's the
+     * weather?" can reuse it. Returns a [ExtractionReport.PromptRequested] with
+     * a single [MemoryCategory.PERSONAL_IDENTITY] candidate — surfaced as the
+     * same Save / Dismiss consent card the classifier path uses (post-PR#7,
+     * nothing auto-saves except explicit "Remember:" commands). Dedups first:
+     * if the location is already known, returns [ExtractionReport.NoOp] so the
+     * user isn't re-prompted on every weather query for the same place.
+     * Honours the creation toggle. Always returns; never throws.
+     */
+    suspend fun proposeLocationMemory(locationText: String, conversationId: String?): ExtractionReport {
+        if (!creationEnabledProvider()) return ExtractionReport.SkippedDisabled
+        val text = locationText.trim()
+        if (text.isEmpty()) return ExtractionReport.NoOp
+        return try {
+            val now = nowProvider()
+            val embedding = embedder.embed(text)?.vector
+                ?: return ExtractionReport.SkippedNoEmbedder
+            val existingMatch = store.findCosineMatch(embedding, now = now)
+            if (existingMatch != null) {
+                counters.increment(CounterNames.MEMORY_DEDUP_SKIPPED_TOTAL)
+                logger("[memory-extract] proposeLocation deduped=${existingMatch.id}")
+                return ExtractionReport.NoOp
+            }
+            val candidate = MemoryPromptCandidate(
+                id = idGenerator(),
+                text = text,
+                category = MemoryCategory.PERSONAL_IDENTITY,
+                embedding = embedding,
+                conversationId = conversationId,
+                proposedAtEpochMs = now,
+                expiresAtEpochMs = null,
+            )
+            counters.increment(CounterNames.MEMORY_PROMPT_SHOWN_TOTAL)
+            logger("[memory-extract] proposeLocation candidate=${candidate.id}")
+            ExtractionReport.PromptRequested(listOf(candidate))
+        } catch (t: Throwable) {
+            logger("[memory-extract] proposeLocation failed: ${t.message}")
+            ExtractionReport.Errored(t.message ?: t::class.simpleName ?: "unknown")
+        }
+    }
+
     /** User tapped Dismiss (or a new turn auto-dismissed the card). */
     fun dismissPromptCandidate(candidate: MemoryPromptCandidate) {
         counters.increment(CounterNames.MEMORY_PROMPT_DISMISSED_TOTAL)

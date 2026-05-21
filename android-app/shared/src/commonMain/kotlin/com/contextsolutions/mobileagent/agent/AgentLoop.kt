@@ -11,8 +11,12 @@ import com.contextsolutions.mobileagent.language.PreferredLanguage
 import com.contextsolutions.mobileagent.memory.Memory
 import com.contextsolutions.mobileagent.memory.MemoryRetriever
 import com.contextsolutions.mobileagent.memory.RememberForgetDetector
+import com.contextsolutions.mobileagent.preferences.DefaultSiteResolver
+import com.contextsolutions.mobileagent.preferences.GpsCoordinates
 import com.contextsolutions.mobileagent.preferences.SearchPreferencesRepository
+import com.contextsolutions.mobileagent.preferences.UserLocation
 import com.contextsolutions.mobileagent.preferences.VerticalPreferences
+import com.contextsolutions.mobileagent.preferences.WeatherLocationResolver
 import com.contextsolutions.mobileagent.search.SearchOutcome
 import com.contextsolutions.mobileagent.search.SearchService
 import com.contextsolutions.mobileagent.search.SearchSource
@@ -89,6 +93,22 @@ class AgentLoop(
      * sources cleanly.
      */
     private val locationCatalog: com.contextsolutions.mobileagent.preferences.LocationCatalog? = null,
+    /**
+     * PR #37 — resolves the city + state/province the user names in a WEATHER
+     * query to catalog coordinates (onboarding now captures country only). When
+     * set, the WEATHER path resolves location from the query (then from a saved
+     * location memory) instead of the stored home city, and asks the user to
+     * name a city when neither yields one. Null for tests/older callers, which
+     * keep the pre-PR-#37 stored-location behaviour.
+     */
+    private val weatherLocationResolver: WeatherLocationResolver? = null,
+    /**
+     * PR #37 — used to pick the weather source for the *resolved city's*
+     * country (NWS for a US city, Environment Canada for a CA city, …) when it
+     * differs from the onboarded country. Null falls back to the stored
+     * country's configured weather sources.
+     */
+    private val defaultSiteResolver: DefaultSiteResolver? = null,
     /**
      * When set, WEATHER FireSearch turns render a deterministic response
      * from the parsed RSS payload instead of routing through Gemma. Null
@@ -234,38 +254,134 @@ class AgentLoop(
         val skipPreflight = toolHandlers.isNotEmpty() &&
             (clockIntentDetector.isClockIntent(input.userMessage) ||
                 todoIntentDetector.isTodoIntent(input.userMessage))
-        val decision = if (skipPreflight) {
-            logger("[turn] skipping pre-flight (clock intent detected)")
-            PreflightDecision.FallThrough(
-                reason = FallThroughReason.MiddleBand,
-                pSearchRequired = null,
-            )
-        } else {
-            preflightRouter.route(input.userMessage, retrievedMemories)
+        // PR #37 — deterministic WEATHER force-fire. The shipped classifier
+        // under-fires on bare forecast queries ("what's the weather" lands in
+        // the middle band → LLM, which can't know the user's location or read
+        // a forecast feed). Weather is a structured surface we handle
+        // deterministically, but the trigger has to be TIGHT — matching any
+        // message containing "weather" wrongly hijacks general questions like
+        // "what is the weather typically like in England" and answers them
+        // with the saved location's forecast. So we only force WEATHER when:
+        //   (a) the query names a catalog city we can resolve, OR
+        //   (b) the message is a tight bare-weather phrase ("what's the
+        //       weather", "weather today") — the "use my saved location" case.
+        // Anything else (e.g. "...typically like in England") falls through to
+        // the pre-flight classifier, which decides search-vs-LLM as usual.
+        val bareWeatherRequest = BARE_WEATHER_PATTERN.matches(input.userMessage.trim())
+        val deterministicWeather = !skipPreflight &&
+            verticalDispatcher != null &&
+            weatherLocationResolver != null &&
+            searchService.isAvailable() &&
+            (bareWeatherRequest || weatherLocationResolver.resolve(input.userMessage) != null)
+        val forceWeather = deterministicWeather
+        val decision = when {
+            skipPreflight -> {
+                logger("[turn] skipping pre-flight (clock intent detected)")
+                PreflightDecision.FallThrough(
+                    reason = FallThroughReason.MiddleBand,
+                    pSearchRequired = null,
+                )
+            }
+            forceWeather -> {
+                logger("[turn] deterministic weather intent — forcing FireSearch(WEATHER)")
+                PreflightDecision.FireSearch(
+                    originalQuery = input.userMessage,
+                    rewrittenQuery = input.userMessage,
+                    pSearchRequired = 1f,
+                    subtype = SearchSubtype.WEATHER,
+                )
+            }
+            else -> preflightRouter.route(input.userMessage, retrievedMemories)
         }
         when (decision) {
             is PreflightDecision.FireSearch -> {
+                // PR #37 — WEATHER pre-resolution. Onboarding captures only the
+                // country, so the city + state/province comes from this turn's
+                // query (or, failing that, a saved location memory). When
+                // neither yields a city we ask the user and skip search/LLM.
+                // The resolved city's country also selects the national weather
+                // source, so "weather in Toronto" works for a US-onboarded user.
+                var weatherCity: String? = null
+                var weatherLocationToRemember: String? = null
+                var weatherPrefsOverride: VerticalPreferences? = null
+                var weatherLocationOverride: UserLocation? = null
+                var weatherGpsOverride: GpsCoordinates? = null
+                if (decision.subtype == SearchSubtype.WEATHER && weatherLocationResolver != null) {
+                    val basePrefs = searchPreferences?.snapshot() ?: VerticalPreferences()
+                    val storedCountry = searchPreferences?.location()?.country
+                    // Resolution order: the user's own words (remembered) →
+                    // the rewritten query (covers QueryRewriter's "where I
+                    // live" possessive substitution) → and ONLY for a tight
+                    // bare-weather request ("what's the weather") the saved
+                    // location memory. A query that named a place we couldn't
+                    // resolve must NOT silently fall back to the saved
+                    // location (that wrongly answered "weather typically like
+                    // in England" with the saved city).
+                    val explicit = weatherLocationResolver.resolve(input.userMessage, storedCountry)
+                    val resolved = explicit
+                        ?: weatherLocationResolver.resolve(decision.rewrittenQuery, storedCountry)
+                        ?: if (bareWeatherRequest) resolveWeatherLocationFromMemory(retrievedMemories, storedCountry) else null
+                    when {
+                        resolved != null -> {
+                            weatherCity = resolved.city
+                            weatherLocationToRemember = explicit?.let { "I live in ${it.city}, ${it.regionName}" }
+                            val weatherSources =
+                                if (defaultSiteResolver != null && !resolved.country.equals(storedCountry, ignoreCase = true)) {
+                                    defaultSiteResolver.defaultsFor(resolved.country).weather
+                                } else {
+                                    basePrefs.weather
+                                }
+                            weatherPrefsOverride = basePrefs.copy(weather = weatherSources)
+                            weatherLocationOverride =
+                                UserLocation(resolved.country, resolved.regionCode, resolved.city)
+                            weatherGpsOverride = resolved.coords
+                            logger(
+                                "[turn] weather location city=${resolved.city} " +
+                                    "region=${resolved.regionCode} country=${resolved.country} " +
+                                    "lat=${resolved.coords.latitude} lon=${resolved.coords.longitude} " +
+                                    "fromQuery=${explicit != null}",
+                            )
+                        }
+                        bareWeatherRequest -> {
+                            // "what's the weather" with no saved location — ask.
+                            logger("[turn] weather: bare request, no city in query or memory — asking user")
+                            emitWeatherLocationPrompt(input.userMessage)
+                            return@channelFlow
+                        }
+                        else -> {
+                            // WEATHER subtype but no resolvable city and not a
+                            // bare request (e.g. classifier fired on a general
+                            // "weather" question). Don't hijack it — fall
+                            // through to the normal search/LLM path.
+                            logger("[turn] weather subtype but no city resolved — deferring to search/LLM")
+                        }
+                    }
+                }
+
                 send(AgentEvent.SearchStarted(decision.rewrittenQuery))
                 // PR #23 — route through vertical dispatcher when wired;
                 // otherwise fall back to the legacy direct search (kept so
                 // tests that don't supply a dispatcher keep working).
                 val outcome = if (verticalDispatcher != null) {
-                    val prefs = searchPreferences?.snapshot() ?: VerticalPreferences()
-                    val location = searchPreferences?.location()
-                    val gps = location?.let { loc ->
+                    val prefs = weatherPrefsOverride
+                        ?: searchPreferences?.snapshot() ?: VerticalPreferences()
+                    val location = weatherLocationOverride ?: searchPreferences?.location()
+                    val gps = weatherGpsOverride ?: location?.let { loc ->
                         locationCatalog?.cityCoords(loc.country, loc.regionCode, loc.city)
                     }
-                    if (gps != null) {
-                        logger(
-                            "[turn] resolved city coords city=${location.city} " +
-                                "lat=${gps.latitude} lon=${gps.longitude}",
-                        )
-                    } else if (location != null) {
-                        logger(
-                            "[turn] no coords in catalog for " +
-                                "${location.country}/${location.regionCode}/${location.city} — " +
-                                "GPS-templated sources will be skipped",
-                        )
+                    if (weatherGpsOverride == null) {
+                        if (gps != null) {
+                            logger(
+                                "[turn] resolved city coords city=${location?.city} " +
+                                    "lat=${gps.latitude} lon=${gps.longitude}",
+                            )
+                        } else if (location != null) {
+                            logger(
+                                "[turn] no coords in catalog for " +
+                                    "${location.country}/${location.regionCode}/${location.city} — " +
+                                    "GPS-templated sources will be skipped",
+                            )
+                        }
                     }
                     verticalDispatcher.fetch(
                         subtype = decision.subtype,
@@ -292,7 +408,7 @@ class AgentLoop(
                     weatherResponseFormatter != null
                 ) {
                     val rendered = weatherResponseFormatter.format(
-                        city = searchPreferences?.location()?.city,
+                        city = weatherCity ?: searchPreferences?.location()?.city,
                         payload = outcome.payload,
                     )
                     if (rendered != null) {
@@ -306,6 +422,7 @@ class AgentLoop(
                                 message = finalMsg,
                                 turnMessages = listOf(userMessage, finalMsg),
                                 skipMemoryExtraction = true,
+                                locationToRemember = weatherLocationToRemember,
                             ),
                         )
                         logger(
@@ -923,6 +1040,51 @@ class AgentLoop(
     }
 
     /**
+     * Deterministic WEATHER prompt (PR #37): the user asked about weather but
+     * named no city we could resolve, and we have no saved location memory.
+     * Ask for the city + state/province and skip search + the LLM (Gemma
+     * mangles structured weather and can't know the user's location anyway).
+     */
+    private suspend fun ProducerScope<AgentEvent>.emitWeatherLocationPrompt(userMessageText: String) {
+        val message = WEATHER_LOCATION_PROMPT_TEXT
+        val userMessage = ChatMessage.User(userMessageText)
+        val finalMessage = ChatMessage.Assistant(text = message)
+        send(AgentEvent.TokenChunk(message))
+        send(
+            AgentEvent.Done(
+                message = finalMessage,
+                turnMessages = listOf(userMessage, finalMessage),
+                skipMemoryExtraction = true,
+            ),
+        )
+    }
+
+    /**
+     * Look for the user's location in memory when the current query names no
+     * city: first the already-retrieved set, then a targeted probe so a bare
+     * "what's the weather?" still finds a saved "I live in …" even when the
+     * weather query itself isn't semantically close to it. Returns the first
+     * memory text that resolves to a catalog city.
+     */
+    private suspend fun resolveWeatherLocationFromMemory(
+        memories: List<Memory>,
+        preferredCountry: String?,
+    ): WeatherLocationResolver.Resolved? {
+        val resolver = weatherLocationResolver ?: return null
+        for (m in memories) {
+            resolver.resolve(m.text, preferredCountry)?.let { return it }
+        }
+        val probe = memoryRetriever?.retrieve(
+            query = "the city and state or province where I live",
+            threshold = 0.3,
+        ).orEmpty()
+        for (hit in probe) {
+            resolver.resolve(hit.memory.text, preferredCountry)?.let { return it }
+        }
+        return null
+    }
+
+    /**
      * Deterministic TODO path. Synthesises the same User → Assistant(toolCall)
      * → Tool → Assistant(final) chain that [runClockCommandDirect] does so
      * memory extraction and conversation persistence see a complete tool
@@ -1267,6 +1429,27 @@ class AgentLoop(
 
         const val FRIENDLY_ENGINE_ERROR: String =
             "Sorry, I had trouble processing that request. Please try again."
+
+        /**
+         * Tight match for a bare "use my location" weather request — the only
+         * shape allowed to fall back to the saved location memory (PR #37). It
+         * is deliberately anchored (whole-message) and allows only a small set
+         * of trailing words so general questions like "what is the weather
+         * typically like in England" or "why is the weather so weird" do NOT
+         * match (those defer to the pre-flight classifier). A query that names
+         * an explicit city is handled separately (resolved directly), so this
+         * pattern intentionally does not try to match "weather in <place>".
+         */
+        val BARE_WEATHER_PATTERN: Regex = Regex(
+            "^(?:(?:what|how)(?:'?s| is)?\\s+(?:the\\s+)?)?(?:weather|forecast)(?:\\s+forecast)?" +
+                "(?:\\s+(?:today|tomorrow|right\\s+now|now|outside|currently|like))?\\s*[?.!]*$",
+            RegexOption.IGNORE_CASE,
+        )
+
+        const val WEATHER_LOCATION_PROMPT_TEXT: String =
+            "Which city would you like the weather for? Tell me the city and " +
+                "state or province — for example, \"weather in Miami, Florida\" " +
+                "or \"weather in Toronto, Ontario\"."
 
         const val CLOCK_GUIDANCE_TEXT: String =
             "Sorry, I didn't quite understand that clock command. Try " +

@@ -493,6 +493,22 @@ class ChatViewModel @Inject constructor(
      * we just gate on having a real user message to work with.
      */
     private fun runMemoryExtraction(event: AgentEvent.Done) {
+        // PR #37 — the deterministic WEATHER path resolves a city + state/
+        // province from the user's own words and asks us to remember it (so a
+        // later bare "what's the weather?" reuses it). Surfaced as the same
+        // Save / Dismiss consent card as classifier-proposed memories; dedups,
+        // so repeated weather queries for the same place don't re-prompt. Runs
+        // independently of the classifier extractor below — weather turns set
+        // skipMemoryExtraction = true, so without this they'd propose nothing.
+        event.locationToRemember?.let { locationText ->
+            val cid = _conversationId.value
+            viewModelScope.launch(Dispatchers.IO) {
+                val report = runCatching { memoryExtractor.proposeLocationMemory(locationText, cid) }
+                    .onFailure { Log.w(TAG, "proposeLocationMemory crashed; turn already complete", it) }
+                    .getOrNull()
+                surfaceMemoryPrompts(report)
+            }
+        }
         // Deterministic clock commands ("what alarms do I have", "set a 5
         // minute timer") aren't memorable — the user is driving a tool,
         // not telling us anything about themselves. AgentLoop tags these
@@ -534,36 +550,41 @@ class ChatViewModel @Inject constructor(
                 Log.w(TAG, "memory extraction crashed; turn already complete", it)
             }.getOrNull()
 
-            // Auto-dismiss any prior pending prompt cards before surfacing
-            // new ones. Mirrors the "only the latest candidate is visible"
-            // rule — keeps the chat focused on the most-recent decision
-            // without burying the user under stale prompts.
-            val hasNewPrompts = report is MemoryExtractor.ExtractionReport.PromptRequested
-            if (hasNewPrompts || pendingCandidates.isNotEmpty()) {
-                clearPendingPromptsAsAutoDismissed(hasNewPrompts)
-            }
-
-            if (report is MemoryExtractor.ExtractionReport.PromptRequested) {
-                for (candidate in report.candidates) {
-                    pendingCandidates[candidate.id] = candidate
-                }
-                _ui.update { state ->
-                    state.copy(
-                        messages = state.messages + report.candidates.map { candidate ->
-                            UiMessage.MemoryPrompt(
-                                candidateId = candidate.id,
-                                text = candidate.text,
-                                category = candidate.category,
-                            )
-                        },
-                    )
-                }
-            }
+            surfaceMemoryPrompts(report)
 
             // Refresh the badge count after extraction settles. Sequencing
             // matters: the count must reflect the just-completed extract.
             if (cid != null) {
                 runCatching { _memoryCount.value = memoryStore.countForConversation(cid) }
+            }
+        }
+    }
+
+    /**
+     * Surface any [MemoryExtractor.ExtractionReport.PromptRequested] candidates
+     * as Save / Dismiss cards. Shared by the classifier-driven extractor and
+     * the PR #37 weather-location proposal. Auto-dismisses prior pending cards
+     * first so only the latest decision is visible.
+     */
+    private fun surfaceMemoryPrompts(report: MemoryExtractor.ExtractionReport?) {
+        val hasNewPrompts = report is MemoryExtractor.ExtractionReport.PromptRequested
+        if (hasNewPrompts || pendingCandidates.isNotEmpty()) {
+            clearPendingPromptsAsAutoDismissed(hasNewPrompts)
+        }
+        if (report is MemoryExtractor.ExtractionReport.PromptRequested) {
+            for (candidate in report.candidates) {
+                pendingCandidates[candidate.id] = candidate
+            }
+            _ui.update { state ->
+                state.copy(
+                    messages = state.messages + report.candidates.map { candidate ->
+                        UiMessage.MemoryPrompt(
+                            candidateId = candidate.id,
+                            text = candidate.text,
+                            category = candidate.category,
+                        )
+                    },
+                )
             }
         }
     }

@@ -1,5 +1,6 @@
 package com.contextsolutions.mobileagent.app.di
 
+import android.util.Log
 import com.contextsolutions.mobileagent.app.BuildConfig
 import com.contextsolutions.mobileagent.db.SearchCacheQueries
 import com.contextsolutions.mobileagent.platform.AgentClock
@@ -34,6 +35,8 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object SearchModule {
 
+    private const val TAG = "BraveApi"
+
     @Provides
     @Singleton
     fun provideBraveKeyProvider(secureStorage: SecureStorage): BraveKeyProvider {
@@ -44,7 +47,7 @@ object SearchModule {
     @Provides
     @Singleton
     fun provideBraveSearchClient(httpEngineFactory: HttpEngineFactory): BraveSearchClient =
-        KtorBraveSearchClient(httpEngineFactory)
+        KtorBraveSearchClient(httpEngineFactory) { Log.i(TAG, it) }
 
     @Provides
     @Singleton

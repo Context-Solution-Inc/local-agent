@@ -30,8 +30,7 @@
         { "domain": "apnews.com", "displayName": "Associated Press", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "apnews.com" }
       ],
       "weather": [
-        { "domain": "weather.gov", "displayName": "National Weather Service", "kind": "HTML", "endpointTemplate": "https://forecast.weather.gov/MapClick.php?lat={lat}&lon={lon}" },
-        { "domain": "weather.com", "displayName": "The Weather Channel", "kind": "HTML", "endpointTemplate": "https://weather.com/weather/today/l/{city}+{region}" }
+        { "domain": "weather.gov", "displayName": "National Weather Service", "kind": "DWML", "endpointTemplate": "https://forecast.weather.gov/MapClick.php?lat={lat}&lon={lon}&unit=0&lg=english&FcstType=dwml" }
       ],
       "sports": [
         { "domain": "espn.com", "displayName": "ESPN", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "espn.com" }

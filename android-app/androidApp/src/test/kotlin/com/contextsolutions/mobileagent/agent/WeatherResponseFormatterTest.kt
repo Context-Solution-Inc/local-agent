@@ -186,6 +186,62 @@ class WeatherResponseFormatterTest {
         assertTrue(out.contains("Weather for your area"))
     }
 
+    /**
+     * The JSON shape FeedAdapter emits for a US NWS DWML fetch (via DwmlParser).
+     * Current entry uses °F + label-less fields, so renderCurrent's EC °C/label
+     * regexes deliberately miss and the fallback path renders the bubble — this
+     * is how US weather renders deterministically without any formatter change.
+     */
+    private val miamiJson = """
+        {
+          "subtype": "weather",
+          "query": "weather Miami",
+          "sources": [
+            {
+              "domain": "weather.gov",
+              "display_name": "National Weather Service",
+              "url": "https://forecast.weather.gov/MapClick.php?lat=25.7617&lon=-80.1918",
+              "snippet": "...",
+              "payload": [
+                { "title": "Current Conditions: Mostly Sunny", "link": "", "description": "81°F. Humidity 74%. Wind E 9 knots", "published": "2026-05-21T07:53:00-04:00" },
+                { "title": "Today: Sunny, with a high near 85. East wind 11 to 13 mph.", "link": "", "description": "", "published": "2026-05-21T08:00:00-04:00" },
+                { "title": "Tonight: Mostly clear, with a low around 76.", "link": "", "description": "", "published": "2026-05-21T20:00:00-04:00" },
+                { "title": "Thursday: Mostly sunny, with a high near 86.", "link": "", "description": "", "published": "2026-05-22T08:00:00-04:00" }
+              ]
+            }
+          ]
+        }
+    """.trimIndent()
+
+    private fun usPayload(json: String): FormattedSearchPayload = FormattedSearchPayload(
+        json = json,
+        sources = listOf(
+            SearchSource(
+                title = "National Weather Service",
+                url = "https://forecast.weather.gov/MapClick.php?lat=25.7617&lon=-80.1918",
+                snippet = "",
+            ),
+        ),
+    )
+
+    @Test
+    fun renders_us_dwml_bubble_via_fallback_path() {
+        val out = WeatherResponseFormatter.format(city = "Miami", payload = usPayload(miamiJson))
+        assertNotNull(out)
+        val text = out!!
+        assertTrue("location header missing", text.contains("Weather for Miami"))
+        // No alert section for a plain forecast.
+        assertFalse("unexpected alert banner", text.contains("⚠"))
+        // Current line built from the fallback path: "Now: <summary>. <desc>".
+        assertTrue("now line missing", text.contains("Now: Mostly Sunny. 81°F. Humidity 74%. Wind E 9 knots"))
+        // Forecast bullets carry the worded periods verbatim.
+        assertTrue("Today bullet missing", text.contains("• Today: Sunny, with a high near 85"))
+        assertTrue("Tonight bullet missing", text.contains("• Tonight: Mostly clear"))
+        assertTrue("Thursday bullet missing", text.contains("• Thursday: Mostly sunny"))
+        // Source line derives the domain from the (already human-readable) URL.
+        assertTrue("source line missing", text.contains("Source: forecast.weather.gov"))
+    }
+
     @Test
     fun falls_back_to_raw_description_when_current_regexes_dont_match() {
         // EC field labels gone or reshaped — formatter should still render

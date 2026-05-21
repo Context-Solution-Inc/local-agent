@@ -29,6 +29,9 @@ import kotlinx.serialization.json.put
  * in user-preferred order and dispatches per [SiteConfig.kind]:
  *
  *  - [SourceKind.RSS] → fetch + parse via [RssParser]
+ *  - [SourceKind.DWML] → fetch + parse NWS DWML XML via [DwmlParser] (US
+ *    weather; emits the same entry shape as RSS so the deterministic
+ *    `WeatherResponseFormatter` renders it without LLM, like Environment Canada)
  *  - [SourceKind.HTML] → fetch + extract via [HtmlReadabilityExtractor]
  *  - [SourceKind.JSON] → fetch + pass raw body through (downstream typed
  *    parsing per vertical is a follow-up; for now the raw JSON snippet
@@ -45,6 +48,7 @@ class FeedAdapter(
     private val subtype: SearchSubtype,
     private val httpClient: HttpClient,
     private val rssParser: RssParser = RssParser(),
+    private val dwmlParser: DwmlParser = DwmlParser(),
     private val readability: HtmlReadabilityExtractor = HtmlReadabilityExtractor(),
     private val maxSources: Int = DEFAULT_MAX_SOURCES,
     private val logger: (String) -> Unit = {},
@@ -103,25 +107,19 @@ class FeedAdapter(
                             )
                             null to null
                         } else {
-                            // Per-entry snippet: title on its own line, then the
-                            // cleaned description (HTML-stripped + entity-decoded
-                            // by RssParser). Weather feeds especially need the
-                            // description — the title alone says "Tuesday: Chance
-                            // of showers. High 29. POP 30%" but the description
-                            // carries wind direction, humidex, UV, thunder risk.
-                            val snippet = entries.joinToString(separator = "\n") { e ->
-                                if (e.description.isBlank()) e.title
-                                else "${e.title} — ${e.description}"
-                            }.take(PER_SOURCE_CHAR_CAP)
-                            val payload = buildJsonArray {
-                                for (e in entries) add(buildJsonObject {
-                                    put("title", e.title)
-                                    put("link", e.link)
-                                    put("description", e.description)
-                                    if (e.pubDate != null) put("published", e.pubDate)
-                                })
-                            }
-                            snippet to payload
+                            entriesToSnippetAndPayload(entries)
+                        }
+                    }
+                    SourceKind.DWML -> {
+                        val entries = dwmlParser.parse(body, max = RSS_ENTRIES_PER_SOURCE)
+                        if (entries.isEmpty()) {
+                            logger(
+                                "[vertical:$subtype] ${site.domain} DWML parse returned 0 entries — " +
+                                    "body starts with: \"${body.take(200).replace("\n", " ")}\"",
+                            )
+                            null to null
+                        } else {
+                            entriesToSnippetAndPayload(entries)
                         }
                     }
                     SourceKind.HTML -> {
@@ -200,6 +198,32 @@ class FeedAdapter(
         SearchOutcome.Success(payload, fromCache = false)
     }
 
+    /**
+     * Shared snippet + structured-payload builder for the entry-list source
+     * kinds (RSS, DWML). Per-entry snippet: title on its own line, then the
+     * cleaned description. Weather feeds especially need the description — the
+     * title alone says "Tuesday: Chance of showers. High 29. POP 30%" but the
+     * description carries wind direction, humidex, UV, thunder risk. The
+     * `payload` JSON array is the shape `WeatherResponseFormatter` reads.
+     */
+    private fun entriesToSnippetAndPayload(
+        entries: List<RssEntry>,
+    ): Pair<String, JsonArray> {
+        val snippet = entries.joinToString(separator = "\n") { e ->
+            if (e.description.isBlank()) e.title
+            else "${e.title} — ${e.description}"
+        }.take(PER_SOURCE_CHAR_CAP)
+        val payload = buildJsonArray {
+            for (e in entries) add(buildJsonObject {
+                put("title", e.title)
+                put("link", e.link)
+                put("description", e.description)
+                if (e.pubDate != null) put("published", e.pubDate)
+            })
+        }
+        return snippet to payload
+    }
+
     private data class SourceBundle(
         val site: SiteConfig,
         val url: String,
@@ -230,9 +254,11 @@ class FeedAdapter(
  * Currently rewrites EC's per-coords weather RSS feed
  * (`weather.gc.ca/rss/weather/{lat}_{lon}_{e|f}.xml`) → the HTML
  * forecast page (`weather.gc.ca/en/location/index.html?coords={lat},{lon}`),
- * and the bundled default sports RSS feeds → each brand's consumer-facing
- * landing page (a feed URL like `sportsnet.ca/feed/` is raw XML, useless to
- * tap). Add cases here as new structured sources land.
+ * NWS's DWML feed (`forecast.weather.gov/MapClick.php?lat=..&lon=..&FcstType=dwml`)
+ * → the same MapClick page without the machine-readable `FcstType` (the
+ * default HTML forecast view), and the bundled default sports RSS feeds → each
+ * brand's consumer-facing landing page (a feed URL like `sportsnet.ca/feed/`
+ * is raw XML, useless to tap). Add cases here as new structured sources land.
  *
  * Falls through to the fetch URL for any source without a specific rule —
  * so a user-added custom RSS feed keeps its feed URL until a rule exists.
@@ -243,12 +269,21 @@ fun toHumanReadableUrl(fetchedUrl: String): String {
         val lon = m.groupValues[2]
         return "https://weather.gc.ca/en/location/index.html?coords=$lat,$lon"
     }
+    NWS_DWML_URL.matchEntire(fetchedUrl)?.let { m ->
+        val lat = m.groupValues[1]
+        val lon = m.groupValues[2]
+        return "https://forecast.weather.gov/MapClick.php?lat=$lat&lon=$lon"
+    }
     SPORTS_FEED_LANDING[fetchedUrl]?.let { return it }
     return fetchedUrl
 }
 
 val EC_RSS_COORDS_URL: Regex = Regex(
     """https?://weather\.gc\.ca/rss/weather/(-?[0-9.]+)_(-?[0-9.]+)_[ef]\.xml""",
+)
+
+val NWS_DWML_URL: Regex = Regex(
+    """https?://forecast\.weather\.gov/MapClick\.php\?lat=(-?[0-9.]+)&lon=(-?[0-9.]+).*""",
 )
 
 /**

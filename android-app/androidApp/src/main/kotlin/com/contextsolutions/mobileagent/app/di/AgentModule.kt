@@ -16,8 +16,10 @@ import com.contextsolutions.mobileagent.language.PreferredLanguage
 import com.contextsolutions.mobileagent.memory.MemoryRetriever
 import com.contextsolutions.mobileagent.platform.AgentClock
 import com.contextsolutions.mobileagent.platform.LocaleProvider
+import com.contextsolutions.mobileagent.preferences.DefaultSiteResolver
 import com.contextsolutions.mobileagent.preferences.LocationCatalog
 import com.contextsolutions.mobileagent.preferences.SearchPreferencesRepository
+import com.contextsolutions.mobileagent.preferences.WeatherLocationResolver
 import com.contextsolutions.mobileagent.search.SearchService
 import com.contextsolutions.mobileagent.search.vertical.VerticalSearchDispatcher
 import com.contextsolutions.mobileagent.telemetry.TelemetryCounters
@@ -46,6 +48,11 @@ object AgentModule {
 
     @Provides
     @Singleton
+    fun provideWeatherLocationResolver(catalog: LocationCatalog): WeatherLocationResolver =
+        WeatherLocationResolver(catalog)
+
+    @Provides
+    @Singleton
     fun providePromptAssembler(
         clock: AgentClock,
         localeProvider: LocaleProvider,
@@ -69,6 +76,8 @@ object AgentModule {
         verticalDispatcher: VerticalSearchDispatcher,
         searchPreferences: SearchPreferencesRepository,
         locationCatalog: LocationCatalog,
+        weatherLocationResolver: WeatherLocationResolver,
+        defaultSiteResolver: DefaultSiteResolver,
         weatherResponseFormatter: WeatherResponseFormatter,
     ): AgentLoopFactory = object : AgentLoopFactory {
         override fun create(
@@ -88,6 +97,8 @@ object AgentModule {
             verticalDispatcher = verticalDispatcher,
             searchPreferences = searchPreferences,
             locationCatalog = locationCatalog,
+            weatherLocationResolver = weatherLocationResolver,
+            defaultSiteResolver = defaultSiteResolver,
             weatherResponseFormatter = weatherResponseFormatter,
             logger = { Log.i("AgentLoop", it) },
             counters = counters,
