@@ -17,15 +17,13 @@ enum class SearchSubtype {
     NEWS,
     WEATHER,
     SPORTS,
-    FINANCE,
 
     /**
-     * Single-instrument stock/ETF lookup (e.g. "Nvidia stock price"). Distinct
-     * from [FINANCE], which serves market *news* via RSS. Routed to
-     * [com.contextsolutions.mobileagent.search.vertical.StockLookupAdapter],
-     * which resolves the company name to a ticker via stockanalysis.com's search
-     * API, then fetches that ticker's page. Uses a fixed endpoint, so it has no
-     * user-editable source list (not shown in Settings → Search sources).
+     * Market news *and* single-instrument quotes ("Nvidia stock price", "$NVDA").
+     * Routed to [com.contextsolutions.mobileagent.search.vertical.BraveSiteFilterAdapter]
+     * with a `site:` filter over user-preferred finance domains (PR #35) — one
+     * Brave web search covers both, replacing the old RSS feed + separate
+     * stockanalysis.com ticker-resolver paths.
      */
-    STOCKS,
+    FINANCE,
 }

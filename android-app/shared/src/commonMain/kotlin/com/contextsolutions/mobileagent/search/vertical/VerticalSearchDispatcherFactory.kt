@@ -50,17 +50,13 @@ object VerticalSearchDispatcherFactory {
                 searchService = searchService,
                 subtype = SearchSubtype.SPORTS,
             ),
-            SearchSubtype.FINANCE to FeedAdapter(
+            // FINANCE uses Brave with a `site:` filter (PR #35) rather than RSS:
+            // a web search across finance domains answers both market news and
+            // single-instrument quotes ("nvidia stock price") in one call. This
+            // subsumes the old STOCKS vertical's two-call ticker resolver.
+            SearchSubtype.FINANCE to BraveSiteFilterAdapter(
+                searchService = searchService,
                 subtype = SearchSubtype.FINANCE,
-                httpClient = client,
-                rssParser = rssParser,
-                readability = readability,
-                logger = logger,
-            ),
-            SearchSubtype.STOCKS to StockLookupAdapter(
-                httpClient = client,
-                readability = readability,
-                logger = logger,
             ),
         )
         return VerticalSearchDispatcher(

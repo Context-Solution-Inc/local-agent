@@ -279,8 +279,5 @@ private fun defaultKindFor(subtype: SearchSubtype): SourceKind = when (subtype) 
     SearchSubtype.NEWS -> SourceKind.BRAVE_SITE_FILTER
     SearchSubtype.WEATHER -> SourceKind.RSS
     SearchSubtype.SPORTS -> SourceKind.BRAVE_SITE_FILTER
-    SearchSubtype.FINANCE -> SourceKind.RSS
-    // STOCKS has no user-editable sources; this screen never lists it, so the
-    // branch only exists to keep the `when` exhaustive.
-    SearchSubtype.STOCKS -> SourceKind.HTML
+    SearchSubtype.FINANCE -> SourceKind.BRAVE_SITE_FILTER
 }

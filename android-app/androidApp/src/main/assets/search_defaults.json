@@ -19,8 +19,8 @@
         { "domain": "espn.com", "displayName": "ESPN", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "espn.com" }
       ],
       "finance": [
-        { "domain": "ca.finance.yahoo.com", "displayName": "Yahoo Finance (CA)", "kind": "RSS", "endpointTemplate": "https://ca.finance.yahoo.com/news/rssindex" },
-        { "domain": "bnnbloomberg.ca", "displayName": "BNN Bloomberg", "kind": "RSS", "endpointTemplate": "https://www.bnnbloomberg.ca/rss" }
+        { "domain": "ca.finance.yahoo.com", "displayName": "Yahoo Finance (CA)", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "ca.finance.yahoo.com" },
+        { "domain": "bnnbloomberg.ca", "displayName": "BNN Bloomberg", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "bnnbloomberg.ca" }
       ]
     },
     "US": {
@@ -41,8 +41,8 @@
         { "domain": "cbssports.com", "displayName": "CBS Sports", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "cbssports.com" }
       ],
       "finance": [
-        { "domain": "finance.yahoo.com", "displayName": "Yahoo Finance", "kind": "RSS", "endpointTemplate": "https://finance.yahoo.com/news/rssindex" },
-        { "domain": "marketwatch.com", "displayName": "MarketWatch", "kind": "RSS", "endpointTemplate": "https://feeds.marketwatch.com/marketwatch/topstories/" }
+        { "domain": "finance.yahoo.com", "displayName": "Yahoo Finance", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "finance.yahoo.com" },
+        { "domain": "marketwatch.com", "displayName": "MarketWatch", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "marketwatch.com" }
       ]
     },
     "GB": {
@@ -62,7 +62,7 @@
         { "domain": "skysports.com", "displayName": "Sky Sports", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "skysports.com" }
       ],
       "finance": [
-        { "domain": "uk.finance.yahoo.com", "displayName": "Yahoo Finance (UK)", "kind": "RSS", "endpointTemplate": "https://uk.finance.yahoo.com/news/rssindex" },
+        { "domain": "uk.finance.yahoo.com", "displayName": "Yahoo Finance (UK)", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "uk.finance.yahoo.com" },
         { "domain": "ft.com", "displayName": "Financial Times", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "ft.com" }
       ]
     },
@@ -81,7 +81,7 @@
         { "domain": "abc.net.au", "displayName": "ABC Sport", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "abc.net.au/news/sport" }
       ],
       "finance": [
-        { "domain": "au.finance.yahoo.com", "displayName": "Yahoo Finance (AU)", "kind": "RSS", "endpointTemplate": "https://au.finance.yahoo.com/news/rssindex" }
+        { "domain": "au.finance.yahoo.com", "displayName": "Yahoo Finance (AU)", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "au.finance.yahoo.com" }
       ]
     }
   }

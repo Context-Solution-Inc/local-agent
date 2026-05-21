@@ -23,8 +23,9 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * Locks down the SPORTS Brave `site:` rewrite (PR #34). The adapter is shared
- * with NEWS, so the NEWS case is included as a regression guard.
+ * Locks down the SPORTS (PR #34) and FINANCE (PR #35) Brave `site:` rewrites.
+ * The adapter is shared with NEWS, so the NEWS case is included as a regression
+ * guard.
  */
 class BraveSiteFilterAdapterTest {
 
@@ -80,6 +81,41 @@ class BraveSiteFilterAdapterTest {
         adapter.fetch(query = "who won the masters last year", prefs = prefs, location = null)
 
         assertEquals("who won the masters last year", fakeClient.lastQuery)
+    }
+
+    @Test
+    fun `finance rewrites single-instrument query with site filter`() = runTest {
+        val adapter = BraveSiteFilterAdapter(searchService = service, subtype = SearchSubtype.FINANCE)
+        val prefs = VerticalPreferences(finance = listOf(brave("bloomberg.com")))
+
+        adapter.fetch(query = "nvidia stock price", prefs = prefs, location = null)
+
+        assertEquals("nvidia stock price (site:bloomberg.com)", fakeClient.lastQuery)
+    }
+
+    @Test
+    fun `finance ORs multiple site filters`() = runTest {
+        val adapter = BraveSiteFilterAdapter(searchService = service, subtype = SearchSubtype.FINANCE)
+        val prefs = VerticalPreferences(finance = listOf(brave("finance.yahoo.com"), brave("marketwatch.com")))
+
+        adapter.fetch(query = "tsla earnings", prefs = prefs, location = null)
+
+        assertEquals("tsla earnings (site:finance.yahoo.com OR site:marketwatch.com)", fakeClient.lastQuery)
+    }
+
+    @Test
+    fun `finance ignores stale RSS entries and passes query through unfiltered`() = runTest {
+        val adapter = BraveSiteFilterAdapter(searchService = service, subtype = SearchSubtype.FINANCE)
+        // A stale RSS-kind entry (left over from the pre-#35 wiring) is filtered out.
+        val prefs = VerticalPreferences(
+            finance = listOf(
+                SiteConfig("finance.yahoo.com", "Yahoo Finance", SourceKind.RSS, "https://finance.yahoo.com/news/rssindex"),
+            ),
+        )
+
+        adapter.fetch(query = "nvidia stock price", prefs = prefs, location = null)
+
+        assertEquals("nvidia stock price", fakeClient.lastQuery)
     }
 
     @Test

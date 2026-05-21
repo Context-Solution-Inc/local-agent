@@ -41,22 +41,23 @@ class SearchSubtypeDetectorTest {
     }
 
     @Test
-    fun single_instrument_queries_route_to_STOCKS() {
-        // Checked before FINANCE: a specific stock/ETF price or quote intent
-        // routes to the ticker resolver, not the market-news feed.
-        assertEquals(SearchSubtype.STOCKS, detector.detect("AAPL stock price"))
-        assertEquals(SearchSubtype.STOCKS, detector.detect("what's nvidia's stock price"))
-        assertEquals(SearchSubtype.STOCKS, detector.detect("tsla share price"))
-        assertEquals(SearchSubtype.STOCKS, detector.detect("price of apple shares"))
-        assertEquals(SearchSubtype.STOCKS, detector.detect("tesla stock"))
-        assertEquals(SearchSubtype.STOCKS, detector.detect("what's the market cap of nvidia"))
-        assertEquals(SearchSubtype.STOCKS, detector.detect("\$NVDA earnings call"))
+    fun single_instrument_queries_route_to_FINANCE() {
+        // Single-instrument stock/ETF price or quote intent now routes to
+        // FINANCE (PR #35 merged the old STOCKS subtype in — both go to the
+        // same Brave `site:` finance path in one call).
+        assertEquals(SearchSubtype.FINANCE, detector.detect("AAPL stock price"))
+        assertEquals(SearchSubtype.FINANCE, detector.detect("what's nvidia's stock price"))
+        assertEquals(SearchSubtype.FINANCE, detector.detect("tsla share price"))
+        assertEquals(SearchSubtype.FINANCE, detector.detect("price of apple shares"))
+        assertEquals(SearchSubtype.FINANCE, detector.detect("tesla stock"))
+        assertEquals(SearchSubtype.FINANCE, detector.detect("what's the market cap of nvidia"))
+        assertEquals(SearchSubtype.FINANCE, detector.detect("\$NVDA earnings call"))
+        assertEquals(SearchSubtype.FINANCE, detector.detect("nvidia price target"))
     }
 
     @Test
-    fun market_wide_stock_phrases_stay_FINANCE_not_STOCKS() {
-        // "stock market / exchange" and queries that *start* with "stock"
-        // (no preceding company entity) must not be captured by STOCKS.
+    fun market_wide_stock_phrases_route_to_FINANCE() {
+        // "stock market / exchange" macro phrasing also routes to FINANCE.
         assertEquals(SearchSubtype.FINANCE, detector.detect("stock market today"))
         assertEquals(SearchSubtype.FINANCE, detector.detect("the stock market is down"))
         assertEquals(SearchSubtype.FINANCE, detector.detect("how is the stock exchange doing"))

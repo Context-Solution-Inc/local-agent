@@ -13,8 +13,8 @@ import com.contextsolutions.mobileagent.search.SearchSubtype
  * branching on subtype.
  *
  * Implementations:
- *  - [BraveSiteFilterAdapter] — NEWS / SPORTS (reuses Brave with `site:` filter)
- *  - [FeedAdapter] — WEATHER / FINANCE (RSS / HTML / JSON per
+ *  - [BraveSiteFilterAdapter] — NEWS / SPORTS / FINANCE (reuses Brave with `site:` filter)
+ *  - [FeedAdapter] — WEATHER (RSS / HTML / JSON per
  *    [com.contextsolutions.mobileagent.preferences.SiteConfig.kind])
  *  - GENERAL is dispatched directly to [com.contextsolutions.mobileagent.search.SearchService]
  *    by [VerticalSearchDispatcher] without going through this interface.

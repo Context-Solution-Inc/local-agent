@@ -6,12 +6,12 @@ package com.contextsolutions.mobileagent.search
  * [com.contextsolutions.mobileagent.agent.ClockIntentDetector] — narrow,
  * inclusive, easy to inspect.
  *
- * Order matters: WEATHER → SPORTS → STOCKS → FINANCE → NEWS → GENERAL fallback.
+ * Order matters: WEATHER → SPORTS → FINANCE → NEWS → GENERAL fallback.
  * The order minimises cross-vertical bleed for queries like "stock market news"
  * (FINANCE wins because the ticker/market vocabulary is more specific than the
- * generic "news" keyword). STOCKS is checked before FINANCE so a single-
- * instrument lookup ("Nvidia stock price", "$NVDA") routes to the ticker
- * resolver, while macro/market-news vocabulary still falls through to FINANCE.
+ * generic "news" keyword). FINANCE covers both market-news and single-instrument
+ * quotes ("Nvidia stock price", "$NVDA") — the old STOCKS subtype was merged in
+ * (PR #35) once both routed to the same Brave `site:` path.
  *
  * Misroutes are not catastrophic — the adapter still returns citations the
  * user can fall back to, and the LLM synthesises whatever was fetched. The
@@ -25,7 +25,6 @@ class SearchSubtypeDetector {
         return when {
             WEATHER_PATTERN.containsMatchIn(lower) -> SearchSubtype.WEATHER
             SPORTS_PATTERN.containsMatchIn(lower) -> SearchSubtype.SPORTS
-            STOCKS_PATTERN.containsMatchIn(lower) -> SearchSubtype.STOCKS
             FINANCE_PATTERN.containsMatchIn(lower) -> SearchSubtype.FINANCE
             NEWS_PATTERN.containsMatchIn(lower) -> SearchSubtype.NEWS
             else -> SearchSubtype.GENERAL
@@ -47,30 +46,14 @@ class SearchSubtypeDetector {
             """\b(score|scores|scoreboard|standings|playoff|playoffs|fixture|fixtures|kickoff|tipoff|matchday|wins|losses|game\s+(tonight|today|tomorrow|yesterday)|who\s+won|nhl|nba|nfl|mlb|nlb|mls|epl|premier\s*league|champions\s*league|world\s*cup|stanley\s*cup|super\s*bowl|olympics?)\b""",
         )
 
-        // STOCKS — single-instrument price/quote intent. Checked BEFORE
-        // FINANCE so a specific stock lookup beats the generic market-news
-        // vertical. Anchors on price/quote phrasing, `$TICKER`, or a
-        // "<entity> stock" shape — but the trailing negative lookahead keeps
-        // "stock market / exchange / index / news" out (those stay FINANCE).
-        // The leading-word requirement on the last clause means a query that
-        // *starts* with "stock" ("stock market today") has no preceding entity
-        // and falls through to FINANCE.
-        val STOCKS_PATTERN: Regex = Regex(
-            """\$[a-z]{1,5}\b""" +
-                """|\b(?:stock|share)\s+price\b""" +
-                """|\b(?:stock|share)s?\s+(?:quote|value)\b""" +
-                """|\bprice\s+target\b""" +
-                """|\bhow\s+much\s+(?:is|are|does)\b[a-z0-9 '.]{0,40}\b(?:stock|shares?|trading)\b""" +
-                """|\bprice\s+of\b[a-z0-9 '.]{0,30}\b(?:stock|shares?)\b""" +
-                """|\b(?:market\s+cap|p/?e\s*ratio|earnings|dividend)\s+(?:of|for)\b""" +
-                """|\b[a-z]+\s+stocks?\b(?!\s+(?:market|markets|exchange|index|news))""",
-        )
-
-        // FINANCE — explicit market/stock vocab. Avoids matching bare ticker
-        // symbols (too many 3-letter false positives like "ATM", "CEO");
-        // requires either a finance keyword or a `$TICKER` prefix.
+        // FINANCE — explicit market/stock vocab, covering both market news and
+        // single-instrument quotes ("nvidia stock price", "price of apple
+        // shares", "$NVDA"). `shares`/`price target` were folded in from the old
+        // STOCKS pattern (PR #35). Avoids matching bare ticker symbols (too many
+        // 3-letter false positives like "ATM", "CEO"); requires either a finance
+        // keyword or a `$TICKER` prefix.
         val FINANCE_PATTERN: Regex = Regex(
-            """\b(stock|stocks|ticker|share\s+price|market\s+cap|earnings|dividend|p/?e\s*ratio|ipo|nasdaq|nyse|tsx|s&p|dow\s*jones|crypto|bitcoin|ethereum|forex|exchange\s*rate|interest\s*rate|inflation|gdp|recession)\b|\$[a-zA-Z]{1,5}\b""",
+            """\b(stock|stocks|shares|ticker|share\s+price|price\s+target|market\s+cap|earnings|dividend|p/?e\s*ratio|ipo|nasdaq|nyse|tsx|s&p|dow\s*jones|crypto|bitcoin|ethereum|forex|exchange\s*rate|interest\s*rate|inflation|gdp|recession)\b|\$[a-zA-Z]{1,5}\b""",
         )
 
         // NEWS — explicit news-shaped vocabulary. Catches "latest" + topical

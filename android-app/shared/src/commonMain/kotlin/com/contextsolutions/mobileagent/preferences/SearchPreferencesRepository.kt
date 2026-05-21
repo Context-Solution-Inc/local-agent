@@ -99,8 +99,8 @@ data class SiteConfig(
  * - [JSON] — GET the endpoint, deserialise via the per-vertical typed model.
  * - [RSS] — GET, parse as RSS 2.0 / Atom, format top-N entries.
  * - [HTML] — GET, run through [com.contextsolutions.mobileagent.search.vertical.HtmlReadabilityExtractor].
- * - [BRAVE_SITE_FILTER] — News-only, reuses the Brave web search with a
- *   `site:` filter for this domain.
+ * - [BRAVE_SITE_FILTER] — reuses the Brave web search with a `site:` filter for
+ *   this domain (NEWS / SPORTS / FINANCE).
  */
 @Serializable
 enum class SourceKind {
@@ -129,9 +129,6 @@ data class VerticalPreferences(
         SearchSubtype.WEATHER -> weather
         SearchSubtype.SPORTS -> sports
         SearchSubtype.FINANCE -> finance
-        // STOCKS uses a fixed endpoint (stockanalysis.com) — no user-editable
-        // source list, so it never carries SiteConfigs.
-        SearchSubtype.STOCKS -> emptyList()
     }
 
     fun withSites(subtype: SearchSubtype, sites: List<SiteConfig>): VerticalPreferences =
@@ -141,7 +138,5 @@ data class VerticalPreferences(
             SearchSubtype.WEATHER -> copy(weather = sites)
             SearchSubtype.SPORTS -> copy(sports = sites)
             SearchSubtype.FINANCE -> copy(finance = sites)
-            // STOCKS has no configurable sources — no-op.
-            SearchSubtype.STOCKS -> this
         }
 }
