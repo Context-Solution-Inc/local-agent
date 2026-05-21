@@ -658,6 +658,10 @@ Adds:
   RSS 2.0 / Atom parser (`RssParser`). General search is unchanged. All
   vertical fetches run on `Dispatchers.IO` (invariant #1) and present a
   browser-shaped UA to avoid feed providers' default-Ktor-UA blocks.
+  *(Superseded — PR #34: SPORTS moved off `FeedAdapter` onto the Brave
+  `site:` path (`BraveSiteFilterAdapter`), since RSS headlines can't answer
+  historical queries like "who won the masters last year". `FeedAdapter`
+  now serves Weather / Finance only. See CLAUDE.md invariant #31.)*
 - **Per-vertical preferences** persisted via DataStore Preferences
   (`SearchPreferencesRepository`). Country-keyed defaults live in
   `androidApp/src/main/assets/search_defaults.json` (invariant #14) and
