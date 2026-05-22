@@ -279,7 +279,10 @@ descriptions (typically "Get the latest…"), not extracted answers. The
 agent answers correctly when the snippet *contains* the answer (sports
 scores, stock prices, recent release dates) but for queries like
 "weather in Toronto" the snippet describes weather pages without numbers
-in them. Richer snippet handling is M2.1+ scope.
+in them. Richer snippet handling is M2.1+ scope. *(Closed for the
+structured-number verticals: WEATHER renders deterministically from a
+national feed (DWML/RSS, §M2.14) and single-instrument FINANCE quotes from
+a stockanalysis.com card (§M2.15) — both bypass the snippet→LLM path.)*
 
 Phase A (WS-2 schemas + WS-12 secure-key plumbing) shipped first, then Phase B
 (Brave client + cache + post-processor), then Phase C (agent types + prompt
@@ -312,6 +315,15 @@ flow (vertical hint + second HTTP call), documented in `docs/BRAVE_SPIKE.md`
 schemas, empty-payload gotchas. Revisit when telemetry shows a measurable
 answer-quality gap on `markets_current` / `weather` / `sports_recent`
 queries.
+
+*(Resolution: the `/web/rich` path was prototyped for FINANCE in PR #38
+and reverted (the empty-payload gotcha + billing concerns held). The
+structured-number gap was instead closed deterministically without a
+second Brave call: WEATHER via national DWML/RSS feeds (§M2.14) and
+single-instrument FINANCE quotes via a stockanalysis.com page-parse card
+(§M2.15). `sports_recent` is served by the Brave `site:` path (PR #34) —
+ESPN-style pages carry scores in-snippet, so no structured fetch was
+needed.)*
 
 ### M2.2 — Persisted multi-conversation history + 8K budget enforcement ✅ COMPLETE 2026-05-15
 
@@ -673,6 +685,9 @@ Adds:
 - **Onboarding step 4** (`LocationPickerScreen`) captures country / region
   / city with device-locale prefill. New `OnboardingStep.Location` keys
   off a new `OnboardingPreferences.locationDecided` boolean.
+  *(Superseded — PR #37: onboarding now captures **country only**; the
+  weather path resolves the specific city + state/province at query time.
+  See §M2.14.)*
 - **Telemetry**: the existing `PREFLIGHT_HIGH_BAND_TOTAL` counter is tagged
   with the chosen subtype (`weather` / `sports` / `finance` / `news` /
   `general`) — no new counter names.
@@ -689,6 +704,102 @@ the M4 assertions are byte-identical. **662 unit tests** at end of M2.11
 (+23 over M2.10). Adapter MockEngine tests + AgentLoop vertical-routing
 integration test + Compose-UI instrumentation are scoped to a follow-up
 PR; this one ships the architectural seam.
+
+### M2.12 — SPORTS vertical → Brave `site:` path ✅ COMPLETE 2026-05-18
+
+PR #34 moves SPORTS off `FeedAdapter` (RSS) onto `BraveSiteFilterAdapter`
+— the same Brave `site:`-filtered web search NEWS uses. RSS feeds only
+carry recent headlines and can't answer historical/specific queries ("who
+won the masters last year"); a search restricted to `site:espn.com` can.
+Sports sources in `search_defaults.json` and the Settings Add-source dialog
+become `BRAVE_SITE_FILTER`; the dispatcher runs exactly one adapter per
+subtype, so sports queries no longer touch RSS. See CLAUDE.md invariant #31.
+
+### M2.13 — FINANCE → Brave `site:` + STOCKS merged + single source/citation ✅ COMPLETE 2026-05-18
+
+PR #35 applies the same RSS→Brave move to FINANCE and **deletes the
+dedicated STOCKS subtype** (PR #27's two-call `StockLookupAdapter` ticker
+resolver against stockanalysis.com): one Brave query like `nvidia stock
+price (site:bloomberg.com)` answers both market news and single-instrument
+quotes, so the ticker round-trip is gone. `SearchSubtypeDetector` loses
+`STOCKS_PATTERN` (single-instrument vocab folds into `FINANCE_PATTERN`);
+no STOCKS `when` branches remain. `FeedAdapter` is now WEATHER-only.
+
+PR #36 follow-ups: SPORTS & FINANCE become **single-source /
+single-citation-chip** — `search_defaults.json` lists exactly one domain
+per country and the dispatcher wires them `maxDomains = 1, maxCitations =
+1`. The citation cap trims only `payload.sources` (UI chips) via
+`SearchPostProcessor.limitCitations`; `payload.json` (the model's
+`[SEARCH CONTEXT]`) keeps Brave's full top-N so a stock lookup still sees
+the data. Single-domain rewrites emit a bare `query site:domain` (no
+parens). NEWS leaves `maxCitations` null. See CLAUDE.md invariants #30–#31.
+
+### M2.14 — US weather via DWML + query-time location (country-only onboarding) ✅ COMPLETE 2026-05-21
+
+PR #37. **WEATHER renders deterministically and is never consulted to the
+LLM** (Gemma mangles numbers, can't read a feed, doesn't know location).
+
+- **US weather via `forecast.weather.gov` DWML** — new `SourceKind.DWML` +
+  regex-based `DwmlParser` (mirrors `RssParser`, emits the same `RssEntry`
+  shape); `FeedAdapter` gains a DWML branch. US weather becomes a SINGLE
+  DWML source (weather.com removed), matching how Environment Canada RSS
+  serves Canada. `WeatherResponseFormatter` renders °F / label-less text
+  cleanly with no change.
+- **Country-only onboarding + query-time location.** `LocationPickerScreen`
+  → single country dropdown; `OnboardingViewModel.saveLocation(country)`
+  seeds default sources and leaves `regionCode`/`city` empty. The new
+  `WeatherLocationResolver` resolves the city per query: (a) city +
+  state/province parsed from the query against the bundled `LocationCatalog`
+  (disambiguated by state/province → code → onboarded country →
+  specificity); else (b) a saved location memory; else (c) a deterministic
+  prompt. The resolved city's country selects the national source via
+  `DefaultSiteResolver`, so "weather in Toronto" works for a US-onboarded
+  user.
+- **Force-fire outside the classifier.** The shipped classifier under-fires
+  on bare forecast queries, so AgentLoop force-fires WEATHER when the query
+  names a resolvable catalog city OR matches the tight whole-message
+  `BARE_WEATHER_PATTERN`. The saved-location fallback (b) is reachable ONLY
+  via the bare pattern, so "what's the weather typically like in England"
+  defers to the classifier instead of being answered from the saved city.
+- **Consent-card location memory.** When the city came from the user's own
+  words, `AgentLoop` emits `AgentEvent.Done.locationToRemember` and
+  `ChatViewModel` surfaces a Save/Dismiss card via
+  `MemoryExtractor.proposeLocationMemory` (consent path, not force-save;
+  deduped — no re-prompt for a known place).
+- **`locations.json`** expanded to all CA provinces/territories + 50 US
+  states + DC with GPS coords (new cities work automatically —
+  coordinate-driven endpoints).
+- **Brave query logging** at the client chokepoint: `KtorBraveSearchClient`
+  logs the outgoing `q` via `Log.i("BraveApi", …)` (diagnostic logcat only,
+  NOT telemetry). See CLAUDE.md invariant #32 (and #28 for the tag).
+
+New tests: `DwmlParserTest`, `WeatherLocationResolverTest`,
+`AgentLoopPreflightTest` weather cases, `MemoryExtractorTest`,
+`CitationUrlRewriteTest` + `WeatherResponseFormatterTest` DWML cases.
+
+### M2.15 — FINANCE deterministic stock-quote card ✅ COMPLETE 2026-05-22
+
+PR #38. Single-instrument FINANCE quotes ("what is the stock price of
+Nvidia") render as a **deterministic card via stockanalysis.com, bypassing
+the LLM**. `VerticalSearchDispatcherFactory` wires FINANCE to
+`FinanceQuoteAdapter(fallback = BraveSiteFilterAdapter)`. Flow: (1) a Brave
+`site:finance.yahoo.com` search resolves the ticker from the result URL
+(`/quote/<TICKER>/`); (2) GET `stockanalysis.com/stocks/<ticker>/` and
+`StockAnalysisParser` extracts the live quote from the page's minified
+`quote:{p,c,cp,h,l,v,h52,l52,…}` blob + `marketCap`/`peRatio`; (3)
+`StockResponseFormatter` renders a `"subtype":"stock_quote"` card. On any
+miss (no ticker, fetch/parse failure) the adapter returns the Brave snippet
+outcome unchanged → LLM fallback (pre-#38 site-filter behavior). NOT cached
+(a cached price is a stale price). `AgentLoop` has a FINANCE direct-render
+block after the WEATHER block.
+
+This partially re-introduces the stockanalysis.com dependency §M2.13 (PR
+#35) removed — but as a deterministic page-parse + card, not the old
+`StockLookupAdapter` feeding page text to Gemma. An earlier #38 iteration
+used Brave's `/web/rich` callback (closing the §M2.1 deferral) but was
+reverted for the stockanalysis.com parse. New tests:
+`StockAnalysisParserTest`, `StockResponseFormatterTest`, AgentLoop finance
+cases. See CLAUDE.md invariant #33.
 
 ### M3 — Datasets & classifier training ✅ COMPLETE 2026-05-09 — see `docs/M3_PLAN.md`
 
