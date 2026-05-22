@@ -53,6 +53,18 @@ class PromptAssembler(
      * it, ignoring distant evidence. Riding the evidence on the current user
      * turn (the canonical RAG placement) makes it the most-recent thing the
      * model reads, so fresh results win the recency battle.
+     *
+     * **Search-grounded turns drop prior conversation history.** When
+     * [searchContext] is present the prompt is scoped to just the current
+     * user turn (plus the system instruction, which still carries temporal +
+     * memory + search-handling guidance) — earlier turns are omitted. A 2B
+     * model otherwise bleeds digits from prior assistant turns into the fresh
+     * answer (observed on-device: a score correctly read as "110 vs 112" with
+     * no history became "1110 vs 1112" once history grew). For a RAG answer
+     * the evidence block + the current question are all the model needs; the
+     * full history is still PERSISTED by [AgentLoop] for follow-ups — only
+     * what THIS generation reads is scoped. This also subsumes the recency
+     * problem above by physically removing the competing prior turn.
      */
     fun assembleStructured(
         history: List<ChatMessage>,
@@ -71,10 +83,15 @@ class PromptAssembler(
             responseLanguage = responseLanguage,
         )
 
-        val structuredHistory = appendSearchContext(
-            history.flatMap(::toHistoryMessages),
-            searchContext,
-        )
+        val fullHistory = history.flatMap(::toHistoryMessages)
+        // On a search-grounded turn, scope to just the current user turn so
+        // prior turns' numbers can't bleed into the RAG answer (see KDoc).
+        val scopedHistory = if (searchContext.isNullOrBlank()) {
+            fullHistory
+        } else {
+            scopeToCurrentTurn(fullHistory)
+        }
+        val structuredHistory = appendSearchContext(scopedHistory, searchContext)
 
         // Tool registration with the LLM is disabled — all tool dispatch
         // happens before the engine, and pre-flight results ride on the
@@ -97,6 +114,18 @@ class PromptAssembler(
      * onto the wrong role. The caller logs the block separately, so a missing
      * tail is observable on-device rather than failing the turn.
      */
+    /**
+     * Keeps only the trailing USER turn, dropping prior conversation history.
+     * Applied on search-grounded turns (see [assembleStructured]). Defensive:
+     * if the tail isn't a USER turn (shouldn't happen — [AgentLoop] always
+     * puts the user message last), the history is returned unchanged so the
+     * turn the evidence is about to ride on is never stripped.
+     */
+    private fun scopeToCurrentTurn(history: List<HistoryMessage>): List<HistoryMessage> {
+        val tail = history.lastOrNull()
+        return if (tail != null && tail.role == HistoryRole.USER) listOf(tail) else history
+    }
+
     private fun appendSearchContext(
         history: List<HistoryMessage>,
         searchContext: String?,
@@ -280,7 +309,12 @@ host has ALREADY fetched the current information for you — it is in the
 `[SEARCH CONTEXT]` block. Read it and answer from it. If the block is
 present but does not contain the specific fact the user asked for, say so
 explicitly (e.g., "the source I have doesn't list tonight's score") rather
-than refusing on the grounds of having no real-time data."""
+than refusing on the grounds of having no real-time data.
+
+When you state a figure from the block — a score, price, date, percentage,
+or count — copy its digits EXACTLY as written. Do not add, drop, reorder,
+or change any digit (e.g., if the block says "112", write "112", never
+"1112" or "121")."""
 
         // SYSTEM_PROMPT.md §5 — verbatim. Wrapped at the same column the file
         // uses so the model sees the exact spec text. The bullet list is

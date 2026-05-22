@@ -25,9 +25,12 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * Locks down the SPORTS (PR #34) and FINANCE (PR #35) Brave `site:` rewrites.
- * The adapter is shared with NEWS, so the NEWS case is included as a regression
- * guard.
+ * Locks down the SPORTS and FINANCE (PR #35) Brave `site:` rewrites. The
+ * adapter is shared with NEWS, so the NEWS case is included as a regression
+ * guard. SPORTS rides this adapter against the LLM-context-backed service
+ * (PR #41 dropped the `site:` pin, then restored it once the unpinned endpoint
+ * proved too noisy — see `VerticalSearchDispatcherFactory`). The rewrite is
+ * endpoint-agnostic, so a web-backed fake exercises it here.
  */
 class BraveSiteFilterAdapterTest {
 
@@ -53,36 +56,23 @@ class BraveSiteFilterAdapterTest {
     }
 
     @Test
-    fun `sports rewrites query with single site filter`() = runTest {
-        val adapter = BraveSiteFilterAdapter(searchService = service, subtype = SearchSubtype.SPORTS)
+    fun `sports pins the query to its single preferred site`() = runTest {
+        // PR #41: SPORTS rides this adapter against the LLM-context service,
+        // pinned to one site (espn.com / tsn.ca) to keep the context clean.
+        val adapter = BraveSiteFilterAdapter(
+            searchService = service,
+            subtype = SearchSubtype.SPORTS,
+            maxDomains = 1,
+            maxCitations = 1,
+        )
         val prefs = VerticalPreferences(sports = listOf(brave("espn.com")))
 
-        adapter.fetch(query = "who won the masters last year", prefs = prefs, location = null)
+        adapter.fetch(query = "what are the NBA scores 2026-05-21 evening", prefs = prefs, location = null)
 
-        assertEquals("who won the masters last year site:espn.com", fakeClient.lastQuery)
-    }
-
-    @Test
-    fun `sports ORs multiple site filters`() = runTest {
-        val adapter = BraveSiteFilterAdapter(searchService = service, subtype = SearchSubtype.SPORTS)
-        val prefs = VerticalPreferences(sports = listOf(brave("espn.com"), brave("cbssports.com")))
-
-        adapter.fetch(query = "nba scores", prefs = prefs, location = null)
-
-        assertEquals("nba scores (site:espn.com OR site:cbssports.com)", fakeClient.lastQuery)
-    }
-
-    @Test
-    fun `sports ignores non-Brave entries and passes query through unfiltered`() = runTest {
-        val adapter = BraveSiteFilterAdapter(searchService = service, subtype = SearchSubtype.SPORTS)
-        // A stale RSS-kind entry (e.g. left over from the pre-#34 wiring) is filtered out.
-        val prefs = VerticalPreferences(
-            sports = listOf(SiteConfig("espn.com", "ESPN", SourceKind.RSS, "https://espn.com/rss")),
+        assertEquals(
+            "what are the NBA scores 2026-05-21 evening site:espn.com",
+            fakeClient.lastQuery,
         )
-
-        adapter.fetch(query = "who won the masters last year", prefs = prefs, location = null)
-
-        assertEquals("who won the masters last year", fakeClient.lastQuery)
     }
 
     @Test

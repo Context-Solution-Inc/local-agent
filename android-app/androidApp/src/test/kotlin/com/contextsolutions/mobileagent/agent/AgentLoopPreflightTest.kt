@@ -15,6 +15,7 @@ import com.contextsolutions.mobileagent.inference.GenerationEvent
 import com.contextsolutions.mobileagent.inference.GenerationRequest
 import com.contextsolutions.mobileagent.inference.HistoryRole
 import com.contextsolutions.mobileagent.inference.PendingToolCall
+import com.contextsolutions.mobileagent.inference.SamplingParams
 import com.contextsolutions.mobileagent.inference.ToolDispatcher
 import com.contextsolutions.mobileagent.preferences.DefaultSiteResolver
 import com.contextsolutions.mobileagent.preferences.GpsCoordinates
@@ -149,6 +150,10 @@ class AgentLoopPreflightTest {
         // Tools must NOT be advertised — LLM-side tool calling is disabled.
         assertTrue("tools list must be empty", request.tools.isEmpty())
 
+        // Search-grounded turns decode near-greedy so figures (scores, prices)
+        // copy out of the [SEARCH CONTEXT] verbatim instead of being perturbed.
+        assertEquals(SamplingParams.GREEDY, request.sampling)
+
         // No synthetic tool history is injected: the engine sees the plain
         // user message (now carrying the search context) as the tail.
         val historyRoles = request.history.map { it.role }
@@ -178,6 +183,8 @@ class AgentLoopPreflightTest {
         assertFalse(requireNotNull(request.systemInstruction).contains("=== Search context for this turn ==="))
         // History tail is the user message — the M2 path.
         assertEquals(HistoryRole.USER, request.history.last().role)
+        // Non-search turn keeps the engine's warm default sampling (no override).
+        assertNull(request.sampling)
     }
 
     @Test

@@ -128,6 +128,44 @@ class SearchServiceTest {
         assertEquals(SearchOutcome.ErrorKind.RateLimited, outcome.kind)
     }
 
+    @Test
+    fun `cache namespace isolates two services sharing one DAO`() = runTest {
+        // PR #41: the SPORTS LLM-context service shares this DAO with the
+        // web-search service. A cacheNamespace keeps an identical query string
+        // from serving one service's payload to the other.
+        val webPayload = samplePayload()
+        val sportsPayload = SearchPostProcessor.format(
+            BraveSearchResponse(
+                web = BraveWebResults(
+                    results = listOf(BraveResult(title = "LLM", url = "https://espn.com/llm", description = "Sports")),
+                ),
+            ),
+        )
+        fakeClient.next = BraveSearchResult.Success(webPayload)
+        val sportsClient = FakeBraveSearchClient().apply { next = BraveSearchResult.Success(sportsPayload) }
+        val webService = service()
+        val sportsService = SearchService(
+            StaticBraveKeyProvider("test-key"),
+            sportsClient,
+            dao,
+            cacheNamespace = "sports:",
+        )
+
+        val web = webService.search("nba scores today") as SearchOutcome.Success
+        val sports = sportsService.search("nba scores today") as SearchOutcome.Success
+
+        // No cross-contamination despite identical query text.
+        assertEquals(webPayload.json, web.payload.json)
+        assertEquals(sportsPayload.json, sports.payload.json)
+        // The sports call was a cache miss (own namespace) and hit the network...
+        assertEquals(1, sportsClient.callCount)
+        assertFalse(sports.fromCache)
+        // ...with the un-prefixed query (namespace is cache-key-only).
+        assertEquals("nba scores today", sportsClient.lastQuery)
+        // Two distinct rows under one DAO.
+        assertEquals(2L, dao.count())
+    }
+
     private fun service(
         keyProvider: BraveKeyProvider = StaticBraveKeyProvider("test-key"),
     ): SearchService = SearchService(keyProvider, fakeClient, dao)

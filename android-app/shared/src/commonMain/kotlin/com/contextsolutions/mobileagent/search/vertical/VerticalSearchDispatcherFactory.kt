@@ -22,6 +22,7 @@ object VerticalSearchDispatcherFactory {
     fun create(
         httpEngineFactory: HttpEngineFactory,
         searchService: SearchService,
+        sportsSearchService: SearchService = searchService,
         logger: (String) -> Unit = {},
     ): VerticalSearchDispatcher {
         val client = httpEngineFactory.create {
@@ -46,12 +47,19 @@ object VerticalSearchDispatcherFactory {
                 readability = readability,
                 logger = logger,
             ),
-            // SPORTS uses Brave with a `site:` filter (PR #34) rather than RSS:
-            // RSS feeds only carry recent headlines and can't answer historical
-            // queries like "who won the masters last year". One source + one
-            // citation: a single sports site shouldn't yield redundant cites.
+            // SPORTS uses Brave's LLM Context endpoint (PR #41) via
+            // [sportsSearchService] — pre-extracted, relevance-ranked page
+            // content instead of the index snippets `/web/search` returns —
+            // AND pins the query to the user's preferred sports domain with a
+            // `site:` filter. The PR #41 "unpinned" bet failed on-device: the
+            // unpinned endpoint returned nba.com video clips and a sportingnews
+            // schedule table as the top sources, with only espn.com carrying
+            // the actual scores — burying the answer in noise the 2B model then
+            // mis-transcribed. Pinning to one site (espn.com / tsn.ca per
+            // search_defaults.json) gives the model a single clean snippet.
+            // maxDomains/maxCitations = 1: one source, one citation chip.
             SearchSubtype.SPORTS to BraveSiteFilterAdapter(
-                searchService = searchService,
+                searchService = sportsSearchService,
                 subtype = SearchSubtype.SPORTS,
                 maxDomains = 1,
                 maxCitations = 1,

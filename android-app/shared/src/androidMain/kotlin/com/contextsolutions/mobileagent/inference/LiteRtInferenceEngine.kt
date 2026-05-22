@@ -163,10 +163,15 @@ class LiteRtInferenceEngine(private val context: Context) : InferenceEngine {
         val typed = handle as? LiteRtModelHandle
             ?: error("ModelHandle is not a LiteRtModelHandle; engine binding is wrong.")
 
+        // Per-request sampling override (request.sampling) wins over the
+        // load-time InferenceConfig. The agent loop sets SamplingParams.GREEDY
+        // on search-grounded turns so the model copies figures from the
+        // [SEARCH CONTEXT] verbatim instead of perturbing digits mid-number.
+        val sampling = request.sampling
         val samplerConfig = SamplerConfig(
-            topK = typed.config.topK,
-            topP = typed.config.topP.toDouble(),
-            temperature = typed.config.temperature.toDouble(),
+            topK = sampling?.topK ?: typed.config.topK,
+            topP = (sampling?.topP ?: typed.config.topP).toDouble(),
+            temperature = (sampling?.temperature ?: typed.config.temperature).toDouble(),
             seed = (System.nanoTime() and 0x7FFFFFFF).toInt(),
         )
 

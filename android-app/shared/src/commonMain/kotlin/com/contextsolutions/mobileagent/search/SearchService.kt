@@ -25,6 +25,16 @@ class SearchService(
     private val isEnabled: () -> Boolean = { true },
     private val counters: TelemetryCounters = NoOpTelemetryCounters,
     private val nowEpochMs: () -> Long = { kotlinx.datetime.Clock.System.now().toEpochMilliseconds() },
+    /**
+     * Prepended to the query when forming the cache key (NOT when calling the
+     * client). Lets two services that share one [SearchCacheDao] but hit
+     * different endpoints avoid collisions: the SPORTS LLM-context service
+     * (PR #41) uses `"sports:"` so an identical query string can't serve a
+     * `/web/search` payload to a SPORTS request, or vice versa. The prefix
+     * tokenizes as a non-time-sensitive word, so it doesn't disturb TTL
+     * categorization of the real query tokens.
+     */
+    private val cacheNamespace: String = "",
 ) {
     /**
      * True when a search would actually run if attempted. The agent loop calls
@@ -55,7 +65,8 @@ class SearchService(
                 return SearchOutcome.Error(SearchOutcome.ErrorKind.NoKey, "No Brave Search key configured")
             }
 
-            when (val cached = cache.lookup(query)) {
+            val cacheKey = cacheNamespace + query
+            when (val cached = cache.lookup(cacheKey)) {
                 is SearchCacheDao.CacheLookup.Hit -> {
                     counters.increment(CounterNames.SEARCH_CACHE_HIT_TOTAL)
                     return SearchOutcome.Success(cached.payload, fromCache = true)
@@ -65,7 +76,7 @@ class SearchService(
 
             return when (val result = client.search(query, key)) {
                 is BraveSearchResult.Success -> {
-                    cache.store(query, result.payload)
+                    cache.store(cacheKey, result.payload)
                     SearchOutcome.Success(result.payload, fromCache = false)
                 }
                 is BraveSearchResult.Error -> {

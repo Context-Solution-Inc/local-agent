@@ -87,6 +87,39 @@ data class InferenceConfig(
     val topP: Float = 0.95f,
 )
 
+/**
+ * Per-request sampling override. When set on a [GenerationRequest] the engine
+ * uses these instead of the load-time [InferenceConfig] sampling values.
+ *
+ * Used by the agent loop to switch search-grounded (RAG) turns to near-greedy
+ * decoding. Under the default temperature 0.7 a 2B model perturbs digit tokens
+ * mid-number when copying figures out of a `[SEARCH CONTEXT]` block (observed
+ * on-device: a score read as "110" in the context emitted as "1110"). [GREEDY]
+ * forces argmax (topK = 1), so the model reproduces the numbers it was given
+ * verbatim. Open-chat turns leave [GenerationRequest.sampling] null and keep
+ * the warmer defaults.
+ */
+data class SamplingParams(
+    val temperature: Float,
+    val topK: Int,
+    val topP: Float,
+) {
+    companion object {
+        /**
+         * Deterministic argmax for verbatim factual copying. `topK = 1` picks
+         * the single highest-probability token, so selection is argmax
+         * regardless of temperature. Temperature is kept at a neutral `1.0`
+         * (NOT `0.0`) on purpose: LiteRT-LM's `SamplerConfig` exposes no
+         * explicit greedy mode, and a `0.0` temperature risks a `logits / temp`
+         * divide-by-zero or a "temperature disabled → fall back to stochastic"
+         * special-case in the native sampler — either of which would silently
+         * defeat greedy decoding. `topK = 1` is the lever; temperature is just
+         * held somewhere safe.
+         */
+        val GREEDY = SamplingParams(temperature = 1.0f, topK = 1, topP = 1.0f)
+    }
+}
+
 enum class Accelerator { AUTO, NPU, GPU, CPU }
 
 /**
@@ -116,6 +149,8 @@ data class GenerationRequest(
     val tools: List<ToolDefinition> = emptyList(),
     val maxTokens: Int = 1024,
     val stopSequences: List<String> = emptyList(),
+    /** When non-null, overrides the engine's load-time sampling. See [SamplingParams]. */
+    val sampling: SamplingParams? = null,
 )
 
 /**

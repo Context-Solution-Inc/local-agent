@@ -34,9 +34,11 @@ object VerticalSearchModule {
     fun provideVerticalSearchDispatcher(
         httpEngineFactory: HttpEngineFactory,
         searchService: SearchService,
+        @SportsSearch sportsSearchService: SearchService,
     ): VerticalSearchDispatcher = VerticalSearchDispatcherFactory.create(
         httpEngineFactory = httpEngineFactory,
         searchService = searchService,
+        sportsSearchService = sportsSearchService,
         logger = { Log.i(TAG, it) },
     )
 }

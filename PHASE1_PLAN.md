@@ -825,6 +825,40 @@ brittle phrase/locale matching. New regression test in `PromptAssemblerTest`;
 on `request.history.last().text`; `CanonicalEvalTest` widens its block-detection
 haystack. See SYSTEM_PROMPT.md §6.3 and CLAUDE.md invariant #34.
 
+### M2.17 — SPORTS via Brave LLM Context API + search-turn decode hardening ✅ COMPLETE 2026-05-22
+
+PR #41. Moves SPORTS off `/web/search` onto Brave's **LLM Context** endpoint
+(`/res/v1/llm/context`), which returns pre-extracted page content (prose,
+tables) instead of ≤200-char index snippets — same Brave Search plan + token,
+single round-trip. A second `SearchService` (`@SportsSearch`) wraps a new
+`KtorBraveLlmContextClient` (same `BraveSearchClient` interface, so key/cache/
+counters are reused); `LlmContextPostProcessor` parses `grounding.generic[]`
+into the existing `FormattedSearchPayload`. The shared `SearchCacheDao` is
+namespaced (`cacheNamespace = "sports:"`) so a SPORTS query can't collide with
+an identical GENERAL query's `/web/search` payload.
+
+Shipped iteratively against on-device logcat while chasing a digit-corruption
+symptom (Gemma E2B writing "114" as "1114" when copying scores):
+- **History scoping** — search-grounded turns (a `[SEARCH CONTEXT]` block is
+  present) drop prior conversation history from the prompt; full history is
+  still persisted for follow-ups. Subsumes the M2.16 stale-refusal recency fix.
+- **Greedy decoding** — those turns set `SamplingParams.GREEDY` (`topK = 1`
+  argmax; temperature held at `1.0`, not `0.0`, to avoid a native-sampler
+  divide-by-zero / "temp-disabled" footgun). Per-request override threaded
+  through `GenerationRequest.sampling`.
+- **Single clean source** — SPORTS re-pinned to `site:` (one domain: espn.com
+  US / tsn.ca CA) after an initial *unpinned* attempt ranked nba.com video
+  clips + a schedule table above the scores; `MAX_URLS = 1`; JSON-blob snippet
+  chunks (VideoObject / standings tables) stripped to prose.
+- **Observability** — raw Brave response dumped to logcat (`BraveApi`), and the
+  active sampling printed on the `AgentLoop` "sending to engine" line.
+
+These reduce but do not eliminate digit errors — the residual is the 2B model's
+transcription floor on a number-dense context; the only guaranteed fix is a
+deterministic score card (regex-parse + render, bypass the LLM, like
+WEATHER/FINANCE), deferred as high-effort/brittle for unstructured sports prose.
+See CLAUDE.md invariants #35 and #36.
+
 ### M3 — Datasets & classifier training ✅ COMPLETE 2026-05-09 — see `docs/M3_PLAN.md`
 
 Detailed phase-by-phase plan, ratified decisions, and exit criteria live in

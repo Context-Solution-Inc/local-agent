@@ -120,11 +120,12 @@ class PromptAssemblerTest {
     }
 
     @Test
-    fun `search context is appended after a prior refusal turn so fresh evidence wins recency`() {
-        // Repro of the disable-then-enable-search bug: turn 1 refused (search
-        // off), turn 2 re-asks with search on. The refusal must stay in
-        // history (no hygiene) but the evidence must land on the tail user
-        // turn — positionally after the refusal, closest to generation.
+    fun `search-grounded turn drops prior history, leaving only the current user turn`() {
+        // A [SEARCH CONTEXT] block present => RAG mode: prior conversation
+        // history is scoped out so earlier turns' numbers can't bleed into the
+        // fresh answer. This also kills the disable-then-enable-search bug —
+        // the stale "no real-time data" refusal from turn 1 is physically
+        // removed rather than just out-recency'd.
         val out = assembler().assembleStructured(
             history = listOf(
                 ChatMessage.User("did the eagles win last night"),
@@ -135,18 +136,33 @@ class PromptAssemblerTest {
                 "[{\"title\":\"Eagles 28-22 win\"}]\n[/SEARCH CONTEXT]",
         )
 
-        // Refusal turn is preserved unmodified (hygiene intentionally not applied).
-        assertEquals(HistoryRole.MODEL, out.history[1].role)
-        assertEquals("I don't have access to real-time data.", out.history[1].text)
-
-        // Evidence rides on the tail user turn, after the refusal.
-        val tail = out.history.last()
+        // Only the current user turn survives — the refusal and the earlier
+        // user turn are gone.
+        assertEquals(1, out.history.size)
+        val tail = out.history.single()
         assertEquals(HistoryRole.USER, tail.role)
         assertTrue(tail.text.startsWith("did the eagles win last night"))
         assertTrue("Eagles 28-22 win" in tail.text)
         assertTrue("`[SEARCH CONTEXT]` block above" in tail.text)
-        // System instruction stays clean.
+        // The refusal was the only MODEL turn — its absence proves prior
+        // history was dropped. (We can't grep for "real-time data": the
+        // PREFLIGHT_NOTICE appended to the tail contains that phrase by design.)
+        assertFalse(out.history.any { it.role == HistoryRole.MODEL })
         assertFalse("Eagles 28-22 win" in out.systemInstruction)
+    }
+
+    @Test
+    fun `no search context keeps full conversation history`() {
+        // Regression guard: history scoping is gated on a search context block.
+        // A normal (non-search) turn must still see the whole conversation.
+        val out = assembler().assembleStructured(
+            history = listOf(
+                ChatMessage.User("hello"),
+                ChatMessage.Assistant("hi back"),
+                ChatMessage.User("how are you"),
+            ),
+        )
+        assertEquals(3, out.history.size)
     }
 
     @Test

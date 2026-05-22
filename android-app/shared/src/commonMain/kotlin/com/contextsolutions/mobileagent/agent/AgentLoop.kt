@@ -6,6 +6,7 @@ import com.contextsolutions.mobileagent.classifier.PreflightRouter
 import com.contextsolutions.mobileagent.inference.GenerationEvent
 import com.contextsolutions.mobileagent.inference.GenerationRequest
 import com.contextsolutions.mobileagent.inference.PendingToolCall
+import com.contextsolutions.mobileagent.inference.SamplingParams
 import com.contextsolutions.mobileagent.inference.ToolDispatcher
 import com.contextsolutions.mobileagent.language.PreferredLanguage
 import com.contextsolutions.mobileagent.memory.Memory
@@ -541,10 +542,16 @@ class AgentLoop(
             systemInstruction = structured.systemInstruction,
             history = structured.history,
             tools = structured.tools,
+            // Search-grounded turns decode near-greedy so the model copies
+            // figures (scores, prices) out of the [SEARCH CONTEXT] verbatim;
+            // the default temperature 0.7 perturbs digits mid-number on a 2B
+            // model ("110" -> "1110"). Open-chat turns keep the warm defaults.
+            sampling = if (searchContextBlock != null) SamplingParams.GREEDY else null,
         )
         logger(
             "[turn] sending to engine systemPromptLen=${structured.systemInstruction.length} " +
                 "historyTurns=${structured.history.size} " +
+                "sampling=${request.sampling?.let { "greedy(topK=${it.topK},temp=${it.temperature})" } ?: "default"} " +
                 "toolsRegistered=${structured.tools.joinToString(",") { it.name }}",
         )
         // Dump the full system instruction to logcat so the user can verify
