@@ -15,8 +15,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -28,7 +26,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import com.contextsolutions.mobileagent.language.PreferredLanguage
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -38,6 +35,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -49,6 +52,12 @@ import com.contextsolutions.mobileagent.app.BuildConfig
  * Settings: Brave API key (BYOK), web-search toggle, cache clear. Reachable from
  * the chat top bar. Production users land here on first run via the
  * "Add a key" affordance once that's wired (M6 polish); for M2 it's manual.
+ *
+ * Section order (PR #44): the day-to-day controls come first
+ * (Conversations, Web search, Search cache, Search sources, Memory,
+ * Anonymous telemetry), then the BYOK credential sections (Brave Search
+ * API, HuggingFace token) sit last. Response language was removed in
+ * PR #44 — launch ships English-only; multi-language is a v2 activity.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -103,117 +112,26 @@ fun SettingsScreen(
                 .padding(16.dp)
                 .verticalScroll(rememberScrollState()),
         ) {
-            SectionHeader("Brave Search")
+            // PR #44 — shared style for the in-copy clickable URLs (Brave +
+            // HuggingFace credential sections below).
+            val linkStyles = TextLinkStyles(
+                style = SpanStyle(
+                    color = MaterialTheme.colorScheme.primary,
+                    textDecoration = TextDecoration.Underline,
+                ),
+            )
+
+            // PR#13 — conversation history list, accessible from Settings
+            // (NOT the chat top bar) to keep the chat surface focused on
+            // the active conversation.
+            SectionHeader("Conversations")
             Text(
-                "The assistant searches the web through Brave Search. Get a key at " +
-                    "https://brave.com/search/api/ — the free tier is enough for personal use.",
+                "Browse, resume, or delete prior chats. The most recent 50 are kept; " +
+                    "older conversations are removed automatically.",
                 style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(8.dp))
-            KeyStatusRow(state)
-            Spacer(Modifier.height(8.dp))
-            OutlinedTextField(
-                value = keyInput,
-                onValueChange = { keyInput = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Brave API key") },
-                placeholder = { Text(if (state.hasUserKey) "Replace existing key" else "Paste key") },
-                singleLine = true,
-                visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                trailingIcon = {
-                    Text(
-                        text = if (showKey) "Hide" else "Show",
-                        modifier = Modifier
-                            .padding(horizontal = 8.dp)
-                            .padding(vertical = 4.dp),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                },
-            )
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = { viewModel.saveBraveKey(keyInput) },
-                    enabled = keyInput.isNotBlank(),
-                ) { Text("Save") }
-                if (state.hasUserKey) {
-                    OutlinedButton(onClick = { viewModel.clearBraveKey() }) { Text("Clear") }
-                }
-                OutlinedButton(onClick = { showKey = !showKey }) {
-                    Text(if (showKey) "Mask" else "Reveal")
-                }
-            }
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
-
-            SectionHeader("HuggingFace token")
-            Text(
-                "The Gemma 4 model weights live in a gated HuggingFace repository. " +
-                    "Provide a read-scoped access token from huggingface.co/settings/tokens " +
-                    "and accept the Gemma license on the model card before downloading.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Spacer(Modifier.height(8.dp))
-            HfTokenStatusRow(state)
-            Spacer(Modifier.height(8.dp))
-            OutlinedTextField(
-                value = hfTokenInput,
-                onValueChange = { hfTokenInput = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("HuggingFace access token") },
-                placeholder = {
-                    Text(if (state.hasUserHfToken) "Replace existing token" else "Paste token")
-                },
-                singleLine = true,
-                visualTransformation = if (showHfToken) VisualTransformation.None else PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                trailingIcon = {
-                    Text(
-                        text = if (showHfToken) "Hide" else "Show",
-                        modifier = Modifier
-                            .padding(horizontal = 8.dp)
-                            .padding(vertical = 4.dp),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                },
-            )
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = { viewModel.saveHfAuthToken(hfTokenInput) },
-                    enabled = hfTokenInput.isNotBlank(),
-                ) { Text("Save") }
-                if (state.hasUserHfToken) {
-                    OutlinedButton(onClick = { viewModel.clearHfAuthToken() }) { Text("Clear") }
-                }
-                OutlinedButton(onClick = { showHfToken = !showHfToken }) {
-                    Text(if (showHfToken) "Mask" else "Reveal")
-                }
-            }
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
-
-            // PR #10 — preferred response language. Drives the system
-            // prompt's "respond in {language}" directive AND the streamed
-            // character filter that strips foreign-script tokens. Default
-            // English. Translation requests automatically relax the
-            // filter for that turn (TranslationIntentDetector).
-            SectionHeader("Response language")
-            Text(
-                "The assistant responds in this language by default. Translation " +
-                    "requests (\"translate hello to Japanese\", or any message " +
-                    "containing characters from another language) automatically " +
-                    "allow the requested script for that response.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Spacer(Modifier.height(8.dp))
-            LanguageDropdown(
-                selected = state.preferredLanguage,
-                onSelected = { viewModel.setPreferredLanguage(it) },
-            )
+            OutlinedButton(onClick = onOpenConversationHistory) { Text("Manage conversations") }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
 
@@ -257,18 +175,19 @@ fun SettingsScreen(
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
 
-            // PR#13 — conversation history list, accessible from Settings
-            // (NOT the chat top bar) to keep the chat surface focused on
-            // the active conversation. Sits next to Memory because both
-            // are "manage prior data" affordances.
-            SectionHeader("Conversations")
+            // PR #23 — vertical search sources. Per-vertical site lists
+            // captured at onboarding from the user's location, editable
+            // here. SearchSourcesScreen renders five sections with
+            // add/remove affordances. Placed under Search cache (PR #44)
+            // so the two search-config controls sit together.
+            SectionHeader("Search sources")
             Text(
-                "Browse, resume, or delete prior chats. The most recent 50 are kept; " +
-                    "older conversations are removed automatically.",
+                "Pick which sites Mobile Agent reads for news, weather, sports, " +
+                    "and finance questions. Defaults are based on your location.",
                 style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = onOpenConversationHistory) { Text("Manage conversations") }
+            OutlinedButton(onClick = onOpenSearchSources) { Text("Manage search sources") }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
 
@@ -285,21 +204,6 @@ fun SettingsScreen(
             )
             Spacer(Modifier.height(8.dp))
             OutlinedButton(onClick = onOpenMemoryManagement) { Text("Manage memories") }
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
-
-            // PR #23 — vertical search sources. Per-vertical site lists
-            // captured at onboarding from the user's location, editable
-            // here. SearchSourcesScreen renders five sections with
-            // add/remove affordances.
-            SectionHeader("Search sources")
-            Text(
-                "Pick which sites Mobile Agent reads for news, weather, sports, " +
-                    "and finance questions. Defaults are based on your location.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = onOpenSearchSources) { Text("Manage search sources") }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
 
@@ -374,6 +278,110 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.outline,
                 )
             }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
+
+            // BYOK credential sections moved to the bottom (PR #44) — set
+            // once at setup, rarely touched afterwards.
+            SectionHeader("Brave Search API")
+            val braveUrl = "https://brave.com/search/api/"
+            Text(
+                buildAnnotatedString {
+                    append("The assistant searches the web through Brave Search. Get a key at ")
+                    withLink(LinkAnnotation.Url(braveUrl, linkStyles)) { append(braveUrl) }
+                    append(" — the free tier is enough for personal use.")
+                },
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(8.dp))
+            KeyStatusRow(state)
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = keyInput,
+                onValueChange = { keyInput = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Brave API key") },
+                placeholder = { Text(if (state.hasUserKey) "Replace existing key" else "Paste key") },
+                singleLine = true,
+                visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                trailingIcon = {
+                    Text(
+                        text = if (showKey) "Hide" else "Show",
+                        modifier = Modifier
+                            .padding(horizontal = 8.dp)
+                            .padding(vertical = 4.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                },
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { viewModel.saveBraveKey(keyInput) },
+                    enabled = keyInput.isNotBlank(),
+                ) { Text("Save") }
+                if (state.hasUserKey) {
+                    OutlinedButton(onClick = { viewModel.clearBraveKey() }) { Text("Clear") }
+                }
+                OutlinedButton(onClick = { showKey = !showKey }) {
+                    Text(if (showKey) "Mask" else "Reveal")
+                }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
+
+            SectionHeader("HuggingFace token")
+            val hfTokensUrl = "https://huggingface.co/settings/tokens"
+            Text(
+                buildAnnotatedString {
+                    append("The google/gemma-4-E2B-it model weights live in a gated HuggingFace ")
+                    append("repository. Provide a read-scoped access token from ")
+                    withLink(LinkAnnotation.Url(hfTokensUrl, linkStyles)) { append(hfTokensUrl) }
+                    append(" and accept the google/gemma-4-E2B-it license on the model card ")
+                    append("before downloading.")
+                },
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(8.dp))
+            HfTokenStatusRow(state)
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = hfTokenInput,
+                onValueChange = { hfTokenInput = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("HuggingFace access token") },
+                placeholder = {
+                    Text(if (state.hasUserHfToken) "Replace existing token" else "Paste token")
+                },
+                singleLine = true,
+                visualTransformation = if (showHfToken) VisualTransformation.None else PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                trailingIcon = {
+                    Text(
+                        text = if (showHfToken) "Hide" else "Show",
+                        modifier = Modifier
+                            .padding(horizontal = 8.dp)
+                            .padding(vertical = 4.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                },
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { viewModel.saveHfAuthToken(hfTokenInput) },
+                    enabled = hfTokenInput.isNotBlank(),
+                ) { Text("Save") }
+                if (state.hasUserHfToken) {
+                    OutlinedButton(onClick = { viewModel.clearHfAuthToken() }) { Text("Clear") }
+                }
+                OutlinedButton(onClick = { showHfToken = !showHfToken }) {
+                    Text(if (showHfToken) "Mask" else "Reveal")
+                }
+            }
         }
     }
 }
@@ -406,43 +414,6 @@ private fun SectionHeaderWithToggle(
             modifier = Modifier.weight(1f),
         )
         Switch(checked = checked, onCheckedChange = onCheckedChange)
-    }
-}
-
-/**
- * Material3 dropdown bound to the user's preferred-language preference.
- * Uses the plain [DropdownMenu] anchored to an [OutlinedButton] rather
- * than `ExposedDropdownMenuBox` to avoid pulling in the
- * `compose-material3` `ExperimentalMaterial3Api` surface beyond the
- * already-opted-in callsite.
- *
- * Each entry shows `{nativeName} · {englishName}` so users who can't
- * read English still recognise their language at a glance.
- */
-@Composable
-private fun LanguageDropdown(
-    selected: PreferredLanguage,
-    onSelected: (PreferredLanguage) -> Unit,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    Column {
-        OutlinedButton(onClick = { expanded = true }) {
-            Text("${selected.nativeName} · ${selected.englishName}")
-        }
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-        ) {
-            PreferredLanguage.values().forEach { language ->
-                DropdownMenuItem(
-                    text = { Text("${language.nativeName} · ${language.englishName}") },
-                    onClick = {
-                        onSelected(language)
-                        expanded = false
-                    },
-                )
-            }
-        }
     }
 }
 

@@ -216,15 +216,23 @@ fun ChatScreen(
                         )
                     }
                 },
-                title = {},
+                // PR #44 — system-memory dot rides in the title slot so it
+                // sits left-justified right after the app icon, leaving a gap
+                // before the right-justified action icons. Green/yellow/red
+                // bands mirror the watchdog + send-time gate thresholds in
+                // SystemMemoryThresholds, so the dot the user sees can't
+                // drift out of sync with what actually gates inference.
+                title = { SystemMemoryStatusIndicator() },
                 actions = {
-                    // PR #18 — system-memory status dot. Green/yellow/red bands
-                    // mirror the watchdog + send-time gate thresholds in
-                    // SystemMemoryThresholds, so the dot the user sees can't
-                    // drift out of sync with what actually gates inference.
-                    SystemMemoryStatusIndicator()
-                    // PR #15 — TODO entry point. Sits immediately to the
-                    // LEFT of the timer icon. Count is folded into the
+                    // PR #44 — New Chat first on the right, Settings last.
+                    // Order L→R: New Chat, TODO, Timer, Alarm, theme, Settings.
+                    IconButton(onClick = { viewModel.newConversation() }) {
+                        Icon(
+                            imageVector = Icons.Filled.Add,
+                            contentDescription = "New chat",
+                        )
+                    }
+                    // PR #15 — TODO entry point. Count is folded into the
                     // accessibility label only; the visual badge was
                     // removed in PR #26.
                     ClockIconButton(
@@ -252,12 +260,6 @@ fun ChatScreen(
                         Icon(
                             imageVector = Icons.Filled.Settings,
                             contentDescription = "Settings",
-                        )
-                    }
-                    IconButton(onClick = { viewModel.newConversation() }) {
-                        Icon(
-                            imageVector = Icons.Filled.Add,
-                            contentDescription = "New chat",
                         )
                     }
                 },

@@ -933,6 +933,32 @@ temporal → `FireSearch(SPORTS)` with rewritten "2025" + counter) and
 `QueryRewriterTest` (future rules incl. the reported "next month" → "June 2026").
 See CLAUDE.md invariant #38.
 
+### M2.20 — Chat-header + Settings UI cleanup ✅ COMPLETE 2026-05-23
+
+PR #44. UI-only polish ahead of the closed beta — no behavior change beyond
+dropping the language picker.
+
+- **Chat header (`ChatScreen`):** `+` New Chat moved ahead of the
+  TODO/Timer/Alarm icons so **Settings** is last on the right (L→R after the
+  app icon: New Chat, TODO, Timer, Alarm, theme toggle, Settings). The
+  system-memory dot moved from the `TopAppBar` `actions` slot into the `title`
+  slot so it sits left-justified beside the app icon, leaving a gap before the
+  right-justified action icons.
+- **Settings (`SettingsScreen`):** removed the *Response language* section
+  (and the now-unused `LanguageDropdown`/imports) — launch is **English-only**;
+  multi-language is a v2 activity. `LanguagePreferences.preferredLanguage()`
+  (SYSTEM_PROMPT.md §5) is untouched and still defaults English; only the UI
+  control is gone. Sections reordered to: Conversations, Web search,
+  Search cache, Search sources, Memory, Anonymous telemetry, Brave Search API,
+  HuggingFace token (day-to-day controls first; BYOK credentials last).
+- **Credential copy:** the Brave (`https://brave.com/search/api/`) and
+  HuggingFace (`https://huggingface.co/settings/tokens`) URLs are now tappable
+  links (`buildAnnotatedString` + `LinkAnnotation.Url`), and "Gemma" is spelled
+  out as the explicit `google/gemma-4-E2B-it` model id.
+
+No new tests (presentation-only); merged after on-device validation on the
+Pixel 7.
+
 ### M3 — Datasets & classifier training ✅ COMPLETE 2026-05-09 — see `docs/M3_PLAN.md`
 
 Detailed phase-by-phase plan, ratified decisions, and exit criteria live in
