@@ -84,11 +84,19 @@ val hfAuthToken: String = secrets.getProperty("HF_AUTH_TOKEN", "")
 // command line: `./gradlew :androidApp:assembleDebug -PuseStubEngine=true`.
 val useStubEngine: String = (project.findProperty("useStubEngine") as String? ?: "false")
 
-// Build number == total commits on the current branch, computed at configuration
-// time. `providers.exec` (not the deprecated `project.exec`) keeps this
+// Build number == HEAD's committer-date epoch seconds, computed at configuration
+// time. This is monotonic AND deterministic per commit: every commit — including
+// a squash-merge commit on `main` — has a strictly newer committer date than its
+// ancestors, so the code only ever increases as history advances, and rebuilding
+// the same commit yields the same code. We previously used `rev-list --count
+// HEAD`, but that is NOT monotonic under squash merges: a PR's N branch commits
+// (built & installed during dev) collapse into ONE commit on main, so a fresh
+// branch can produce a LOWER count than an APK already on the device →
+// INSTALL_FAILED_VERSION_DOWNGRADE. Fits Android's versionCode Int cap (~2.1e9)
+// until ~2036. `providers.exec` (not the deprecated `project.exec`) keeps this
 // configuration-cache compatible. Falls back to 1 outside a git checkout.
-val gitCommitCount: Int =
-    providers.exec { commandLine("git", "rev-list", "--count", "HEAD") }
+val gitCommitTimestamp: Int =
+    providers.exec { commandLine("git", "log", "-1", "--format=%ct", "HEAD") }
         .standardOutput.asText.get().trim().toIntOrNull() ?: 1
 
 android {
@@ -99,7 +107,7 @@ android {
         applicationId = "com.contextsolutions.mobileagent"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = gitCommitCount
+        versionCode = gitCommitTimestamp
         versionName = "0.0.1-beta"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

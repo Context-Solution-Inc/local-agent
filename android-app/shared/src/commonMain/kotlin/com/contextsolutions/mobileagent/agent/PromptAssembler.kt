@@ -71,7 +71,6 @@ class PromptAssembler(
         memoryBlock: String? = null,
         searchContext: String? = null,
         searchAvailable: Boolean = true,
-        forceFinalAnswer: Boolean = false,
         responseLanguage: PreferredLanguage = PreferredLanguage.DEFAULT,
     ): StructuredPrompt {
         require(history.isNotEmpty()) { "history must not be empty" }
@@ -79,7 +78,6 @@ class PromptAssembler(
         val systemInstruction = buildSystemInstruction(
             memoryBlock = memoryBlock,
             searchAvailable = searchAvailable,
-            forceFinalAnswer = forceFinalAnswer,
             responseLanguage = responseLanguage,
         )
 
@@ -148,7 +146,6 @@ class PromptAssembler(
     private fun buildSystemInstruction(
         memoryBlock: String?,
         searchAvailable: Boolean,
-        forceFinalAnswer: Boolean,
         responseLanguage: PreferredLanguage,
     ): String = buildString {
         append(BASE_TEMPLATE)
@@ -169,10 +166,6 @@ class PromptAssembler(
         // verify" caveat.
         append("\n\n")
         append(if (searchAvailable) NO_TOOLS_BLOCK else NO_TOOLS_SEARCH_OFF_BLOCK)
-        if (forceFinalAnswer) {
-            append("\n\n")
-            append(FORCE_FINAL_ANSWER_BLOCK)
-        }
         append("\n\n")
         append(BEHAVIOR_GUIDELINES)
     }
@@ -229,9 +222,6 @@ class PromptAssembler(
         // by the user's Settings preference (PR #10).
         const val BASE_TEMPLATE: String = """You are a helpful, accurate, and privacy-respecting AI assistant running
 entirely on the user's device. You answer questions and help with tasks.
-When recent information is needed, the host app may pre-fetch it for you and
-include it below as a [SEARCH CONTEXT] block; use those results as
-authoritative when present.
 
 You are direct and concise. You match the user's register: casual when they
 are casual, precise when they are precise. You do not pad responses with
@@ -291,10 +281,6 @@ Answer from your training data. For questions about recent events, current
 prices, weather, sports scores, or anything else that may have changed
 since training, be explicit that you cannot verify current information and
 suggest the user enable web search in settings."""
-
-        const val FORCE_FINAL_ANSWER_BLOCK: String = """=== This turn is final ===
-Answer the user with the information you already have, citing any
-`[SEARCH CONTEXT]` source domains you used."""
 
         const val SEARCH_CONTEXT_HEADER: String = "=== Search context for this turn ==="
 

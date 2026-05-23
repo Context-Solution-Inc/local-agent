@@ -959,6 +959,33 @@ dropping the language picker.
 No new tests (presentation-only); merged after on-device validation on the
 Pixel 7.
 
+### M2.21 — System prompt cleanup + SYSTEM_PROMPT.md reconcile + monotonic versionCode ✅ COMPLETE 2026-05-23
+
+PR #45 (branch `cleanup/pr45-system-prompt`). Prompt hygiene + a build-config
+fix, no intended runtime behavior change.
+
+- **`PromptAssembler.kt`:** removed a redundant sentence from `BASE_TEMPLATE`
+  ("the host app may pre-fetch it for you…") already covered by the no-tools
+  block, and deleted the dead `FORCE_FINAL_ANSWER_BLOCK` constant + its
+  `forceFinalAnswer` plumbing (a leftover of the abandoned M2-era multi-turn
+  LLM tool loop — never set true; the only caller `AgentLoop` never passed it).
+- **`SYSTEM_PROMPT.md` → v1.1:** full reconcile with the live assembler
+  constants (the v1.0 draft still described the abandoned `web_search`
+  tool-calling design). §2/§3/§5/§6/§7/§8 and the §9 example now match
+  `PromptAssembler`; the language directive (§3.1) and the search-context /
+  pre-flight-notice placement on the user turn (§6.3, PR #39) are documented.
+- **`build.gradle.kts` versionCode:** switched from `git rev-list --count HEAD`
+  (`gitCommitCount`) to HEAD's committer-date epoch seconds
+  (`git log -1 --format=%ct`). The count was non-monotonic under squash merges
+  (a PR's N branch commits collapse to one on main → a fresh branch could yield
+  a LOWER code than an APK already installed → `INSTALL_FAILED_VERSION_DOWNGRADE`).
+  Timestamps are monotonic across squash merges AND deterministic per commit;
+  fits the Int cap until ~2036. Updates M7_PLAN.md Decision 4.
+
+No new tests (existing `*PromptAssembler*`, `*CanonicalEvalTest`,
+`*AgentLoopPreflight*` pass unchanged — none asserted on the removed strings);
+`:androidApp:assembleDebug` builds.
+
 ### M3 — Datasets & classifier training ✅ COMPLETE 2026-05-09 — see `docs/M3_PLAN.md`
 
 Detailed phase-by-phase plan, ratified decisions, and exit criteria live in
