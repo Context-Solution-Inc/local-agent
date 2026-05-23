@@ -16,11 +16,31 @@ data class MemoryConfig(
 
     @SerialName("thresholds")
     val thresholds: MemoryThresholds,
+
+    /**
+     * Hard cap on the number of (non-expired) memories the store will hold.
+     * Enforced at save time by [MemoryExtractor]: a save that would exceed
+     * this is refused and the UI surfaces a "limit reached" dialog (memories
+     * are only ever removed by explicit user action — no auto-eviction).
+     *
+     * Keeps the per-turn `[MEMORY]` prompt block bounded (~maxMemories × ~10
+     * tokens). Defaults to 100 (~1,000 tokens). Has a JSON default so older
+     * assets without the key still parse.
+     */
+    @SerialName("max_memories")
+    val maxMemories: Int = DEFAULT_MAX_MEMORIES,
 ) {
+    init {
+        require(maxMemories >= 1) { "max_memories must be >= 1, was $maxMemories" }
+    }
+
     companion object {
+        const val DEFAULT_MAX_MEMORIES: Int = 100
+
         val DEFAULT: MemoryConfig = MemoryConfig(
             modelVersion = "preflight_memory_shared_v1.0.0",
             thresholds = MemoryThresholds.DEFAULT,
+            maxMemories = DEFAULT_MAX_MEMORIES,
         )
     }
 }

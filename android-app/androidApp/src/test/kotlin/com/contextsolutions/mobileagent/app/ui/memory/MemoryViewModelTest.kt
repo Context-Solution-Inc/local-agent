@@ -59,6 +59,7 @@ class MemoryViewModelTest {
         private val importResult: MemoryBackupController.ImportResult = MemoryBackupController.ImportResult(importedCount = 0, skippedCount = 0, replacedCount = 0),
         private val exportThrows: MemoryBackupController.BackupException? = null,
         private val importThrows: MemoryBackupController.BackupException? = null,
+        private val importCapThrows: MemoryBackupController.ImportCapExceededException? = null,
     ) : MemoryBackupOps {
         val exportedTo = mutableListOf<Uri>()
         val importedFrom = mutableListOf<Uri>()
@@ -69,6 +70,7 @@ class MemoryViewModelTest {
         }
         override suspend fun import(source: Uri): MemoryBackupController.ImportResult {
             importedFrom += source
+            importCapThrows?.let { throw it }
             importThrows?.let { throw it }
             return importResult
         }
@@ -255,11 +257,6 @@ class MemoryViewModelTest {
             rows.count { it.conversationId == conversationId }
         override suspend fun listAll(): List<Memory> = rows.toList()
         override suspend fun deleteAll() { rows.clear() }
-        override suspend fun deleteExpired(now: Long): Int = 0
-        override suspend fun selectLruEvictionCandidateIds(
-            lastAccessedCutoff: Long,
-            limit: Int,
-        ): List<String> = emptyList()
     }
 
     // -- Backup wiring ----------------------------------------------------
@@ -301,6 +298,25 @@ class MemoryViewModelTest {
             cancelAndIgnoreRemainingEvents()
         }
         assertTrue(!vm.isBackupBusy.value)
+    }
+
+    @Test
+    fun onImport_over_cap_shows_dialog_without_error_event() = runTest {
+        val ops = RecordingBackupOps(
+            importCapThrows = MemoryBackupController.ImportCapExceededException(limit = 3, found = 5),
+        )
+        val vm = buildViewModelWith(InMemoryStore(), ops)
+
+        vm.onImport(mockk<Uri>(relaxed = true))
+        advanceUntilIdle()
+
+        val info = vm.importCapExceeded.value
+        assertEquals(3, info?.limit)
+        assertEquals(5, info?.found)
+        assertTrue(!vm.isBackupBusy.value)
+
+        vm.dismissImportCapDialog()
+        assertEquals(null, vm.importCapExceeded.value)
     }
 
     @Test

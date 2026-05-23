@@ -87,6 +87,19 @@ class MemoryViewModel @Inject constructor(
     val isBackupBusy: StateFlow<Boolean> = _isBackupBusy.asStateFlow()
 
     /**
+     * PR#46: non-null when an import was refused because the file holds more
+     * than the hard cap ([com.contextsolutions.mobileagent.memory.MemoryConfig.maxMemories]).
+     * The store is left untouched. Surfaced as a blocking alert dialog (not a
+     * toast like other backup feedback). Cleared by [dismissImportCapDialog].
+     */
+    private val _importCapExceeded = MutableStateFlow<ImportCapExceeded?>(null)
+    val importCapExceeded: StateFlow<ImportCapExceeded?> = _importCapExceeded.asStateFlow()
+
+    fun dismissImportCapDialog() {
+        _importCapExceeded.value = null
+    }
+
+    /**
      * Re-load the full inventory + creation toggle. Compose screens call
      * this from a `LaunchedEffect(Unit)` on entry so the ViewModel doesn't
      * have to auto-load in `init` (which would force a dispatcher
@@ -178,6 +191,9 @@ class MemoryViewModel @Inject constructor(
                 val result = withContext(ioDispatcher) { backupController.import(source) }
                 refresh()
                 _backupEvents.trySend(BackupEvent.Imported(result.importedCount, result.skippedCount))
+            } catch (t: MemoryBackupController.ImportCapExceededException) {
+                // Refused before any wipe — show a blocking dialog, not a toast.
+                _importCapExceeded.value = ImportCapExceeded(limit = t.limit, found = t.found)
             } catch (t: MemoryBackupController.BackupException) {
                 _backupEvents.trySend(BackupEvent.Error(t.message ?: "Import failed"))
             } finally {
@@ -186,6 +202,9 @@ class MemoryViewModel @Inject constructor(
         }
     }
 }
+
+/** State for the "import exceeds the memory cap" alert dialog. */
+data class ImportCapExceeded(val limit: Int, val found: Int)
 
 /** One-shot UI events for the backup flow. */
 sealed interface BackupEvent {

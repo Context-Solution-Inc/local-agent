@@ -178,60 +178,6 @@ class SqlDelightMemoryStoreTest {
         assertEquals(1, store.count(NOW))
     }
 
-    @Test
-    fun deleteExpired_returns_count_and_clears_only_expired() = runTest {
-        store.insert(stubMemory("alive", x = 1f, y = 0f, expiresAt = NOW + 1_000))
-        store.insert(stubMemory("dead-1", x = 1f, y = 0f, expiresAt = NOW - 1_000))
-        store.insert(stubMemory("dead-2", x = 1f, y = 0f, expiresAt = NOW - 5_000))
-        store.insert(stubMemory("forever", x = 1f, y = 0f, expiresAt = null))
-
-        val purged = store.deleteExpired(NOW)
-        assertEquals(2, purged)
-        assertEquals(setOf("alive", "forever"), store.listAll().map { it.id }.toSet())
-    }
-
-    @Test
-    fun selectLruEvictionCandidateIds_sorts_by_lastAccessed_then_accessCount() = runTest {
-        // Cutoff is NOW + 1, so all three rows are eligible.
-        store.insert(stubMemory("oldest",  x = 1f, y = 0f, lastAccessed = 1_000L, accessCount = 5))
-        store.insert(stubMemory("middle",  x = 1f, y = 0f, lastAccessed = 2_000L, accessCount = 1))
-        store.insert(stubMemory("newest",  x = 1f, y = 0f, lastAccessed = 3_000L, accessCount = 10))
-
-        val candidates = store.selectLruEvictionCandidateIds(
-            lastAccessedCutoff = Long.MAX_VALUE, // every row eligible
-            limit = 10,
-        )
-        // Ordered: oldest first, then middle (lower access_count than newest), then newest.
-        assertEquals(listOf("oldest", "middle", "newest"), candidates)
-    }
-
-    @Test
-    fun selectLruEvictionCandidateIds_uses_accessCount_as_tiebreak() = runTest {
-        // Same last_accessed, different access_count.
-        store.insert(stubMemory("rare",   x = 1f, y = 0f, lastAccessed = 1_000L, accessCount = 1))
-        store.insert(stubMemory("common", x = 1f, y = 0f, lastAccessed = 1_000L, accessCount = 50))
-
-        val candidates = store.selectLruEvictionCandidateIds(Long.MAX_VALUE, 10)
-        assertEquals(listOf("rare", "common"), candidates)
-    }
-
-    @Test
-    fun selectLruEvictionCandidateIds_respects_limit() = runTest {
-        repeat(5) { i ->
-            store.insert(
-                stubMemory("m$i", x = 1f, y = 0f, lastAccessed = (i + 1L) * 100L, accessCount = 0),
-            )
-        }
-        val candidates = store.selectLruEvictionCandidateIds(Long.MAX_VALUE, 2)
-        assertEquals(listOf("m0", "m1"), candidates)
-    }
-
-    @Test
-    fun selectLruEvictionCandidateIds_returns_empty_for_zero_limit() = runTest {
-        store.insert(stubMemory("only", x = 1f, y = 0f))
-        assertEquals(emptyList<String>(), store.selectLruEvictionCandidateIds(Long.MAX_VALUE, 0))
-    }
-
     // -- Clear all -----------------------------------------------------------
 
     @Test

@@ -132,21 +132,6 @@ class SqlDelightMemoryStore(
         queries.deleteAllMemories()
     }
 
-    override suspend fun deleteExpired(now: Long): Int = withContext(ioDispatcher) {
-        val before = queries.countAll().executeAsOne().toInt()
-        queries.deleteExpiredMemories(now)
-        val after = queries.countAll().executeAsOne().toInt()
-        before - after
-    }
-
-    override suspend fun selectLruEvictionCandidateIds(
-        lastAccessedCutoff: Long,
-        limit: Int,
-    ): List<String> = withContext(ioDispatcher) {
-        if (limit <= 0) return@withContext emptyList()
-        queries.selectLruEvictionCandidates(lastAccessedCutoff, limit.toLong()).executeAsList()
-    }
-
     // -- Internals ---------------------------------------------------------
 
     private fun highestCosineMatchInternal(

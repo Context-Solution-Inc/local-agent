@@ -14,7 +14,6 @@ import com.contextsolutions.mobileagent.telemetry.TelemetryCounters
 import com.contextsolutions.mobileagent.memory.EmbedderEngine
 import com.contextsolutions.mobileagent.memory.LiteRtEmbedderEngine
 import com.contextsolutions.mobileagent.memory.MemoryConfig
-import com.contextsolutions.mobileagent.memory.MemoryEvictor
 import com.contextsolutions.mobileagent.memory.MemoryExtractor
 import com.contextsolutions.mobileagent.memory.MemoryPreferences
 import com.contextsolutions.mobileagent.memory.MemoryRetriever
@@ -173,19 +172,11 @@ object MemoryModule {
 
     @Provides
     @Singleton
-    fun provideMemoryEvictor(counters: TelemetryCounters): MemoryEvictor = MemoryEvictor(
-        logger = { Log.i("MemoryEvictor", it) },
-        counters = counters,
-    )
-
-    @Provides
-    @Singleton
     fun provideMemoryExtractor(
         classifier: ClassifierEngine,
         tokenizer: WordPieceTokenizer,
         embedder: EmbedderEngine,
         store: MemoryStore,
-        evictor: MemoryEvictor,
         detector: RememberForgetDetector,
         questionDetector: QuestionDetector,
         dateParser: TempContextDateParser,
@@ -198,7 +189,6 @@ object MemoryModule {
         tokenizer = tokenizer,
         embedder = embedder,
         store = store,
-        evictor = evictor,
         detector = detector,
         questionDetector = questionDetector,
         dateParser = dateParser,

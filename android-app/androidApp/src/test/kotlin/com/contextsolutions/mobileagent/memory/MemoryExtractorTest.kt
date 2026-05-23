@@ -217,34 +217,60 @@ class MemoryExtractorTest {
     }
 
     @Test
-    fun runs_evictor_before_inserting_on_prompt_acceptance() = runTest {
-        // Pre-PR#7 the high-band branch ran `maybeEvict` before insert
-        // inside `extract`. Post-PR#7 there's no insert in `extract`;
-        // the eviction now fires inside `acceptPromptCandidate`. Verify
-        // both: (a) `extract` is no longer the eviction trigger for the
-        // classifier path, (b) accepting the candidate is.
+    fun accept_prompt_candidate_refuses_at_hard_cap() = runTest {
+        // PR#46: at the hard cap, a Save is refused (CapReached) and nothing
+        // is inserted — no eviction-to-make-room. Cap is 1 here; the store
+        // reports count == inserted.size, so the first accept fills it.
         val store = TrackingStore()
-        val evictor = SpyEvictor()
-        val classifier = StubClassifier(
-            presenceLogits = floatArrayOf(0f, 5f),
-            categoryLogits = floatArrayOf(5f, -5f, -5f, -5f, -5f, -5f),
-        )
         val extractor = buildExtractor(
             store = store,
-            classifier = classifier,
-            evictor = evictor,
-            ids = listOf("cand-1", "m-1"),
+            config = MemoryConfig.DEFAULT.copy(maxMemories = 1),
+            ids = listOf("m-1", "m-2"),
+        )
+        val first = candidate("first")
+        val second = candidate("second")
+
+        assertTrue(extractor.acceptPromptCandidate(first) is MemoryExtractor.AcceptOutcome.Saved)
+        assertEquals(1, store.inserted.size)
+
+        val outcome = extractor.acceptPromptCandidate(second)
+        assertTrue("second save refused at cap", outcome is MemoryExtractor.AcceptOutcome.CapReached)
+        assertEquals(1, (outcome as MemoryExtractor.AcceptOutcome.CapReached).limit)
+        assertEquals("nothing inserted past the cap", 1, store.inserted.size)
+    }
+
+    @Test
+    fun accept_prompt_candidate_dedup_takes_precedence_over_cap() = runTest {
+        // A near-duplicate at the cap is reported as Deduped, not CapReached.
+        val store = TrackingStore(existingMatch = stubMemory("preexisting"))
+        val extractor = buildExtractor(
+            store = store,
+            config = MemoryConfig.DEFAULT.copy(maxMemories = 1),
+        )
+        val outcome = extractor.acceptPromptCandidate(candidate("dupe"))
+        assertTrue(outcome is MemoryExtractor.AcceptOutcome.Deduped)
+        assertTrue(store.inserted.isEmpty())
+    }
+
+    @Test
+    fun remember_command_refuses_at_hard_cap() = runTest {
+        // The explicit Remember path is capped too; at the cap it returns
+        // CapReached and inserts nothing.
+        val store = TrackingStore()
+        store.inserted += stubMemory("preexisting") // count == 1
+        val extractor = buildExtractor(
+            store = store,
+            config = MemoryConfig.DEFAULT.copy(maxMemories = 1),
         )
 
         val report = extractor.extract(
-            userMessage = "i'm a software engineer",
-            assistantResponse = "noted",
+            userMessage = "remember that i love sushi",
+            assistantResponse = "",
             conversationId = null,
-        ) as MemoryExtractor.ExtractionReport.PromptRequested
-        assertEquals("extract should not evict in the prompt path", 0, evictor.calls)
-
-        extractor.acceptPromptCandidate(report.candidates.single())
-        assertEquals("acceptance triggers eviction", 1, evictor.calls)
+        )
+        assertTrue(report is MemoryExtractor.ExtractionReport.CapReached)
+        assertEquals(1, (report as MemoryExtractor.ExtractionReport.CapReached).limit)
+        assertEquals("nothing inserted past the cap", 1, store.inserted.size)
     }
 
     // -- Remember command --------------------------------------------------
@@ -517,8 +543,8 @@ class MemoryExtractorTest {
         ) as MemoryExtractor.ExtractionReport.PromptRequested
         val candidate = report.candidates.single()
 
-        val inserted = extractor.acceptPromptCandidate(candidate)
-        assertNotNull(inserted)
+        val outcome = extractor.acceptPromptCandidate(candidate)
+        assertTrue(outcome is MemoryExtractor.AcceptOutcome.Saved)
         assertEquals(1, store.inserted.size)
         assertEquals("i used to live in toronto", store.inserted.single().text)
         assertEquals(MemoryCategory.PERSONAL_IDENTITY, store.inserted.single().category)
@@ -546,7 +572,7 @@ class MemoryExtractorTest {
         )
 
         val result = extractor.acceptPromptCandidate(candidate)
-        assertEquals(null, result)
+        assertTrue(result is MemoryExtractor.AcceptOutcome.Deduped)
         assertTrue("dedup prevents insert", store.inserted.isEmpty())
     }
 
@@ -645,7 +671,7 @@ class MemoryExtractorTest {
         store: MemoryStore,
         classifier: ClassifierEngine = StubClassifier(),
         embedder: EmbedderEngine = StubEmbedder(),
-        evictor: MemoryEvictor = MemoryEvictor(capacity = 10_000),
+        config: MemoryConfig = MemoryConfig.DEFAULT,
         creationEnabled: Boolean = true,
         ids: List<String> = listOf("m-1", "m-2", "m-3", "m-4", "m-5"),
         counters: TelemetryCounters = NoOpTelemetryCounters,
@@ -669,10 +695,10 @@ class MemoryExtractorTest {
             tokenizer = tokenizer,
             embedder = embedder,
             store = store,
-            evictor = evictor,
             detector = RememberForgetDetector(),
             dateParser = parser,
             nowProvider = { now },
+            configProvider = { config },
             creationEnabledProvider = { creationEnabled },
             idGenerator = { if (idIter.hasNext()) idIter.next() else "m-overflow" },
             counters = counters,
@@ -773,19 +799,6 @@ class MemoryExtractorTest {
         override suspend fun countForConversation(conversationId: String): Int = 0
         override suspend fun listAll(): List<Memory> = inserted.toList()
         override suspend fun deleteAll() = Unit
-        override suspend fun deleteExpired(now: Long): Int = 0
-        override suspend fun selectLruEvictionCandidateIds(
-            lastAccessedCutoff: Long,
-            limit: Int,
-        ): List<String> = emptyList()
-    }
-
-    private class SpyEvictor : MemoryEvictor() {
-        var calls: Int = 0
-        override suspend fun maybeEvict(store: MemoryStore, now: Long): EvictionReport {
-            calls += 1
-            return EvictionReport.NoOp
-        }
     }
 
     private fun stubMemory(id: String): Memory = Memory(
@@ -797,6 +810,16 @@ class MemoryExtractorTest {
         lastAccessedEpochMs = 0L,
         accessCount = 0,
         embedding = FloatArray(Memory.EMBEDDING_DIM) { 0f },
+        expiresAtEpochMs = null,
+    )
+
+    private fun candidate(text: String): MemoryPromptCandidate = MemoryPromptCandidate(
+        id = "cand-$text",
+        text = text,
+        category = MemoryCategory.PREFERENCE,
+        embedding = FloatArray(Memory.EMBEDDING_DIM) { 0f },
+        conversationId = "conv-1",
+        proposedAtEpochMs = now,
         expiresAtEpochMs = null,
     )
 }

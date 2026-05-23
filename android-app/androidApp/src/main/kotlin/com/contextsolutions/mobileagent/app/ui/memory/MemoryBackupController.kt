@@ -7,6 +7,7 @@ import com.contextsolutions.mobileagent.app.BuildConfig
 import com.contextsolutions.mobileagent.memory.DecodeResult
 import com.contextsolutions.mobileagent.memory.Memory
 import com.contextsolutions.mobileagent.memory.MemoryCategory
+import com.contextsolutions.mobileagent.memory.MemoryConfig
 import com.contextsolutions.mobileagent.memory.MemoryExportSerializer
 import com.contextsolutions.mobileagent.memory.MemoryStore
 import com.contextsolutions.mobileagent.memory.EmbedderEngine
@@ -55,6 +56,7 @@ class MemoryBackupController @Inject constructor(
     private val embedder: EmbedderEngine,
     private val clock: AgentClock,
     private val counters: TelemetryCounters,
+    private val config: MemoryConfig,
 ) : MemoryBackupOps {
 
     /**
@@ -120,6 +122,17 @@ class MemoryBackupController @Inject constructor(
             is DecodeResult.Ok -> decoded.export
         }
 
+        // Hard-cap gate (PR#46). Refuse a file that declares more than the
+        // cap BEFORE the destructive wipe below — so a too-large import never
+        // erases the user's existing memories. Checked against the raw file
+        // count (pre-filtering) so the message matches what the user sees.
+        val limit = config.maxMemories
+        if (export.memories.size > limit) {
+            counters.increment(CounterNames.MEMORY_CAP_REACHED_TOTAL)
+            Log.i(TAG, "import refused: file has ${export.memories.size} > cap $limit")
+            throw ImportCapExceededException(limit = limit, found = export.memories.size)
+        }
+
         // The destructive override happens here. Nothing left to undo
         // by this point — the confirm dialog is the user's last chance.
         val previousCount = store.listAll().size
@@ -181,6 +194,15 @@ class MemoryBackupController @Inject constructor(
 
     /** Exception type the UI layer flattens into a toast. */
     class BackupException(message: String) : RuntimeException(message)
+
+    /**
+     * Import refused because the file declares more memories than the hard
+     * cap ([MemoryConfig.maxMemories]). Distinct from [BackupException] so the
+     * UI surfaces a dedicated alert dialog (not a toast); thrown BEFORE any
+     * destructive wipe, so the existing store is untouched.
+     */
+    class ImportCapExceededException(val limit: Int, val found: Int) :
+        RuntimeException("Import has $found memories, more than the maximum of $limit.")
 
     private companion object {
         private const val TAG = "MemoryBackupController"

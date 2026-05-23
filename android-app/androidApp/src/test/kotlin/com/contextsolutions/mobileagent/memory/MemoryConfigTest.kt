@@ -44,6 +44,38 @@ class MemoryConfigTest {
     }
 
     @Test
+    fun parses_max_memories_when_present() {
+        val raw = """
+            {
+              "model_version": "preflight_memory_shared_v1.0.0",
+              "thresholds": { "ask": 0.6, "category": 0.5 },
+              "max_memories": 3
+            }
+        """.trimIndent()
+        val parsed = json.decodeFromString(MemoryConfig.serializer(), raw)
+        assertEquals(3, parsed.maxMemories)
+    }
+
+    @Test
+    fun defaults_max_memories_to_100_when_absent() {
+        val raw = """
+            {
+              "model_version": "preflight_memory_shared_v1.0.0",
+              "thresholds": { "ask": 0.6, "category": 0.5 }
+            }
+        """.trimIndent()
+        val parsed = json.decodeFromString(MemoryConfig.serializer(), raw)
+        assertEquals(MemoryConfig.DEFAULT_MAX_MEMORIES, parsed.maxMemories)
+    }
+
+    @Test
+    fun rejects_non_positive_max_memories() {
+        assertThrows(IllegalArgumentException::class.java) {
+            MemoryConfig.DEFAULT.copy(maxMemories = 0)
+        }
+    }
+
+    @Test
     fun rejects_out_of_range_thresholds() {
         assertThrows(IllegalArgumentException::class.java) {
             MemoryThresholds(ask = 1.5f, category = 0.5f)

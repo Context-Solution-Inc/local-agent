@@ -107,6 +107,16 @@ class ChatViewModel @Inject constructor(
     private val _overflowDecision = MutableStateFlow<OverflowDecision?>(null)
     val overflowDecision: StateFlow<OverflowDecision?> = _overflowDecision.asStateFlow()
 
+    /**
+     * PR#46: holds the hard memory cap (`MemoryConfig.maxMemories`) when a
+     * save was refused because the store is full, so the chat surface can
+     * render a "memory limit reached" dialog. Null when no dialog is showing.
+     * Set by [saveMemoryPrompt] (consent card) and [surfaceMemoryPrompts]
+     * (explicit `Remember:` command); cleared by [dismissMemoryLimitDialog].
+     */
+    private val _memoryLimitReached = MutableStateFlow<Int?>(null)
+    val memoryLimitReached: StateFlow<Int?> = _memoryLimitReached.asStateFlow()
+
     /** Internal full conversation as the agent sees it (includes tool_call/tool turns). */
     private var agentHistory: List<ChatMessage> = emptyList()
 
@@ -567,6 +577,12 @@ class ChatViewModel @Inject constructor(
      * first so only the latest decision is visible.
      */
     private fun surfaceMemoryPrompts(report: MemoryExtractor.ExtractionReport?) {
+        // Explicit `Remember:` command refused at the hard cap — surface the
+        // same limit dialog the consent-card path uses.
+        if (report is MemoryExtractor.ExtractionReport.CapReached) {
+            _memoryLimitReached.value = report.limit
+            return
+        }
         val hasNewPrompts = report is MemoryExtractor.ExtractionReport.PromptRequested
         if (hasNewPrompts || pendingCandidates.isNotEmpty()) {
             clearPendingPromptsAsAutoDismissed(hasNewPrompts)
@@ -610,23 +626,40 @@ class ChatViewModel @Inject constructor(
 
     /** User tapped Save on a Memory prompt card. */
     fun saveMemoryPrompt(candidateId: String) {
-        val candidate = pendingCandidates.remove(candidateId) ?: return
-        _ui.update { state ->
-            state.copy(
-                messages = state.messages.filterNot {
-                    it is UiMessage.MemoryPrompt && it.candidateId == candidateId
-                },
-            )
-        }
+        // Don't remove the card up-front: if the save is refused at the hard
+        // cap we leave it in place so the user can retry after deleting
+        // memories in Settings → Memory.
+        val candidate = pendingCandidates[candidateId] ?: return
         viewModelScope.launch(Dispatchers.IO) {
-            val inserted = memoryExtractor.acceptPromptCandidate(candidate)
-            if (inserted != null) {
-                val cid = candidate.conversationId
-                if (cid != null) {
-                    runCatching { _memoryCount.value = memoryStore.countForConversation(cid) }
+            when (val outcome = memoryExtractor.acceptPromptCandidate(candidate)) {
+                is MemoryExtractor.AcceptOutcome.CapReached -> {
+                    _memoryLimitReached.value = outcome.limit
+                }
+                is MemoryExtractor.AcceptOutcome.Saved,
+                is MemoryExtractor.AcceptOutcome.Deduped,
+                is MemoryExtractor.AcceptOutcome.Failed -> {
+                    pendingCandidates.remove(candidateId)
+                    _ui.update { state ->
+                        state.copy(
+                            messages = state.messages.filterNot {
+                                it is UiMessage.MemoryPrompt && it.candidateId == candidateId
+                            },
+                        )
+                    }
+                    if (outcome is MemoryExtractor.AcceptOutcome.Saved) {
+                        val cid = candidate.conversationId
+                        if (cid != null) {
+                            runCatching { _memoryCount.value = memoryStore.countForConversation(cid) }
+                        }
+                    }
                 }
             }
         }
+    }
+
+    /** User dismissed the "memory limit reached" dialog. */
+    fun dismissMemoryLimitDialog() {
+        _memoryLimitReached.value = null
     }
 
     /** User tapped Dismiss on a Memory prompt card. */

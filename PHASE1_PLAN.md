@@ -986,6 +986,44 @@ No new tests (existing `*PromptAssembler*`, `*CanonicalEvalTest`,
 `*AgentLoopPreflight*` pass unchanged — none asserted on the removed strings);
 `:androidApp:assembleDebug` builds.
 
+### M2.22 — Hard memory cap + remove auto-eviction + Settings text cleanup ✅ COMPLETE 2026-05-23
+
+PR #46 (branch `feature/pr46-memory-cap`). Replaces the M5 "evict-to-make-room"
+policy with a hard cap, so memories are only ever added or removed by explicit
+user action.
+
+- **Removed `MemoryEvictor` + all eviction-only code:** deleted the class/test,
+  the `deleteExpired` / `selectLruEvictionCandidateIds` `MemoryStore` methods +
+  their `Memories.sq` queries (`countAll` too), the `MEMORY_EVICTED_TOTAL`
+  counter, and the DI provider. No automatic deletion of any kind now. The
+  `TEMPORARY_CONTEXT` expiry feature stays — expired rows are still hidden by
+  the `expires_at > now` filter in `count`/`findCosineMatch`/`retrieveTopK`,
+  they're just no longer physically purged. No SQLDelight schema change.
+- **Hard cap:** `MemoryConfig.maxMemories` (asset `memory_config.json`, default
+  100 ≈ 1,000 prompt tokens at ~10 tok/memory). Enforced **after** dedup at save
+  time in both insert paths — `MemoryExtractor.acceptPromptCandidate` (now
+  returns `AcceptOutcome.{Saved,Deduped,CapReached,Failed}`) and the explicit
+  `Remember:` path (`ExtractionReport.CapReached`). Over the cap, the save is
+  refused, `MEMORY_CAP_REACHED_TOTAL` bumps, nothing is inserted.
+- **Chat dialog:** `ChatViewModel.memoryLimitReached` drives a "Memory limit
+  reached" `AlertDialog`. On a consent-card Save at the cap the card stays
+  visible so the user can retry after deleting in Settings → Memory.
+- **Import cap:** `MemoryBackupController.import` checks the file's memory count
+  against the cap **before** the destructive wipe; over-cap throws
+  `ImportCapExceededException` (existing store untouched), surfaced by
+  `MemoryViewModel.importCapExceeded` as a blocking "Too many memories to
+  import" dialog (not the usual toast channel).
+- **Settings/Memory text:** dropped the creation-toggle subtext; removed the
+  stale "Tool calls return a 'search disabled' error to the model" sentence;
+  reworded the Search-sources subtext to "Choose what websites to use for
+  weather, news, sports and finance questions."
+- **Tests:** deleted `MemoryEvictorTest` + the removed store-method tests;
+  updated every `MemoryStore` stub; added cap tests in `MemoryExtractorTest`
+  (accept refuses at cap / dedup-precedence / `Remember` refuses), the
+  `max_memories` parse + validation in `MemoryConfigTest`, and
+  `MemoryViewModelTest.onImport_over_cap_shows_dialog_without_error_event`.
+  `:androidApp:testDebugUnitTest` + `assembleDebug` green.
+
 ### M3 — Datasets & classifier training ✅ COMPLETE 2026-05-09 — see `docs/M3_PLAN.md`
 
 Detailed phase-by-phase plan, ratified decisions, and exit criteria live in
@@ -1081,8 +1119,12 @@ in `docs/M5_PLAN.md`. Top-line summary:
     (little-endian Float32, 1,536 bytes per row); brute-force cosine
     over non-expired rows.
   - Retrieval (K=5 / threshold 0.5) with atomic `last_accessed` +
-    `access_count` bump on hits; eviction cascade (expired → 90-day
-    stale → LRU+freq) runs pre-insert at the 1,000-row capacity.
+    `access_count` bump on hits. **Bounded by a hard cap (PR #46,
+    `MemoryConfig.maxMemories`, default 100) enforced at save time — a save
+    over the cap is refused with a dialog, not evicted-to-make-room. The M5
+    eviction cascade was removed; memories are only added/removed by explicit
+    user action.** (`temporary_context` rows still expire from retrieval via
+    the `expires_at > now` filter; they're no longer physically purged.)
   - `[MEMORY CONTEXT BLOCK]` (SYSTEM_PROMPT.md §5) injected when
     retrieval finds anything; bullet format `- (<category>) <text>`.
   - Possessive substitution in `QueryRewriter` — "did my team win" with

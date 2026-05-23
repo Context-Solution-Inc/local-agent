@@ -84,11 +84,6 @@ countNonExpired:
 SELECT COUNT(*) FROM memories
 WHERE expires_at_epoch_ms IS NULL OR expires_at_epoch_ms > ?;
 
--- Total row count regardless of expiry — used by `deleteExpired` to compute
--- how many rows it just removed (the DELETE itself doesn't return a count).
-countAll:
-SELECT COUNT(*) FROM memories;
-
 -- -- Mutations -------------------------------------------------------------
 
 -- Atomic last-accessed bump + access_count++. Run on retrieval hits and
@@ -101,23 +96,6 @@ WHERE id = ?;
 -- Delete a single memory by primary key.
 deleteMemory:
 DELETE FROM memories WHERE id = ?;
-
--- Tier 1 eviction sweep — drop everything past expiry.
-deleteExpiredMemories:
-DELETE FROM memories
-WHERE expires_at_epoch_ms IS NOT NULL AND expires_at_epoch_ms <= ?;
-
--- Tier 2/3 eviction candidate list. Tier 2 passes a recency cutoff
--- (`now - 90d`) and an effectively unbounded limit; tier 3 passes
--- Long.MIN_VALUE-ish for the cutoff (matching every row) and a small
--- positive limit. Ordering favors least-recently-accessed first, then
--- least-frequently-accessed as the tie-break — PRD §3.2.4
--- "LRU + access-frequency heuristic".
-selectLruEvictionCandidates:
-SELECT id FROM memories
-WHERE last_accessed_epoch_ms < ?
-ORDER BY last_accessed_epoch_ms ASC, access_count ASC
-LIMIT ?;
 
 -- Delete everything (UI: MemoryScreen "Clear all"). No filtering — the user
 -- has confirmed.

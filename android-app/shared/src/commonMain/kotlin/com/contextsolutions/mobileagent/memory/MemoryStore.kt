@@ -4,12 +4,11 @@ package com.contextsolutions.mobileagent.memory
  * Persistent memory store per PRD §3.2.4. Backed by SQLDelight on Android;
  * the `Memories.sq` schema is the source of truth for the table layout.
  *
- * The store stays small (≤ 1,000 entries by default; user-configurable).
- * At that scale brute-force cosine similarity over all non-expired rows
- * is sub-10 ms on Pixel 7 — no native vector index is needed. Eviction
- * keeps the store bounded and is the responsibility of [MemoryEvictor]
- * (composed at call sites; not folded into this interface so the store
- * stays a dumb persistence seam).
+ * The store stays small (a hard cap of ≤ 100 entries by default, enforced
+ * at save time by [MemoryExtractor]; user-configurable). At that scale
+ * brute-force cosine similarity over all non-expired rows is sub-10 ms on
+ * Pixel 7 — no native vector index is needed. Memories are only ever added
+ * or removed by explicit user action; there is no automatic eviction.
  *
  * **Threading.** All suspending methods MUST be safe to call from a
  * background coroutine. Implementations wrap in `withContext(Dispatchers.IO)`.
@@ -71,7 +70,7 @@ interface MemoryStore {
         now: Long,
     ): Memory?
 
-    /** Total non-expired entry count. Used by the eviction pre-insert check. */
+    /** Total non-expired entry count. Used by the hard memory-cap gate at save time. */
     suspend fun count(now: Long): Int
 
     /** All memories created in [conversationId], newest first. */
@@ -85,29 +84,6 @@ interface MemoryStore {
 
     /** Delete every memory. Used by the "clear all" UI affordance. */
     suspend fun deleteAll()
-
-    /**
-     * Tier-1 eviction sweep — drop every row whose `expires_at_epoch_ms` has
-     * passed. Caller is `MemoryEvictor`. Returns the number of rows deleted
-     * for telemetry / logging.
-     */
-    suspend fun deleteExpired(now: Long): Int
-
-    /**
-     * Tier-2 / tier-3 eviction candidate IDs. Returns up to [limit] memory
-     * IDs whose `last_accessed_epoch_ms < lastAccessedCutoff`, ordered by
-     * `(last_accessed ASC, access_count ASC)` — least-recently-accessed
-     * first, with least-frequent as the tie-break (PRD §3.2.4 "LRU + access-
-     * frequency heuristic").
-     *
-     * Tier 2 passes `now - 90 days` for the cutoff with a large limit;
-     * tier 3 passes `Long.MAX_VALUE` (matching every row) with a small
-     * positive limit equal to the over-cap delta.
-     */
-    suspend fun selectLruEvictionCandidateIds(
-        lastAccessedCutoff: Long,
-        limit: Int,
-    ): List<String>
 
     companion object {
         /** PRD §3.2.4 — default retrieval K. */

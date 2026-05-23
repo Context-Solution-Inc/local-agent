@@ -183,8 +183,12 @@ object CounterNames {
 
     /** User tapped Import and the override-and-restore completed (any row count, including 0). */
     const val MEMORY_IMPORTED_TOTAL = "memory_imported_total"
-    /** Tag values: `expired` | `stale` | `lru`. */
-    const val MEMORY_EVICTED_TOTAL = "memory_evicted_total"
+    /**
+     * A save was refused because the store is at the hard cap
+     * ([com.contextsolutions.mobileagent.memory.MemoryConfig.maxMemories]).
+     * Lets the cap be tuned from telemetry like the other memory counters.
+     */
+    const val MEMORY_CAP_REACHED_TOTAL = "memory_cap_reached_total"
     const val MEMORY_RETRIEVED_TOTAL = "memory_retrieved_total"
     const val MEMORY_CREATION_DISABLED_TOTAL = "memory_creation_disabled_total"
 }

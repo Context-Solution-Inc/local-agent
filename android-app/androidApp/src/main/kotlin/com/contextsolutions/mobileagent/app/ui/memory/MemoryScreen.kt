@@ -260,6 +260,26 @@ fun MemoryScreen(
         )
     }
 
+    // PR#46 — import refused because the file has more memories than the
+    // hard cap. The store was NOT touched; the user must trim the file.
+    val importCap by viewModel.importCapExceeded.collectAsState()
+    importCap?.let { info ->
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissImportCapDialog() },
+            title = { Text("Too many memories to import") },
+            text = {
+                Text(
+                    "This file has ${info.found} memories, more than the maximum of " +
+                        "${info.limit}. Nothing was imported and your current memories were " +
+                        "kept. Reduce the file to ${info.limit} or fewer memories and try again.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.dismissImportCapDialog() }) { Text("OK") }
+            },
+        )
+    }
+
     // Modal busy indicator while export/import is running. Covers the
     // re-embed loop on import (can take a few seconds for 100+ rows)
     // and gives the user something visible to wait on. Tappable backdrop
@@ -304,15 +324,6 @@ private fun CreationToggleRow(
             Text(
                 "Remember things from our conversations",
                 style = MaterialTheme.typography.bodyLarge,
-            )
-            Text(
-                if (enabled) {
-                    "On — new memories will be saved automatically."
-                } else {
-                    "Off — no new memories will be created. Existing ones stay until you delete them."
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         Spacer(Modifier.padding(horizontal = 8.dp))

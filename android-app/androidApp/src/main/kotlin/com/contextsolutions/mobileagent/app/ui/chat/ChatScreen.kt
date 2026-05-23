@@ -468,6 +468,28 @@ fun ChatScreen(
             )
         }
 
+        // PR#46 — hard memory cap reached. A save was refused because the
+        // store is full; the consent card (if any) stays in place so the user
+        // can retry after deleting memories in Settings → Memory.
+        val memoryLimit by viewModel.memoryLimitReached.collectAsState()
+        memoryLimit?.let { limit ->
+            AlertDialog(
+                onDismissRequest = { viewModel.dismissMemoryLimitDialog() },
+                title = { Text("Memory limit reached") },
+                text = {
+                    Text(
+                        "You've saved the maximum of $limit memories. " +
+                            "Delete some in Settings → Memory to save new ones.",
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = { viewModel.dismissMemoryLimitDialog() }) {
+                        Text("OK")
+                    }
+                },
+            )
+        }
+
         // The PR #16 low-memory submission gate has been removed — the
         // user is no longer blocked when system free RAM is low. The
         // header SystemMemoryStatusIndicator (red LED) is the sole signal

@@ -63,9 +63,9 @@ class InMemoryTelemetryCountersTest {
     @Test
     fun tagged_increment_encodes_name_colon_tag() = runTest {
         val counters = newCounters()
-        counters.increment(CounterNames.MEMORY_EVICTED_TOTAL, tag = "expired")
-        counters.increment(CounterNames.MEMORY_EVICTED_TOTAL, tag = "expired", by = 2)
-        counters.increment(CounterNames.MEMORY_EVICTED_TOTAL, tag = "lru")
+        counters.increment(CounterNames.CONVERSATIONS_DELETED_TOTAL, tag = "expired")
+        counters.increment(CounterNames.CONVERSATIONS_DELETED_TOTAL, tag = "expired", by = 2)
+        counters.increment(CounterNames.CONVERSATIONS_DELETED_TOTAL, tag = "lru")
         counters.flush()
 
         val byName = db.telemetryAggregateQueries
@@ -73,11 +73,11 @@ class InMemoryTelemetryCountersTest {
             .executeAsList()
             .associate { it.counter_name to it.counter_value }
 
-        assertEquals(3L, byName["${CounterNames.MEMORY_EVICTED_TOTAL}:expired"])
-        assertEquals(1L, byName["${CounterNames.MEMORY_EVICTED_TOTAL}:lru"])
+        assertEquals(3L, byName["${CounterNames.CONVERSATIONS_DELETED_TOTAL}:expired"])
+        assertEquals(1L, byName["${CounterNames.CONVERSATIONS_DELETED_TOTAL}:lru"])
         // No "memory_evicted_total" row without a tag — tagged calls always
         // encode as name:tag, never overwrite the bare name.
-        assertNull(byName[CounterNames.MEMORY_EVICTED_TOTAL])
+        assertNull(byName[CounterNames.CONVERSATIONS_DELETED_TOTAL])
     }
 
     @Test

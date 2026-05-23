@@ -141,8 +141,7 @@ fun SettingsScreen(
                 onCheckedChange = { viewModel.setSearchEnabled(it) },
             )
             Text(
-                "When off, the model answers from training data only. " +
-                    "Tool calls return a 'search disabled' error to the model.",
+                "When off, the model answers from training data only.",
                 style = MaterialTheme.typography.bodySmall,
             )
 
@@ -182,8 +181,7 @@ fun SettingsScreen(
             // so the two search-config controls sit together.
             SectionHeader("Search sources")
             Text(
-                "Pick which sites Mobile Agent reads for news, weather, sports, " +
-                    "and finance questions. Defaults are based on your location.",
+                "Choose what websites to use for weather, news, sports and finance questions.",
                 style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(8.dp))

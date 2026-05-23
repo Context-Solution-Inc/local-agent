@@ -61,10 +61,11 @@ import kotlin.uuid.Uuid
  * something we already remember) and again at [acceptPromptCandidate]
  * time (in case another turn added a near-match between Show and Save).
  *
- * **Eviction.** [evictor.maybeEvict] runs once per extraction call before
- * any inserts so a burst-of-categories turn doesn't temporarily push
- * count past [MemoryEvictor.DEFAULT_CAPACITY]. For prompt-card saves
- * eviction also runs inside [acceptPromptCandidate] just before insert.
+ * **Hard cap.** The store is bounded by a hard cap ([MemoryConfig.maxMemories],
+ * default 100) enforced at save time: when the non-expired count is already at
+ * the cap, a save is *refused* (the UI surfaces a "limit reached" dialog) rather
+ * than evicting an existing memory to make room. Memories are only ever added or
+ * removed by explicit user action — there is no automatic eviction.
  *
  * **Telemetry exclusion (PRD §4.4 + WS-12).** The injected [logger] emits
  * counts, IDs, and exception classes only — never memory text, user
@@ -78,7 +79,6 @@ class MemoryExtractor(
     private val tokenizer: WordPieceTokenizer,
     private val embedder: EmbedderEngine,
     private val store: MemoryStore,
-    private val evictor: MemoryEvictor,
     private val detector: RememberForgetDetector,
     private val dateParser: TempContextDateParser,
     private val nowProvider: () -> Long,
@@ -127,11 +127,13 @@ class MemoryExtractor(
     /**
      * Persist a middle-band candidate after the user tapped Save. Runs
      * dedup again because another turn may have inserted a near-match
-     * between proposal time and acceptance. Returns `null` if dedup
-     * suppressed the insert, the embedding is missing, or persistence
-     * failed.
+     * between proposal time and acceptance.
+     *
+     * The hard cap is checked *after* dedup, so saving something we already
+     * remember is reported as [AcceptOutcome.Deduped] rather than a false
+     * [AcceptOutcome.CapReached].
      */
-    suspend fun acceptPromptCandidate(candidate: MemoryPromptCandidate): Memory? {
+    suspend fun acceptPromptCandidate(candidate: MemoryPromptCandidate): AcceptOutcome {
         return try {
             val now = nowProvider()
             val existing = store.findCosineMatch(candidate.embedding, now = now)
@@ -139,19 +141,24 @@ class MemoryExtractor(
                 counters.increment(CounterNames.MEMORY_DEDUP_SKIPPED_TOTAL)
                 counters.increment(CounterNames.MEMORY_PROMPT_ACCEPTED_TOTAL)
                 logger("[memory-extract] accept candidate=${candidate.id} deduped=${existing.id}")
-                return null
+                return AcceptOutcome.Deduped
             }
-            evictor.maybeEvict(store, now)
+            val limit = configProvider().maxMemories
+            if (store.count(now) >= limit) {
+                counters.increment(CounterNames.MEMORY_CAP_REACHED_TOTAL)
+                logger("[memory-extract] accept candidate=${candidate.id} cap-reached limit=$limit")
+                return AcceptOutcome.CapReached(limit)
+            }
             val memory = candidate.toMemory(id = idGenerator(), now = now)
             store.insert(memory)
             counters.increment(CounterNames.MEMORY_EXTRACTED_TOTAL)
             counters.increment(CounterNames.MEMORY_EXTRACTED_PROMPTED_TOTAL)
             counters.increment(CounterNames.MEMORY_PROMPT_ACCEPTED_TOTAL)
             logger("[memory-extract] accept candidate=${candidate.id} inserted=${memory.id}")
-            memory
+            AcceptOutcome.Saved(memory)
         } catch (t: Throwable) {
             logger("[memory-extract] accept candidate=${candidate.id} failed: ${t.message}")
-            null
+            AcceptOutcome.Failed
         }
     }
 
@@ -231,7 +238,13 @@ class MemoryExtractor(
             )
         }
 
-        evictor.maybeEvict(store, now)
+        val limit = configProvider().maxMemories
+        if (store.count(now) >= limit) {
+            counters.increment(CounterNames.MEMORY_CAP_REACHED_TOTAL)
+            logger("[memory-extract] command=Remember cap-reached limit=$limit")
+            return ExtractionReport.CapReached(limit)
+        }
+
         val created = mutableListOf<Memory>()
         for (category in categories) {
             val memory = buildMemory(
@@ -435,7 +448,20 @@ class MemoryExtractor(
         data class Forgot(val deletedId: String?) : ExtractionReport
         data class Created(val createdIds: List<String>, val deduped: List<String>) : ExtractionReport
         data class PromptRequested(val candidates: List<MemoryPromptCandidate>) : ExtractionReport
+
+        /** The store is at the hard cap ([MemoryConfig.maxMemories]); nothing was saved. */
+        data class CapReached(val limit: Int) : ExtractionReport
         data class Errored(val reason: String) : ExtractionReport
+    }
+
+    /** Outcome of an [acceptPromptCandidate] call (user tapped Save on a card). */
+    sealed interface AcceptOutcome {
+        data class Saved(val memory: Memory) : AcceptOutcome
+        data object Deduped : AcceptOutcome
+
+        /** The store is at the hard cap; the candidate was NOT saved. */
+        data class CapReached(val limit: Int) : AcceptOutcome
+        data object Failed : AcceptOutcome
     }
 
     companion object {

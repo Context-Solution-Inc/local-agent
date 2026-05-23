@@ -297,8 +297,6 @@ class AgentLoopMemoryTest {
         override suspend fun countForConversation(conversationId: String): Int = 0
         override suspend fun listAll(): List<Memory> = memories
         override suspend fun deleteAll() = Unit
-        override suspend fun deleteExpired(now: Long): Int = 0
-        override suspend fun selectLruEvictionCandidateIds(lastAccessedCutoff: Long, limit: Int): List<String> = emptyList()
     }
 
     private class FakeBraveSearchClient : BraveSearchClient {
