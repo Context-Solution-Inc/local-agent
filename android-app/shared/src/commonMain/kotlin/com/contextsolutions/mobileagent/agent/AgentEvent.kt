@@ -27,6 +27,16 @@ sealed interface AgentEvent {
     data class SearchCompleted(val outcome: SearchOutcome) : AgentEvent
 
     /**
+     * The LLM is about to start streaming tokens. Emitted only on the model
+     * inference path — the deterministic short-circuits (weather/finance cards,
+     * clock/timer/alarm, todo, memory-ack, weather-location prompt) return
+     * before this point and never fire it. The UI uses it to play the spoken
+     * "working on it" acknowledgement in speaker mode, so that cue is suppressed
+     * on the fast deterministic renders.
+     */
+    data object GenerationStarted : AgentEvent
+
+    /**
      * Final assistant message is complete. [message] is the user-visible final
      * turn; [turnMessages] is everything the loop appended during this turn —
      * the [ChatMessage.User] that started it, any intermediate

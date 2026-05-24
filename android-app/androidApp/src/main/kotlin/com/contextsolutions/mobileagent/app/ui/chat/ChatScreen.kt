@@ -1,6 +1,9 @@
 package com.contextsolutions.mobileagent.app.ui.chat
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.speech.SpeechRecognizer
 import android.view.View
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -30,6 +33,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AccessAlarm
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Brightness4
@@ -40,6 +45,8 @@ import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Timer
@@ -51,6 +58,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -60,6 +68,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -72,6 +81,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
@@ -83,6 +93,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.contextsolutions.mobileagent.app.BuildConfig
@@ -127,6 +138,82 @@ fun ChatScreen(
     val photoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia(),
     ) { uri -> if (uri != null) viewModel.onImagePicked(uri) }
+    val context = LocalContext.current
+    // Read-aloud (TTS) + dictation (STT) toggles, both owned by the ViewModel.
+    val ttsEnabled by viewModel.ttsEnabled.collectAsState()
+    val micEnabled by viewModel.micEnabled.collectAsState()
+    val ttsSpeaking by viewModel.ttsSpeaking.collectAsState()
+    val speechRecognizerAvailable = remember { SpeechRecognizer.isRecognitionAvailable(context) }
+
+    // Echo suppression for dictation: true while the speaker reads aloud AND for
+    // a short grace afterwards. SpeechRecognizer delivers a transcript a beat
+    // after end-of-speech, so a tight `ttsSpeaking` check still lets the tail of
+    // the ack / "still working" heartbeat / answer land in the box. The grace
+    // covers that late delivery and bridges the silent gaps between heartbeats
+    // (a new utterance re-asserts it before it lapses). 2.5s comfortably exceeds
+    // recognizer end-of-speech + result latency; the only cost is a brief window
+    // after the speaker finishes where dictation is ignored.
+    var suppressDictationText by remember { mutableStateOf(false) }
+    LaunchedEffect(ttsSpeaking) {
+        if (ttsSpeaking) {
+            suppressDictationText = true
+        } else {
+            delay(2_500)
+            suppressDictationText = false
+        }
+    }
+
+    // Continuous dictation. Each finalized utterance is either a spoken command
+    // (send / cancel / speaker off / … — fired instead of typed) or text
+    // appended to the input box. The engine is destroyed when the screen leaves
+    // composition.
+    val dictation = remember {
+        SpeechDictation(context) { spoken ->
+            when (VoiceCommand.match(spoken)) {
+                VoiceCommand.SEND -> {
+                    val canSend = !ui.isGenerating &&
+                        !viewModel.thermalStatus.value.isBlocking &&
+                        (input.isNotBlank() || ui.pendingImageThumbnail != null)
+                    if (canSend) {
+                        viewModel.send(input)
+                        input = ""
+                    }
+                }
+                VoiceCommand.CANCEL -> viewModel.cancel()
+                VoiceCommand.CLEAR -> input = ""
+                VoiceCommand.NEW_CHAT -> {
+                    viewModel.newConversation()
+                    input = ""
+                }
+                VoiceCommand.MIC_OFF -> viewModel.setMicEnabled(false)
+                VoiceCommand.SPEAKER_OFF -> viewModel.setTtsEnabled(false)
+                VoiceCommand.SPEAKER_ON -> viewModel.setTtsEnabled(true)
+                VoiceCommand.NONE -> {
+                    // While the speaker is reading aloud (plus a grace tail for
+                    // late-delivered transcripts), stay in command-only mode:
+                    // keep listening so "speaker off" can interrupt, but DROP
+                    // regular text since the mic is mostly hearing the
+                    // assistant's own playback (echo). Outside playback, append.
+                    if (!suppressDictationText) {
+                        input = if (input.isBlank()) spoken else "$input $spoken"
+                    }
+                }
+            }
+        }
+    }
+    DisposableEffect(Unit) { onDispose { dictation.destroy() } }
+    // Listen for the whole time the mic is on — including while the speaker is
+    // talking, so spoken commands ("speaker off") can interrupt playback. The
+    // echo is handled in the callback above by dropping non-command text during
+    // playback rather than by pausing the recognizer.
+    LaunchedEffect(micEnabled) {
+        if (micEnabled) dictation.start() else dictation.stop()
+    }
+    // In-app recognition needs RECORD_AUDIO. Flip the toggle on only once the
+    // permission is granted; a denial leaves the mic off.
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted -> viewModel.setMicEnabled(granted) }
     // PR #32 — About dialog: tapping the brand logo surfaces app name + the
     // build currently on the device (version name + commit-count build number).
     var showAbout by remember { mutableStateOf(false) }
@@ -443,7 +530,59 @@ fun ChatScreen(
                 maxLines = 6,
             )
             Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // Microphone — a toggle: on = continuously transcribe speech
+                // into the input field, off = stop. Greyed out if the device
+                // has no recognition service.
+                IconButton(
+                    onClick = {
+                        when {
+                            micEnabled -> viewModel.setMicEnabled(false)
+                            ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.RECORD_AUDIO,
+                            ) == PackageManager.PERMISSION_GRANTED ->
+                                viewModel.setMicEnabled(true)
+                            else ->
+                                micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        }
+                    },
+                    enabled = speechRecognizerAvailable,
+                ) {
+                    Icon(
+                        imageVector = if (micEnabled) Icons.Default.Mic else Icons.Default.MicOff,
+                        contentDescription = if (micEnabled) "Stop dictation" else "Start dictation",
+                        tint = if (micEnabled) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            LocalContentColor.current
+                        },
+                    )
+                }
+                // Speaker — read finished answers aloud. Persisted toggle;
+                // available regardless of generation state.
+                IconButton(onClick = { viewModel.toggleTts() }) {
+                    Icon(
+                        imageVector = if (ttsEnabled) {
+                            Icons.AutoMirrored.Filled.VolumeUp
+                        } else {
+                            Icons.AutoMirrored.Filled.VolumeOff
+                        },
+                        contentDescription = if (ttsEnabled) {
+                            "Disable read-aloud"
+                        } else {
+                            "Enable read-aloud"
+                        },
+                        tint = if (ttsEnabled) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            LocalContentColor.current
+                        },
+                    )
+                }
                 // PR #48 — attach a photo from the gallery.
                 IconButton(
                     onClick = {
@@ -455,6 +594,7 @@ fun ChatScreen(
                 ) {
                     Icon(Icons.Default.Image, contentDescription = "Attach image")
                 }
+                Spacer(Modifier.weight(1f))
                 Button(
                     onClick = {
                         viewModel.send(input)

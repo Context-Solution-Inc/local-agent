@@ -1149,6 +1149,44 @@ PR #50 (squash-merged to main as `2627608`). See CLAUDE.md invariant #41.
   `MemoriesMigrationTest` (schema v7). `:androidApp:testDebugUnitTest` +
   `assembleDebug` green; on-device math (typed + image) verified.
 
+### M2.27 — Voice I/O: dictation (STT) + read-aloud (TTS) 🔬 IN REVIEW (PR #51, not merged — pending on-device Pixel 7 validation)
+
+PR #51 (branch `feature/voice-io-stt-tts`). Adds two device-native voice
+controls to the chat input row (now: mic · speaker · photo · Send). All
+Android-only (`:androidApp`); no `:shared` seam, no model/runtime/DB changes.
+
+- **Read-aloud (TTS):** persisted speaker toggle (`TtsPreferences`, mirrors
+  `ThemePreferences`). When on, every finalized answer is read via
+  `android.speech.tts.TextToSpeech` (`ChatSpeaker`/`AndroidTtsSpeaker`);
+  citations excluded (separate field), markdown/LaTeX stripped to prose
+  (`MarkdownToPlainText`). Voice/rate/pitch are the **OS** text-to-speech
+  settings — no in-app picker (deliberate; the app inherits the system engine).
+- **Generation cues:** answers are spoken only at Done (no streaming-token TTS —
+  jitters), so a rotating "working on it" ack + a 5 s "still working" heartbeat
+  (`AckPhrasePicker`) fill the gap. Gated on the new **`AgentEvent.GenerationStarted`**
+  (emitted in `AgentLoop` right before `session.generate`), so they fire only on
+  real LLM turns and are **suppressed on deterministic weather/finance/clock/todo
+  renders** (those return before GenerationStarted).
+- **Dictation (STT):** continuous in-app `SpeechRecognizer` (`SpeechDictation`,
+  listen→result→restart loop), toggle stays on until off, **session-only**
+  (defaults off; no auto-record at startup). Needs **`RECORD_AUDIO`** (runtime-
+  requested on first enable) + a `<queries>` RecognitionService manifest entry.
+  Finalized utterances append to the input field.
+- **Voice commands** (`VoiceCommand.kt`, whole-utterance match): send, cancel,
+  clear, new chat, microphone off, speaker off, speaker on. SEND reuses the Send
+  button guard; speaker on/off go through idempotent `setTtsEnabled`.
+- **Both at once / echo:** mic stays listening during read-aloud in command-only
+  mode — commands fire but non-command text is dropped while the speaker is
+  active **plus a 2.5 s grace tail** (`suppressDictationText`), because
+  `SpeechRecognizer` delivers transcripts after end-of-speech and a tight
+  `isSpeaking` check leaked the ack/heartbeat/answer into the box. Interrupting
+  playback by voice is best-effort (acoustic echo); the on-screen button is the
+  guaranteed stop.
+- **Tests:** `VoiceCommandTest`, `AckPhrasePickerTest`, `ChatViewModelTtsTest`
+  (ack on LLM turn / suppressed on deterministic turn / 5 s heartbeat / mic
+  toggle). `:androidApp:testDebugUnitTest` + `assembleDebug` green. README
+  "Voice input and read-aloud" documents usage.
+
 ### M3 — Datasets & classifier training ✅ COMPLETE 2026-05-09 — see `docs/M3_PLAN.md`
 
 Detailed phase-by-phase plan, ratified decisions, and exit criteria live in

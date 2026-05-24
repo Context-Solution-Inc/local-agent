@@ -629,6 +629,12 @@ class AgentLoop(
         // "first text on screen after send()" decomposes cleanly.
         val generateStartMs = nowEpochMs()
         var firstTokenObserved = false
+        // Signal that the model is about to produce text. Deterministic
+        // short-circuits (weather/finance/clock/todo/memory) returned before
+        // here, so this fires only on real LLM turns — the speaker-mode
+        // "working on it" cue rides on it and is therefore suppressed on the
+        // fast deterministic renders.
+        send(AgentEvent.GenerationStarted)
         try {
             session.generate(request, dispatcher).collect { event ->
                 when (event) {

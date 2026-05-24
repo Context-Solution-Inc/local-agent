@@ -173,6 +173,8 @@ class ChatViewModelCancelTest {
         memoryStore = memoryStore,
         conversationRepository = conversationRepository,
         telemetryCounters = NoOpTelemetryCounters,
+        ttsPreferences = mockk(relaxed = true),
+        speaker = mockk(relaxed = true),
         appContext = mockk(relaxed = true),
         thermalStatusProvider = thermalProvider,
     )

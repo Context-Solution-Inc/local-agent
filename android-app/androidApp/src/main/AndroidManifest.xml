@@ -35,6 +35,19 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!-- Continuous in-app dictation (SpeechRecognizer) records audio directly,
+         so it needs RECORD_AUDIO (requested at runtime). -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- Speech-to-text: Android 11+ package visibility requires declaring the
+         RecognitionService intent so SpeechRecognizer.isRecognitionAvailable()
+         can see the system recognizer. -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+    </queries>
+
     <!-- Pixel 7 has 8GB RAM; we declare the app expects substantial heap for Gemma 4 E4B. -->
     <application
         android:name=".MobileAgentApplication"

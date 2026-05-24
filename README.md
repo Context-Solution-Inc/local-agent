@@ -221,6 +221,85 @@ Notes:
 > are harmless — LiteRT-LM probing for an optional NPU vendor delegate that the
 > Pixel 7 doesn't have; it falls back to the GPU vision path.
 
+## Voice input and read-aloud
+
+The chat input row has four controls — **🎤 microphone · 🔊 speaker · 🖼 photo ·
+Send** — that add hands-free voice in and voice out. Both use Android's built-in,
+offline speech services (no cloud, no LLM calls, consistent with the app's
+privacy posture).
+
+### Read-aloud (text-to-speech)
+
+Tap the **speaker icon** to toggle read-aloud on/off. The setting **persists
+across launches** (the icon is tinted when on).
+
+- When on, every finished assistant answer is **read aloud** — conversational
+  replies, weather/finance cards, and search summaries alike. Citations are
+  skipped and markdown/LaTeX formatting is stripped so only clean prose is
+  spoken.
+- Answers are read only once **fully generated** (streaming tokens aren't
+  spoken — that jitters), so to fill the gap the assistant speaks a short
+  **"working on it"** cue when a turn starts and a **"still working"** heartbeat
+  every ~5 s during a long generation. The fast deterministic cards
+  (weather/finance/clock/todo) skip these cues.
+
+**Choosing a voice — it's an OS setting.** The app speaks with whatever
+text-to-speech engine and voice you've selected system-wide. To change it (or
+audition others):
+
+> **Settings → System → Languages (& input) → Text-to-speech output** — or
+> search Settings for *"text-to-speech"*.
+
+There you pick the **preferred engine** (e.g. *Speech Recognition & Synthesis
+from Google*), **language**, **speech rate**, and **pitch**, with a **▶ Play** to
+preview. The **gear** next to the engine opens its own settings, where Google's
+engine lets you install additional/enhanced voices. The app inherits your choice
+automatically — no in-app voice picker needed.
+
+### Dictation (speech-to-text)
+
+Tap the **microphone icon** to toggle dictation on. The first time, Android asks
+for **microphone permission** (continuous in-app recognition needs it). The mic
+**stays on until you toggle it off** — it's session-only and defaults off each
+launch, so the app never opens the mic at startup. (There's no "microphone on"
+voice command for the same reason — nothing would be listening.)
+
+- Spoken words are transcribed into the input box; review/edit, then **Send**
+  (or just say *"send"*).
+- The microphone is greyed out if your device has no speech-recognition service.
+
+**Voice commands.** While dictating, these spoken phrases fire an action instead
+of being typed. Matching is whole-utterance, so a command word used inside a
+sentence (e.g. *"send me the report"*) stays as text and doesn't trigger.
+
+| Say | Action |
+|---|---|
+| "send" · "send it" · "send message" · "submit" | Send the current input |
+| "cancel" · "cancel that" | Cancel an in-progress response |
+| "clear" · "clear text" · "clear input" | Empty the input box |
+| "new chat" · "new conversation" · "start new chat" | Start a fresh conversation |
+| "microphone off" · "mic off" · "turn off the microphone" | Turn dictation off |
+| "speaker off" · "turn off the speaker" | Turn read-aloud off |
+| "speaker on" · "turn on the speaker" | Turn read-aloud on |
+
+### Using both at once
+
+You can dictate *and* have answers read aloud. While the speaker is talking, the
+mic stays in **command-only mode**: spoken commands (e.g. *"speaker off"*) still
+work, but regular dictation is ignored so the assistant's own voice doesn't get
+transcribed back into the box.
+
+> **Caveat:** interrupting playback by voice is acoustically hard — while the
+> assistant is talking at volume, the mic mostly hears *it*, not you, so
+> *"speaker off"* spoken over the playback may not register reliably (a pause
+> between the assistant's words helps). The on-screen **speaker button** is the
+> guaranteed instant stop.
+
+> Diagnostics: voice I/O is on-device and logs nothing user-identifiable. Speech
+> recognition runs through Android's system recognizer; read-aloud through
+> `android.speech.tts.TextToSpeech`. On a Pixel 7 you may see benign native
+> `litert` dispatch lines unrelated to voice (see the photo section above).
+
 ## Privacy
 
 User conversations and memories never leave the device. Only Brave Search queries (and optional opt-in aggregate counters routed through Firebase Analytics, default OFF) generate outbound traffic. The telemetry pipeline reads only aggregate tables, has a memory-exclusion canary test, and routes Crashlytics non-fatals through a `SafeCrashReporter` facade with `ContentRedactor` scrubbing. See [PRD.md](PRD.md) §4.4, [docs/PRIVACY_POLICY.md](docs/PRIVACY_POLICY.md), and [docs/DATA_SAFETY_NOTES.md](docs/DATA_SAFETY_NOTES.md).

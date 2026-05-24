@@ -37,6 +37,8 @@ import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -72,11 +74,51 @@ class ChatViewModel @Inject constructor(
     private val memoryStore: MemoryStore,
     private val conversationRepository: ConversationRepository,
     private val telemetryCounters: TelemetryCounters,
+    private val ttsPreferences: TtsPreferences,
+    private val speaker: ChatSpeaker,
     @ApplicationContext private val appContext: Context,
     thermalStatusProvider: ThermalStatusProvider,
 ) : ViewModel() {
 
     val sessionState: StateFlow<SessionState> = sessionManager.state
+
+    /**
+     * Read-aloud (text-to-speech) on/off — drives the speaker toggle in the
+     * input row. Persisted across launches via [TtsPreferences]; when on, each
+     * finalized assistant answer is spoken in [onAgentEvent].
+     */
+    val ttsEnabled: StateFlow<Boolean> = ttsPreferences.enabledFlow()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, ttsPreferences.isEnabled())
+
+    /**
+     * `true` while the speaker is actively reading an answer. Continuous
+     * dictation watches this to pause the mic during playback so it doesn't
+     * transcribe the assistant's own voice (echo).
+     */
+    val ttsSpeaking: StateFlow<Boolean> = speaker.isSpeaking
+
+    /**
+     * Continuous-dictation on/off — drives the microphone toggle in the input
+     * row. Session-only (defaults off each launch) so the app never opens the
+     * mic or records automatically at startup; the actual [SpeechDictation]
+     * engine is owned by the Compose layer and gated on this + [ttsSpeaking].
+     */
+    private val _micEnabled = MutableStateFlow(false)
+    val micEnabled: StateFlow<Boolean> = _micEnabled.asStateFlow()
+
+    /** Rotates the spoken "working on it" acknowledgements (speaker mode). */
+    private val ackPhrases = AckPhrasePicker()
+
+    /** Rotates the periodic "still working" cues spoken during a long stream. */
+    private val workingPhrases = AckPhrasePicker(AckPhrasePicker.STILL_WORKING)
+
+    /** Drives the 5s "still working" cue; alive only while the LLM streams. */
+    private var workingTickerJob: Job? = null
+
+    /** Set the mic toggle (e.g. after a RECORD_AUDIO permission result). */
+    fun setMicEnabled(enabled: Boolean) {
+        _micEnabled.value = enabled
+    }
 
     /**
      * M6 Phase E — surface thermal state to the chat UI (PRD §4.3).
@@ -199,6 +241,10 @@ class ChatViewModel @Inject constructor(
         val imageThumb = _ui.value.pendingImageThumbnail
         pendingImageBytes = null
         if (trimmed.isEmpty() && imageBytes == null) return
+
+        // Interrupt any in-progress read-aloud — the user is moving on.
+        stopWorkingTicker()
+        speaker.stop()
 
         // PR#13 overflow guard. The check is synchronous (uses the in-memory
         // ack mirror) so the UI can react in the same frame.
@@ -335,8 +381,58 @@ class ChatViewModel @Inject constructor(
         val job = currentJob ?: return
         if (job.isCancelled || job.isCompleted) return
         if (!_ui.value.isGenerating) return
+        stopWorkingTicker()
+        speaker.stop()
         _ui.update { it.copy(isCancelling = true) }
         job.cancel()
+    }
+
+    /**
+     * Flip the read-aloud toggle. Turning it off silences any in-progress
+     * utterance immediately; the new state persists across launches.
+     */
+    fun toggleTts() = setTtsEnabled(!ttsPreferences.isEnabled())
+
+    /**
+     * Set the read-aloud speaker on/off (used by both the icon toggle and the
+     * spoken "speaker on/off" commands). Turning off silences any in-progress
+     * answer and the "still working" heartbeat. Idempotent.
+     */
+    fun setTtsEnabled(enabled: Boolean) {
+        if (ttsPreferences.isEnabled() == enabled) return
+        ttsPreferences.setEnabled(enabled)
+        if (!enabled) {
+            stopWorkingTicker()
+            speaker.stop()
+        }
+    }
+
+    /**
+     * Start speaking a "still working on it" cue every [WORKING_TICK_MS] while
+     * the LLM streams, so speaker-mode users get a heartbeat during a long
+     * generation (the answer itself is only read once fully decoded). Bounded
+     * by the generation window: started on [AgentEvent.GenerationStarted] and
+     * cancelled on Done/Error/cancel, so it never speaks over the answer.
+     */
+    private fun startWorkingTicker() {
+        stopWorkingTicker()
+        workingTickerJob = viewModelScope.launch {
+            while (isActive) {
+                delay(WORKING_TICK_MS)
+                if (ttsPreferences.isEnabled()) speaker.speak(workingPhrases.next())
+            }
+        }
+    }
+
+    private fun stopWorkingTicker() {
+        workingTickerJob?.cancel()
+        workingTickerJob = null
+    }
+
+    override fun onCleared() {
+        stopWorkingTicker()
+        speaker.stop()
+        super.onCleared()
     }
 
     /**
@@ -496,7 +592,24 @@ class ChatViewModel @Inject constructor(
             is AgentEvent.SearchCompleted -> _ui.update {
                 it.copy(searchStatus = event.outcome.toSearchStatus())
             }
+            is AgentEvent.GenerationStarted -> {
+                // Speaker mode: a short spoken "got it, working on it" fills the
+                // silent gap before the full answer is read aloud (we wait for
+                // the complete response rather than speaking streaming tokens,
+                // which jitters). Fires only on real LLM turns — the
+                // deterministic weather/finance/clock/todo renders never emit
+                // GenerationStarted, so the cue is suppressed there. The
+                // finished answer's QUEUE_FLUSH speak flushes this when Done
+                // arrives, so they never overlap.
+                if (ttsPreferences.isEnabled()) {
+                    speaker.speak(ackPhrases.next())
+                    startWorkingTicker()
+                }
+            }
             is AgentEvent.Done -> {
+                // Streaming is over — silence the "still working" heartbeat
+                // before the answer is read aloud so they never overlap.
+                stopWorkingTicker()
                 agentHistory = agentHistory + event.turnMessages
                 _ui.update {
                     val cacheHit = it.searchStatus is SearchStatus.CompletedFromCache
@@ -513,17 +626,26 @@ class ChatViewModel @Inject constructor(
                         isCancelling = false,
                     )
                 }
+                // Read the finished answer aloud when the speaker is on.
+                // Citations are excluded (separate field); markdown/LaTeX is
+                // stripped to clean prose for speech.
+                if (ttsPreferences.isEnabled() && event.message.text.isNotBlank()) {
+                    speaker.speak(MarkdownToPlainText.strip(event.message.text))
+                }
                 persistAgentTurnMessages(event.turnMessages)
                 runMemoryExtraction(event)
             }
-            is AgentEvent.Error -> _ui.update {
-                it.copy(
-                    error = event.message,
-                    partialText = "",
-                    searchStatus = SearchStatus.None,
-                    isGenerating = false,
-                    isCancelling = false,
-                )
+            is AgentEvent.Error -> {
+                stopWorkingTicker()
+                _ui.update {
+                    it.copy(
+                        error = event.message,
+                        partialText = "",
+                        searchStatus = SearchStatus.None,
+                        isGenerating = false,
+                        isCancelling = false,
+                    )
+                }
             }
         }
     }
@@ -737,6 +859,9 @@ class ChatViewModel @Inject constructor(
 
     private companion object {
         private const val TAG = "ChatViewModel"
+
+        /** Interval between spoken "still working" cues during a long stream. */
+        private const val WORKING_TICK_MS = 5_000L
     }
 }
 
