@@ -1117,10 +1117,9 @@ ephemerality for DISPLAY only; version → **0.0.3-beta**. See CLAUDE.md invaria
   (`PromptAssemblerTest`). `:androidApp:testDebugUnitTest` + `assembleDebug` green;
   on-device validation pending (attach → send → kill+reopen → resume → photo present).
 
-### M2.26 — Markdown + LaTeX rendering in assistant bubbles ⏳ PR OPEN (on-device validation pending)
+### M2.26 — Markdown + LaTeX rendering in assistant bubbles ✅ COMPLETE 2026-05-24
 
-PR #50 (branch `feat/markdown-math-rendering`). See CLAUDE.md invariant #41.
-**Do NOT merge until on-device Pixel 7 validation** (per [[feedback_pr_merge]]).
+PR #50 (squash-merged to main as `2627608`). See CLAUDE.md invariant #41.
 
 - **Feature:** finalized answers the MODEL composes render as markdown (bold/lists/
   code) + LaTeX math (`$…$` inline, `$$…$$` block) via Markwon + ext-latex
@@ -1148,8 +1147,7 @@ PR #50 (branch `feat/markdown-math-rendering`). See CLAUDE.md invariant #41.
 - **Tests:** `LatexNormalizerTest`, `ConversationRepositoryTest` (renderMarkdown
   round-trip), `AgentLoopPreflightTest` (search→plain, model→markdown),
   `MemoriesMigrationTest` (schema v7). `:androidApp:testDebugUnitTest` +
-  `assembleDebug` green; on-device math (typed + image) + news/weather color &
-  line-spacing validation pending.
+  `assembleDebug` green; on-device math (typed + image) verified.
 
 ### M3 — Datasets & classifier training ✅ COMPLETE 2026-05-09 — see `docs/M3_PLAN.md`
 
