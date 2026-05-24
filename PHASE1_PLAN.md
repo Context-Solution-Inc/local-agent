@@ -1149,9 +1149,9 @@ PR #50 (squash-merged to main as `2627608`). See CLAUDE.md invariant #41.
   `MemoriesMigrationTest` (schema v7). `:androidApp:testDebugUnitTest` +
   `assembleDebug` green; on-device math (typed + image) verified.
 
-### M2.27 — Voice I/O: dictation (STT) + read-aloud (TTS) 🔬 IN REVIEW (PR #51, not merged — pending on-device Pixel 7 validation)
+### M2.27 — Voice I/O: dictation (STT) + read-aloud (TTS) ✅ COMPLETE 2026-05-24
 
-PR #51 (branch `feature/voice-io-stt-tts`). Adds two device-native voice
+PR #51 (squash-merged to main as `37feaa7`). Adds two device-native voice
 controls to the chat input row (now: mic · speaker · photo · Send). All
 Android-only (`:androidApp`); no `:shared` seam, no model/runtime/DB changes.
 
