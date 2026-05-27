@@ -145,6 +145,76 @@ class PreflightRouterTest {
         assertEquals(FallThroughReason.RewriterAbort, decision.reason)
     }
 
+    // -- Explicit web-search force-fire (invariant #43) --------------------
+
+    @Test
+    fun middle_band_with_explicit_prefix_forces_FireSearch_on_stripped_query() = runTest {
+        // Mid-band pSearch (≈0.33) + a leading "web search" command must fire,
+        // and the command words must be stripped from the rewritten query.
+        val engine = stubEngine(preflightLogits = floatArrayOf(1f, 1f, 1f))
+        val counters = RecordingCounters()
+        val log = mutableListOf<String>()
+        val decision = makeRouter(engine, logSink = log, counters = counters)
+            .route("web search the url of the android open source project")
+        assertTrue("expected FireSearch, got $decision", decision is PreflightDecision.FireSearch)
+        decision as PreflightDecision.FireSearch
+        assertEquals("the url of the android open source project", decision.originalQuery)
+        assertEquals("the url of the android open source project", decision.rewrittenQuery)
+        assertEquals(SearchSubtype.GENERAL, decision.subtype)
+        assertEquals(1L, counters.counts[CounterNames.PREFLIGHT_EXPLICIT_SEARCH_FORCE_TOTAL])
+        assertNull(counters.counts[CounterNames.PREFLIGHT_TEMPORAL_FORCE_TOTAL])
+        assertTrue(log.any { it.contains("forced=explicit") })
+    }
+
+    @Test
+    fun explicit_prefix_keeps_vertical_subtype_routing() = runTest {
+        // Stripping the command still leaves the vertical anchor words so subtype
+        // detection routes correctly (the user's intent is "definitely search",
+        // not "use the unpinned endpoint").
+        val engine = stubEngine(preflightLogits = floatArrayOf(1f, 1f, 1f))
+        val decision = makeRouter(engine).route("search the web for the leafs score")
+        assertTrue(decision is PreflightDecision.FireSearch)
+        decision as PreflightDecision.FireSearch
+        assertEquals(SearchSubtype.SPORTS, decision.subtype)
+    }
+
+    @Test
+    fun explicit_prefix_fires_verbatim_when_rewriter_would_abort() = runTest {
+        // The rewriter aborts on an unresolved possessive ("my team"), but the
+        // user explicitly demanded search — fire the stripped query verbatim
+        // rather than falling through to no-search (unlike the temporal/high-band
+        // path, which aborts).
+        val engine = stubEngine(preflightLogits = floatArrayOf(1f, 1f, 1f))
+        val decision = makeRouter(engine).route("web search did my team win")
+        assertTrue("expected FireSearch, got $decision", decision is PreflightDecision.FireSearch)
+        decision as PreflightDecision.FireSearch
+        assertEquals("did my team win", decision.rewrittenQuery)
+    }
+
+    @Test
+    fun high_band_and_explicit_does_not_count_explicit_force() = runTest {
+        // Already high-band → would fire anyway; the explicit sub-counter must NOT
+        // increment ("fire the band alone would NOT have produced").
+        val engine = stubEngine(preflightLogits = floatArrayOf(5f, 0f, 0f))
+        val counters = RecordingCounters()
+        val log = mutableListOf<String>()
+        val decision = makeRouter(engine, logSink = log, counters = counters)
+            .route("web search the url of aosp")
+        assertTrue(decision is PreflightDecision.FireSearch)
+        assertNull(counters.counts[CounterNames.PREFLIGHT_EXPLICIT_SEARCH_FORCE_TOTAL])
+        assertFalse(log.any { it.contains("forced=explicit") })
+    }
+
+    @Test
+    fun explicit_prefix_short_circuits_when_search_disabled() = runTest {
+        // The SearchDisabled short-circuit runs before the explicit detector — a
+        // forced search still can't fire when search is off.
+        val engine = throwingEngine()
+        val decision = makeRouter(engine, searchAvailable = false)
+            .route("web search the url of aosp")
+        assertEquals(PreflightDecision.SearchDisabled, decision)
+    }
+
     @Test
     fun classifier_returning_null_emits_FallThrough_ClassifierUnavailable() = runTest {
         val engine = stubEngine(preflightLogits = null) // null → engine.classify returns null

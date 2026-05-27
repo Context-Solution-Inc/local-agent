@@ -2,6 +2,7 @@ package com.contextsolutions.mobileagent.classifier
 
 import com.contextsolutions.mobileagent.classifier.internal.softmax
 import com.contextsolutions.mobileagent.memory.Memory
+import com.contextsolutions.mobileagent.search.ExplicitSearchDetector
 import com.contextsolutions.mobileagent.search.RelativeTemporalDetector
 import com.contextsolutions.mobileagent.search.SearchSubtype
 import com.contextsolutions.mobileagent.search.SearchSubtypeDetector
@@ -30,6 +31,15 @@ import com.contextsolutions.mobileagent.telemetry.TelemetryCounters
  * `pSearch > highBand || temporalDetector.matches(query)`; the existing rewriter
  * (resolves "last year" → a concrete year) and subtype detection then run.
  *
+ * **Explicit-search force-fire (invariant #43).** A query that OPENS with an
+ * explicit web command ("web search …", "search the web …", "search online …";
+ * see [ExplicitSearchDetector]) also takes the FireSearch path regardless of the
+ * band — the user's deterministic escape hatch. The command words are stripped
+ * before the classifier, rewriter, and subtype detector see them, so they run on
+ * the real question. Unlike the temporal/high-band path, an explicit demand fires
+ * even when the rewriter aborts (it fires the stripped query verbatim) — the user
+ * asked for search, so falling through to no-search would be surprising.
+ *
  * **Graceful degradation (PRD §3.2.1 failure modes).** Classifier
  * load/inference failure NEVER throws into the agent. The router catches
  * `null` returns from [ClassifierEngine.classify] and emits
@@ -55,6 +65,7 @@ class PreflightRouter(
     private val searchAvailableProvider: suspend () -> Boolean,
     private val subtypeDetector: SearchSubtypeDetector = SearchSubtypeDetector(),
     private val temporalDetector: RelativeTemporalDetector = RelativeTemporalDetector(),
+    private val explicitDetector: ExplicitSearchDetector = ExplicitSearchDetector(),
     private val logger: (String) -> Unit = {},
     private val counters: TelemetryCounters = NoOpTelemetryCounters,
     private val nowEpochMs: () -> Long = { kotlinx.datetime.Clock.System.now().toEpochMilliseconds() },
@@ -81,8 +92,15 @@ class PreflightRouter(
             return PreflightDecision.SearchDisabled
         }
 
+        // Invariant #43 — an explicit web command at the START of the query
+        // ("web search …") forces FireSearch regardless of the band. Strip the
+        // command words up front so the classifier/rewriter/subtype detector
+        // operate on the real question, not the imperative.
+        val forceExplicit = explicitDetector.matches(query)
+        val effectiveQuery = if (forceExplicit) explicitDetector.stripPrefix(query) else query
+
         val startMs = nowEpochMs()
-        val tokenized = tokenizer.encodeSingle(query)
+        val tokenized = tokenizer.encodeSingle(effectiveQuery)
         val output = engine.classify(tokenized.inputIds, tokenized.attentionMask)
         if (output == null) {
             if (!classifierUnavailableLogged) {
@@ -108,24 +126,26 @@ class PreflightRouter(
         // forced query still carries a real pSearch for logging/telemetry.
         val forceTemporal = temporalDetector.matches(query)
         val decision = when {
-            pSearch > thresholds.highBand || forceTemporal -> {
-                val rewritten = rewriter.rewrite(query, memories)
-                if (rewritten == null) {
+            pSearch > thresholds.highBand || forceTemporal || forceExplicit -> {
+                val rewritten = rewriter.rewrite(effectiveQuery, memories)
+                if (rewritten == null && !forceExplicit) {
                     PreflightDecision.FallThrough(
                         reason = FallThroughReason.RewriterAbort,
                         pSearchRequired = pSearch,
                     )
                 } else {
-                    // Subtype is detected on the ORIGINAL query — the
-                    // rewriter mutates keywords for time/possessive
+                    // Subtype is detected on the (stripped) effective query —
+                    // the rewriter mutates keywords for time/possessive
                     // resolution and can strip the verticals' anchor words
                     // ("weather", "score", etc.). Detection on the literal
-                    // user text preserves intent.
+                    // user text preserves intent. An explicit search whose
+                    // rewriter aborted fires the stripped query verbatim (the
+                    // user demanded search — see invariant #43).
                     PreflightDecision.FireSearch(
-                        originalQuery = query,
-                        rewrittenQuery = rewritten,
+                        originalQuery = effectiveQuery,
+                        rewrittenQuery = rewritten ?: effectiveQuery,
                         pSearchRequired = pSearch,
-                        subtype = subtypeDetector.detect(query),
+                        subtype = subtypeDetector.detect(effectiveQuery),
                     )
                 }
             }
@@ -146,10 +166,14 @@ class PreflightRouter(
                     CounterNames.PREFLIGHT_HIGH_BAND_TOTAL,
                     tag = decision.subtype.name.lowercase(),
                 )
-                // Sub-counter: a force-fire the band alone would NOT have produced.
-                // The guard makes it mean exactly that — a query that is both
-                // high-band and temporal would have fired anyway, so don't count it.
-                if (forceTemporal && pSearch <= thresholds.highBand) {
+                // Sub-counters: a force-fire the band alone would NOT have produced.
+                // The guard makes each mean exactly that — a query that is already
+                // high-band would have fired anyway, so don't count it. Explicit
+                // takes precedence over temporal when both qualify (the stronger,
+                // user-driven signal); the two sub-counters stay mutually exclusive.
+                if (forceExplicit && pSearch <= thresholds.highBand) {
+                    counters.increment(CounterNames.PREFLIGHT_EXPLICIT_SEARCH_FORCE_TOTAL)
+                } else if (forceTemporal && pSearch <= thresholds.highBand) {
                     counters.increment(CounterNames.PREFLIGHT_TEMPORAL_FORCE_TOTAL)
                 }
             }
@@ -162,11 +186,24 @@ class PreflightRouter(
             is PreflightDecision.SearchDisabled -> Unit // can't reach here, see above
         }
 
-        logger(formatLogLine(query, decision, forcedTemporal = forceTemporal && pSearch <= thresholds.highBand))
+        val forcedExplicit = forceExplicit && pSearch <= thresholds.highBand
+        logger(
+            formatLogLine(
+                query,
+                decision,
+                forcedExplicit = forcedExplicit,
+                forcedTemporal = !forcedExplicit && forceTemporal && pSearch <= thresholds.highBand,
+            ),
+        )
         return decision
     }
 
-    private fun formatLogLine(query: String, decision: PreflightDecision, forcedTemporal: Boolean): String {
+    private fun formatLogLine(
+        query: String,
+        decision: PreflightDecision,
+        forcedExplicit: Boolean,
+        forcedTemporal: Boolean,
+    ): String {
         val name = when (decision) {
             is PreflightDecision.FireSearch -> "FireSearch"
             is PreflightDecision.SkipSearch -> "SkipSearch"
@@ -178,7 +215,11 @@ class PreflightRouter(
         val extra = when (decision) {
             is PreflightDecision.FireSearch ->
                 " subtype=${decision.subtype.name} rewritten=\"${redact(decision.rewrittenQuery)}\"" +
-                    if (forcedTemporal) " forced=temporal" else ""
+                    when {
+                        forcedExplicit -> " forced=explicit"
+                        forcedTemporal -> " forced=temporal"
+                        else -> ""
+                    }
             else -> ""
         }
         return "[preflight] decision=$name$pStr query=\"${redact(query)}\"$extra"

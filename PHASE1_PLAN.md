@@ -1187,6 +1187,39 @@ Android-only (`:androidApp`); no `:shared` seam, no model/runtime/DB changes.
   toggle). `:androidApp:testDebugUnitTest` + `assembleDebug` green. README
   "Voice input and read-aloud" documents usage.
 
+### M2.28 — Explicit "web search" force-fire ✅ COMPLETE 2026-05-24
+
+PR #52 (branch `pr-52-explicit-web-search`). A user-driven escape hatch for the
+under-firing classifier (§7 precision gap): when the user KNOWS they want the
+web, opening a message with an explicit command forces Brave regardless of band.
+Mirrors the M2.19 relative-temporal force-fire — a topic-agnostic detector inside
+`PreflightRouter` — but anchored at the start of the message (the false-positive
+guard) and with the command words stripped before search.
+
+- **`ExplicitSearchDetector`** (`search/`) — anchored, web-only prefix regex:
+  `web search …`, `search the web (for) …`, `search online (for) …`. Deliberately
+  NOT `google`/`look up` (mis-fire on "google announced…"). `stripPrefix()`
+  removes the command so Brave gets the real question; "how do web search engines
+  work" does NOT fire (command not at start).
+- **`PreflightRouter`** gate widens to
+  `pSearch > highBand || forceTemporal || forceExplicit`; classifier/rewriter/
+  `SearchSubtypeDetector` all run on the stripped query, so **vertical routing is
+  kept**. Divergence from the temporal/high-band path: an explicit demand fires
+  even when the rewriter aborts (fires the stripped query verbatim — the user
+  asked for search). The `SearchDisabled` short-circuit still runs first.
+- **Observability:** `preflight_explicit_search_force_total` (subset of
+  `preflight_high_band_total`, counted only when the band alone wouldn't have
+  fired; mutually exclusive with `preflight_temporal_force_total`, explicit wins)
+  + a `forced=explicit` logcat marker.
+
+Tests: new `ExplicitSearchDetectorTest`; extended `PreflightRouterTest` (mid-band
++ prefix → `FireSearch` on stripped query + counter; vertical kept; verbatim on
+abort; no double-count when already high-band; `SearchDisabled` precedence),
+`AgentLoopPreflightTest` (mid-band prefix fires + stripped `SearchStarted` query +
+greedy sampling), `CanonicalEvalTest` (one explicit-prefix fixture).
+`:androidApp:testDebugUnitTest` green. README "Forcing a web search" documents
+usage. See CLAUDE.md invariant #43.
+
 ### M3 — Datasets & classifier training ✅ COMPLETE 2026-05-09 — see `docs/M3_PLAN.md`
 
 Detailed phase-by-phase plan, ratified decisions, and exit criteria live in

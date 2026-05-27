@@ -322,6 +322,17 @@ class CanonicalEvalTest {
             forbiddenPromptBlocks = setOf(PromptBlock.PreflightNotice),
         ),
 
+        // ── Explicit web-search force-fire (invariant #43) ─────────────────
+        CanonicalQuery(
+            id = "explicit_web_search_middle_band",
+            description = "Mid-band query opening with 'web search' fires anyway; command words are stripped from the search query.",
+            query = "web search the url of the android open source project",
+            classifierLogits = MIDDLE_BAND_LOGITS,
+            expectedBand = "HighFireSearch",
+            expectedRewrittenContains = listOf("android open source project"),
+            expectedPromptBlocks = setOf(PromptBlock.PreflightNotice, PromptBlock.ToolDefinition),
+        ),
+
         // ── Search disabled ────────────────────────────────────────────────
         CanonicalQuery(
             id = "search_disabled_high_band",

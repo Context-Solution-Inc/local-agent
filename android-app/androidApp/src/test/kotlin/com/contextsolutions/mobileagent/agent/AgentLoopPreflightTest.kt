@@ -167,6 +167,41 @@ class AgentLoopPreflightTest {
     }
 
     @Test
+    fun explicit_web_search_prefix_forces_search_on_stripped_query() = runTest {
+        // Invariant #43 — a mid-band query that OPENS with "web search …" fires
+        // anyway, and the command words are stripped before reaching Brave.
+        val payload = FormattedSearchPayload(
+            json = """[{"title":"AOSP","url":"https://source.android.com","snippet":"Android Open Source Project"}]""",
+            sources = listOf(SearchSource("AOSP", "https://source.android.com", "Android Open Source Project")),
+        )
+        val client = FakeBraveSearchClient().apply { next = BraveSearchResult.Success(payload) }
+        val service = SearchService(StubKeyProvider, client, dao)
+        val session = RecordingSession(FakeSession(emitText = "It's source.android.com."))
+        val loop = buildLoop(
+            session = session,
+            searchService = service,
+            preflightLogits = floatArrayOf(1f, 1f, 1f), // uniform → middle band (would NOT fire alone)
+        )
+
+        val events = loop.run(
+            AgentTurnInput(
+                userMessage = "web search the url of the android open source project",
+                history = emptyList(),
+            ),
+        ).toList()
+
+        // Search fired despite the middle band, and the dispatched query has the
+        // "web search" command stripped.
+        val started = events.filterIsInstance<AgentEvent.SearchStarted>().single()
+        assertEquals("the url of the android open source project", started.query)
+        assertEquals(1, client.callCount)
+
+        // Search-grounded turn decodes near-greedy (same as any FireSearch path).
+        val request = session.requests.single()
+        assertEquals(SamplingParams.GREEDY, request.sampling)
+    }
+
+    @Test
     fun middle_band_keeps_M2_path_no_notice_block() = runTest {
         val client = FakeBraveSearchClient()
         val service = SearchService(StubKeyProvider, client, dao)

@@ -185,6 +185,38 @@ hardcodes coordinates so it doesn't need a saved location. To isolate one parser
 per turn, configure only that one kind under News (the composite runs only the
 side(s) with matching sources).
 
+## Forcing a web search
+
+Normally the app decides whether a question needs the web automatically (an
+on-device pre-flight classifier). When you *know* you want a live web lookup —
+and don't want to rely on that classifier — start your message with an explicit
+search command:
+
+- **`web search …`** — e.g. *"web search the URL of the Android Open Source Project"*
+- **`search the web for …`** — e.g. *"search the web for the best pizza in Toronto"*
+- **`search online …`** — e.g. *"search online who won the masters"*
+
+This always fires a Brave search for that turn. The command words are stripped
+before the query is sent, so *"web search the URL of AOSP"* searches for
+**the URL of AOSP**, not the literal command. Topic routing still applies — an
+explicit search about sports or finance still uses the matching vertical.
+
+Notes:
+
+- **The command must be at the start of the message.** This is deliberate, to
+  avoid false triggers: *"how do web search engines work"* is a normal question
+  and is **not** forced to the web.
+- **Only `web search` / `search the web` / `search online` trigger it** — not
+  *"google …"* or *"look up …"* (those mis-fire too easily, e.g. *"google
+  announced layoffs"*).
+- **Search must be enabled.** If web search is turned off in Settings (or no
+  Brave key is configured), an explicit command still won't fire — the app
+  answers from the model instead.
+
+> Diagnostics: `adb logcat -s ClassifierModule:I` shows
+> `decision=FireSearch … forced=explicit` with the stripped `rewritten="…"`
+> query on a forced turn.
+
 ## Asking about a photo
 
 The assistant can look at a photo and answer questions about it, running Gemma's

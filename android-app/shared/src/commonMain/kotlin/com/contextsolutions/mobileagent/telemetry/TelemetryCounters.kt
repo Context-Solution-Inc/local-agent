@@ -112,6 +112,13 @@ object CounterNames {
     // carries the decision (and its false-positive rate). See invariant #38.
     const val PREFLIGHT_TEMPORAL_FORCE_TOTAL = "preflight_temporal_force_total"
 
+    // A FireSearch the band thresholds alone would NOT have produced — forced
+    // because the query opened with an explicit web command (ExplicitSearchDetector,
+    // invariant #43). A subset of PREFLIGHT_HIGH_BAND_TOTAL, mutually exclusive
+    // with PREFLIGHT_TEMPORAL_FORCE_TOTAL (explicit wins when both qualify); lets
+    // us watch how often users reach for the manual escape hatch and its FP rate.
+    const val PREFLIGHT_EXPLICIT_SEARCH_FORCE_TOTAL = "preflight_explicit_search_force_total"
+
     // daily_search
     const val SEARCH_INVOKED_TOTAL = "search_invoked_total"
     const val SEARCH_CACHE_HIT_TOTAL = "search_cache_hit_total"
