@@ -503,6 +503,9 @@ class LiteRtInferenceEngine(private val context: Context) : InferenceEngine {
         // AUTO is resolved to a concrete accelerator before we pick a backend;
         // hitting this branch is a programming error.
         Accelerator.AUTO -> error("AUTO must be resolved before calling backendFor")
+        // REMOTE is only ever reported by the Ollama engine (PR #56); it never
+        // reaches the local LiteRT-LM backend selection.
+        Accelerator.REMOTE -> error("REMOTE is a routed remote backend, never loaded locally")
     }
 
     private data class LiteRtModelHandle(

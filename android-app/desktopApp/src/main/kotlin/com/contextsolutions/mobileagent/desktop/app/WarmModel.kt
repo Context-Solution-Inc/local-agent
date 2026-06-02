@@ -96,4 +96,19 @@ class WarmModel(
             logger("unloaded")
         }
     }
+
+    /**
+     * Drop the resident handle so the next [session] re-loads from scratch
+     * (PR #56). Used when the Ollama server config changes: the routing engine
+     * re-decides remote-vs-local on the next [ensureLoaded]. Safe if never
+     * loaded; an in-flight `generate()` already captured its handle and finishes
+     * uninterrupted.
+     */
+    fun invalidate() {
+        handle?.let {
+            engine.unload(it)
+            handle = null
+            logger("invalidated (config changed)")
+        }
+    }
 }

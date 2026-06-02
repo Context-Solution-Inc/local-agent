@@ -14,7 +14,11 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -42,9 +46,11 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import com.contextsolutions.mobileagent.preferences.OllamaConfig
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -72,6 +78,17 @@ fun SettingsScreen(
     var showKey by remember { mutableStateOf(false) }
     var hfTokenInput by remember { mutableStateOf("") }
     var showHfToken by remember { mutableStateOf(false) }
+
+    // PR #56 — Ollama server editable fields, re-seeded from the persisted config
+    // (so an external save/clear or reload reflects here). Editing the text
+    // fields doesn't change `state.ollamaConfig`, so typing isn't reset.
+    val ollamaCfg = state.ollamaConfig
+    var ollamaHost by remember(ollamaCfg) { mutableStateOf(ollamaCfg.host) }
+    var ollamaPort by remember(ollamaCfg) {
+        mutableStateOf(ollamaCfg.port?.toString() ?: OllamaConfig.DEFAULT_PORT.toString())
+    }
+    var ollamaChatModel by remember(ollamaCfg) { mutableStateOf(ollamaCfg.chatModel) }
+    var ollamaVisionModel by remember(ollamaCfg) { mutableStateOf(ollamaCfg.visionModel) }
 
     LaunchedEffect(Unit) { viewModel.refreshMemorySummary() }
 
@@ -391,6 +408,162 @@ fun SettingsScreen(
                 OutlinedButton(onClick = { showHfToken = !showHfToken }) {
                     Text(if (showHfToken) "Mask" else "Reveal")
                 }
+            }
+
+            // PR #56 — Remote Ollama server. When configured, the large chat
+            // model runs on this server (text + images) instead of on-device;
+            // the classifier, embedder, search and memory stay local.
+            HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
+            OllamaServerSection(
+                state = state,
+                host = ollamaHost,
+                port = ollamaPort,
+                chatModel = ollamaChatModel,
+                visionModel = ollamaVisionModel,
+                onHostChange = { ollamaHost = it },
+                onPortChange = { ollamaPort = it.filter(Char::isDigit) },
+                onChatModelChange = { ollamaChatModel = it },
+                onVisionModelChange = { ollamaVisionModel = it },
+                onTest = { viewModel.testOllama(ollamaHost, ollamaPort) },
+                onSave = { viewModel.saveOllama(ollamaHost, ollamaPort, ollamaChatModel, ollamaVisionModel) },
+                onClear = { viewModel.clearOllama() },
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun OllamaServerSection(
+    state: SettingsUiState,
+    host: String,
+    port: String,
+    chatModel: String,
+    visionModel: String,
+    onHostChange: (String) -> Unit,
+    onPortChange: (String) -> Unit,
+    onChatModelChange: (String) -> Unit,
+    onVisionModelChange: (String) -> Unit,
+    onTest: () -> Unit,
+    onSave: () -> Unit,
+    onClear: () -> Unit,
+) {
+    SectionHeader("Ollama server")
+    Text(
+        "Run the chat model on an Ollama server on your network instead of on this " +
+            "device — useful when a faster machine is available. The classifier, search " +
+            "and memory always stay on-device. Leave blank to use the built-in model.",
+        style = MaterialTheme.typography.bodySmall,
+    )
+    Spacer(Modifier.height(8.dp))
+    OllamaStatusRow(state)
+    Spacer(Modifier.height(8.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedTextField(
+            value = host,
+            onValueChange = onHostChange,
+            modifier = Modifier.weight(2f),
+            label = { Text("Host / IP") },
+            placeholder = { Text("192.168.1.50") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
+        )
+        OutlinedTextField(
+            value = port,
+            onValueChange = onPortChange,
+            modifier = Modifier.weight(1f),
+            label = { Text("Port") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+        )
+    }
+    Spacer(Modifier.height(8.dp))
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        OutlinedButton(
+            onClick = onTest,
+            enabled = host.isNotBlank() && port.isNotBlank() && state.ollamaTestStatus != OllamaTestStatus.Testing,
+        ) { Text("Test connection") }
+        if (state.ollamaTestStatus == OllamaTestStatus.Testing) {
+            CircularProgressIndicator(modifier = Modifier.height(20.dp).padding(start = 4.dp))
+        }
+    }
+
+    // Model pickers appear once a probe has returned models. The vision model is
+    // optional — image turns fall back to the chat model when it's blank.
+    if (state.ollamaModels.isNotEmpty()) {
+        Spacer(Modifier.height(12.dp))
+        ModelDropdown(
+            label = "Chat model",
+            selected = chatModel,
+            models = state.ollamaModels.map { it.name },
+            onSelect = onChatModelChange,
+        )
+        Spacer(Modifier.height(8.dp))
+        ModelDropdown(
+            label = "Vision model (optional)",
+            selected = visionModel,
+            // Vision-capable models first; allow clearing the selection.
+            models = listOf("") + state.ollamaModels.sortedByDescending { it.isVisionCapable }.map { it.name },
+            onSelect = onVisionModelChange,
+        )
+    }
+
+    Spacer(Modifier.height(12.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(
+            onClick = onSave,
+            enabled = host.isNotBlank() && port.isNotBlank() && chatModel.isNotBlank(),
+        ) { Text("Save") }
+        if (state.ollamaConfig.isConfigured) {
+            OutlinedButton(onClick = onClear) { Text("Clear") }
+        }
+    }
+}
+
+@Composable
+private fun OllamaStatusRow(state: SettingsUiState) {
+    val cfg = state.ollamaConfig
+    val (label, color) = when (state.ollamaTestStatus) {
+        OllamaTestStatus.Testing -> "Connecting…" to MaterialTheme.colorScheme.outline
+        OllamaTestStatus.Connected ->
+            "Connected — ${state.ollamaModels.size} models found." to MaterialTheme.colorScheme.primary
+        OllamaTestStatus.Failed ->
+            "Could not reach the server. Check the host, port, and that Ollama is running." to
+                MaterialTheme.colorScheme.error
+        OllamaTestStatus.Idle -> when {
+            cfg.isConfigured ->
+                "Using Ollama at ${cfg.host}:${cfg.port} (${cfg.chatModel}) — on-device model disabled." to
+                    MaterialTheme.colorScheme.primary
+            else -> "Not configured — chat uses the on-device model." to MaterialTheme.colorScheme.outline
+        }
+    }
+    Text(label, style = MaterialTheme.typography.bodySmall, color = color)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ModelDropdown(
+    label: String,
+    selected: String,
+    models: List<String>,
+    onSelect: (String) -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("$label: ", style = MaterialTheme.typography.bodyMedium)
+        AssistChip(
+            onClick = { open = true },
+            label = { Text(selected.ifBlank { "none" }) },
+        )
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            models.forEach { name ->
+                DropdownMenuItem(
+                    text = { Text(name.ifBlank { "none" }) },
+                    onClick = { onSelect(name); open = false },
+                )
             }
         }
     }

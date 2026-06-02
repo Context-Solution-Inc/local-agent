@@ -2,6 +2,8 @@ package com.contextsolutions.mobileagent.ui.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.contextsolutions.mobileagent.inference.OllamaClient
+import com.contextsolutions.mobileagent.inference.OllamaModel
 import com.contextsolutions.mobileagent.language.LanguagePreferences
 import com.contextsolutions.mobileagent.language.PreferredLanguage
 import com.contextsolutions.mobileagent.memory.MemoryPreferences
@@ -10,6 +12,8 @@ import com.contextsolutions.mobileagent.observability.SafeCrashReporter
 import com.contextsolutions.mobileagent.platform.AppBuildConfig
 import com.contextsolutions.mobileagent.platform.SecureStorage
 import com.contextsolutions.mobileagent.platform.SecureStorageKeys
+import com.contextsolutions.mobileagent.preferences.OllamaConfig
+import com.contextsolutions.mobileagent.preferences.OllamaPreferences
 import com.contextsolutions.mobileagent.search.SearchCacheDao
 import com.contextsolutions.mobileagent.telemetry.TelemetryConsentManager
 import com.contextsolutions.mobileagent.telemetry.TelemetryUploader
@@ -41,6 +45,8 @@ class SettingsViewModel(
     private val buildConfig: AppBuildConfig,
     private val memoryStore: MemoryStore,
     private val memoryPreferences: MemoryPreferences,
+    private val ollamaPreferences: OllamaPreferences,
+    private val ollamaClient: OllamaClient,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(initialState())
@@ -60,6 +66,11 @@ class SettingsViewModel(
         // step) also writes.
         languagePreferences.preferredLanguageFlow()
             .onEach { lang -> _state.update { it.copy(preferredLanguage = lang) } }
+            .launchIn(viewModelScope)
+        // PR #56 — mirror the Ollama server config so the Settings section
+        // reflects an external clear/reload without a manual refresh.
+        ollamaPreferences.configFlow()
+            .onEach { cfg -> _state.update { it.copy(ollamaConfig = cfg) } }
             .launchIn(viewModelScope)
     }
 
@@ -204,6 +215,63 @@ class SettingsViewModel(
         )
     }
 
+    /**
+     * PR #56 — probe an Ollama server at [host]:[port] and populate the model
+     * dropdowns. Drives the "Test connection" button; an empty result (or any
+     * error) reads as Failed. Does not persist anything — the user picks models
+     * then taps Save.
+     */
+    fun testOllama(host: String, port: String) {
+        val baseUrl = OllamaConfig(host = host.trim(), port = port.trim().toIntOrNull()).baseUrl()
+        if (baseUrl == null) {
+            _state.update { it.copy(ollamaTestStatus = OllamaTestStatus.Failed, ollamaModels = emptyList()) }
+            return
+        }
+        _state.update { it.copy(ollamaTestStatus = OllamaTestStatus.Testing) }
+        viewModelScope.launch {
+            val models = withContext(Dispatchers.IO) { ollamaClient.listModels(baseUrl) }
+            _state.update {
+                it.copy(
+                    ollamaModels = models,
+                    ollamaTestStatus = if (models.isEmpty()) OllamaTestStatus.Failed else OllamaTestStatus.Connected,
+                )
+            }
+        }
+    }
+
+    /**
+     * PR #56 — persist the remote Ollama server + selected models. Once
+     * [OllamaConfig.isConfigured], the routing engine serves chat from this
+     * server instead of the on-device model. A blank [visionModel] means image
+     * turns reuse [chatModel].
+     */
+    fun saveOllama(host: String, port: String, chatModel: String, visionModel: String) {
+        val config = OllamaConfig(
+            host = host.trim(),
+            port = port.trim().toIntOrNull(),
+            chatModel = chatModel.trim(),
+            visionModel = visionModel.trim(),
+        )
+        ollamaPreferences.setConfig(config)
+        _state.update { it.copy(ollamaConfig = config, ollamaJustSaved = true) }
+    }
+
+    /** PR #56 — clear the remote server (reverts chat to the on-device model). */
+    fun clearOllama() {
+        ollamaPreferences.clear()
+        _state.update {
+            it.copy(
+                ollamaConfig = OllamaConfig.EMPTY,
+                ollamaModels = emptyList(),
+                ollamaTestStatus = OllamaTestStatus.Idle,
+            )
+        }
+    }
+
+    fun acknowledgeOllamaSaved() {
+        _state.update { it.copy(ollamaJustSaved = false) }
+    }
+
     private fun initialState(): SettingsUiState {
         val hasUser = secureStorage.contains(SecureStorageKeys.BRAVE_API_KEY) &&
             !secureStorage.get(SecureStorageKeys.BRAVE_API_KEY).isNullOrBlank()
@@ -221,6 +289,7 @@ class SettingsViewModel(
             preferredLanguage = languagePreferences.preferredLanguage(),
             isDebugBuild = buildConfig.isDebug,
             memoryCreationEnabled = memoryPreferences.creationEnabled(),
+            ollamaConfig = ollamaPreferences.config(),
         ).also {
             // Load cache count off the main thread.
             viewModelScope.launch(Dispatchers.IO) {
@@ -249,4 +318,13 @@ data class SettingsUiState(
     /** Memory summary shown on the "Memory" row. -1 = not yet loaded. */
     val memoryCount: Int = -1,
     val memoryCreationEnabled: Boolean = false,
+    /** PR #56 — remote Ollama server config (EMPTY = use the on-device model). */
+    val ollamaConfig: OllamaConfig = OllamaConfig.EMPTY,
+    /** Models discovered by the last "Test connection" (drives the dropdowns). */
+    val ollamaModels: List<OllamaModel> = emptyList(),
+    val ollamaTestStatus: OllamaTestStatus = OllamaTestStatus.Idle,
+    val ollamaJustSaved: Boolean = false,
 )
+
+/** Outcome of the Settings "Test connection" probe against an Ollama server. */
+enum class OllamaTestStatus { Idle, Testing, Connected, Failed }

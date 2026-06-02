@@ -20,6 +20,10 @@ import com.contextsolutions.mobileagent.inference.AndroidThermalStatusProvider
 import com.contextsolutions.mobileagent.inference.InferenceEngine
 import com.contextsolutions.mobileagent.inference.LiteRtInferenceEngineFactory
 import com.contextsolutions.mobileagent.inference.MemoryHeadroomProvider
+import com.contextsolutions.mobileagent.inference.OllamaClient
+import com.contextsolutions.mobileagent.inference.OllamaConnectionMonitor
+import com.contextsolutions.mobileagent.inference.OllamaInferenceEngine
+import com.contextsolutions.mobileagent.inference.RoutingInferenceEngine
 import com.contextsolutions.mobileagent.inference.SystemMemoryThresholds
 import com.contextsolutions.mobileagent.inference.ThermalStatusProvider
 import com.contextsolutions.mobileagent.memory.EmbedderEngine
@@ -75,6 +79,8 @@ import com.contextsolutions.mobileagent.onboarding.OnboardingPreferences
 import com.contextsolutions.mobileagent.onboarding.SharedPreferencesOnboardingPreferences
 import com.contextsolutions.mobileagent.preferences.DataStoreSearchPreferencesRepository
 import com.contextsolutions.mobileagent.preferences.DefaultSiteResolver
+import com.contextsolutions.mobileagent.preferences.OllamaPreferences
+import com.contextsolutions.mobileagent.preferences.SharedPreferencesOllamaPreferences
 import com.contextsolutions.mobileagent.preferences.LocationCatalog
 import com.contextsolutions.mobileagent.preferences.SearchPreferencesRepository
 import com.contextsolutions.mobileagent.preferences.WeatherLocationResolver
@@ -197,14 +203,42 @@ val androidModule: Module = module {
     single<ThermalStatusProvider> { AndroidThermalStatusProvider(androidContext()) }
     single<MemoryHeadroomProvider> { AndroidMemoryHeadroomProvider(androidContext()) }
 
+    // PR #56 — remote Ollama config + client + engine (shared OpenAI-compatible
+    // engine; only the prefs store is Android-specific).
+    single<OllamaPreferences> { SharedPreferencesOllamaPreferences(androidContext()) }
+    single { OllamaClient(get<HttpEngineFactory>()) }
+    single {
+        OllamaConnectionMonitor(
+            healthProbe = { url -> get<OllamaClient>().health(url) },
+            logger = { Log.i("Ollama", it) },
+        )
+    }
+    single {
+        OllamaInferenceEngine(
+            httpEngineFactory = get(),
+            preferences = get(),
+            client = get(),
+            monitor = get(),
+            logger = { Log.i("Ollama", it) },
+        )
+    }
+
     // On-device engines. ClassifierEngine/EmbedderEngine are the Managed* lifecycle
     // wrappers (5-min idle unload, warm-up, forceUnload) typed as their interfaces —
     // AuxModelLifecycleCoordinator casts back to Managed* to drive unloads.
     // InferenceEngine honours the USE_STUB_ENGINE flag (mirrors desktopModule's
-    // LlamaCppInferenceEngine binding).
+    // LlamaCppInferenceEngine binding). PR #56 — wrapped in RoutingInferenceEngine
+    // so a configured + reachable Ollama server serves chat instead of the local
+    // model (falling back to local when unreachable).
     single<InferenceEngine> {
-        if (BuildConfig.USE_STUB_ENGINE) StubInferenceEngine()
+        val local = if (BuildConfig.USE_STUB_ENGINE) StubInferenceEngine()
         else LiteRtInferenceEngineFactory.create(androidContext())
+        RoutingInferenceEngine(
+            local = local,
+            ollama = get<OllamaInferenceEngine>(),
+            preferences = get(),
+            logger = { Log.i("Inference", it) },
+        )
     }
     single<ClassifierEngine> {
         ManagedClassifierEngine(

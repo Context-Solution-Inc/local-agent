@@ -22,6 +22,12 @@ import com.contextsolutions.mobileagent.ui.theme.DesktopThemePreferences
 import com.contextsolutions.mobileagent.ui.theme.ThemePreferences
 import com.contextsolutions.mobileagent.inference.LlamaServerBinaryStore
 import com.contextsolutions.mobileagent.inference.LlamaServerInferenceEngine
+import com.contextsolutions.mobileagent.inference.OllamaClient
+import com.contextsolutions.mobileagent.inference.OllamaConnectionMonitor
+import com.contextsolutions.mobileagent.inference.OllamaInferenceEngine
+import com.contextsolutions.mobileagent.inference.RoutingInferenceEngine
+import com.contextsolutions.mobileagent.preferences.DesktopOllamaPreferences
+import com.contextsolutions.mobileagent.preferences.OllamaPreferences
 import com.contextsolutions.mobileagent.memory.DesktopMemoryPreferences
 import com.contextsolutions.mobileagent.memory.EmbedderEngine
 import com.contextsolutions.mobileagent.memory.MemoryPreferences
@@ -166,11 +172,42 @@ val desktopModule: Module = module {
     // The binary is downloaded/cached on first run; the mmproj resolver (read lazily at
     // loadModel) enables vision via `--mmproj`.
     single { LlamaServerBinaryStore(logger = { System.err.println("[LlamaServer] $it") }) }
+
+    // PR #56 — remote Ollama config + client + engine. The OpenAI-compatible
+    // OllamaInferenceEngine is shared (commonMain); only the prefs store is
+    // desktop-specific (file-JSON under app-data).
+    single<OllamaPreferences> {
+        DesktopOllamaPreferences(DesktopJsonStore(File(DesktopAppDirs.dataDir(), "ollama_prefs.json")))
+    }
+    single { OllamaClient(get<HttpEngineFactory>()) }
+    single {
+        OllamaConnectionMonitor(
+            healthProbe = { url -> get<OllamaClient>().health(url) },
+            logger = { System.err.println("[Ollama] $it") },
+        )
+    }
+    single {
+        OllamaInferenceEngine(
+            httpEngineFactory = get(),
+            preferences = get(),
+            client = get(),
+            monitor = get(),
+            logger = { System.err.println("[Ollama] $it") },
+        )
+    }
+
+    // PR #56 — the InferenceEngine seam now routes to Ollama when configured +
+    // reachable, else falls back to the local llama-server (built as `local`).
     single<InferenceEngine> {
-        LlamaServerInferenceEngine(
-            binaryStore = get(),
-            mmprojPathProvider = { DesktopModelInventory.resolveMmprojPath() },
-            logger = { System.err.println("[LlamaServer] $it") },
+        RoutingInferenceEngine(
+            local = LlamaServerInferenceEngine(
+                binaryStore = get(),
+                mmprojPathProvider = { DesktopModelInventory.resolveMmprojPath() },
+                logger = { System.err.println("[LlamaServer] $it") },
+            ),
+            ollama = get<OllamaInferenceEngine>(),
+            preferences = get(),
+            logger = { System.err.println("[Inference] $it") },
         )
     }
 

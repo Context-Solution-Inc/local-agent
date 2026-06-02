@@ -930,7 +930,7 @@ private fun CitationChips(citations: List<SearchSource>) {
 
 @Composable
 private fun SessionBanner(state: SessionState) {
-    val (text, isWarning) = when (state) {
+    val info: Pair<String, Boolean>? = when (state) {
         is SessionState.Unloaded ->
             "Model unloaded — next prompt cold-loads in 4–8 s." to false
         is SessionState.Downloading -> {
@@ -939,16 +939,18 @@ private fun SessionBanner(state: SessionState) {
         }
         is SessionState.Loading ->
             "Loading model…" to false
-        is SessionState.Loaded -> {
-            if (state.activeAccelerator == Accelerator.CPU) {
-                "Loaded on CPU (degraded mode — generation will be slow)." to true
-            } else {
-                "Loaded on ${state.activeAccelerator.name}." to false
-            }
+        is SessionState.Loaded -> when (state.activeAccelerator) {
+            // PR #56 — generation runs on a remote Ollama server; the on-device
+            // accelerator banner ("Loaded on CPU/GPU…") doesn't apply, so omit it.
+            Accelerator.REMOTE -> null
+            Accelerator.CPU -> "Loaded on CPU (degraded mode — generation will be slow)." to true
+            else -> "Loaded on ${state.activeAccelerator.name}." to false
         }
         is SessionState.Failed ->
             "Model load failed: ${state.message}" to true
     }
+    if (info == null) return
+    val (text, isWarning) = info
     Text(
         text = text,
         style = MaterialTheme.typography.labelSmall,

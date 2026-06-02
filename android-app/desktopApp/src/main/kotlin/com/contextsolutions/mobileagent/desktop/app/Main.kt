@@ -29,6 +29,7 @@ import com.contextsolutions.mobileagent.memory.MemoryExtractor
 import com.contextsolutions.mobileagent.memory.MemoryStore
 import com.contextsolutions.mobileagent.platform.AppBuildConfig
 import com.contextsolutions.mobileagent.platform.UrlOpener
+import com.contextsolutions.mobileagent.preferences.OllamaPreferences
 import com.contextsolutions.mobileagent.telemetry.TelemetryCounters
 import com.contextsolutions.mobileagent.vision.FilePicker
 import com.contextsolutions.mobileagent.vision.ImagePreprocessor
@@ -42,6 +43,7 @@ import com.contextsolutions.mobileagent.di.desktopModule
 import com.contextsolutions.mobileagent.inference.DesktopModelDownloader
 import com.contextsolutions.mobileagent.inference.DesktopModelInventory
 import com.contextsolutions.mobileagent.inference.InferenceEngine
+import com.contextsolutions.mobileagent.inference.OllamaConnectionMonitor
 import com.contextsolutions.mobileagent.inference.LlamaServerBinaryStore
 import com.contextsolutions.mobileagent.inference.LlamaServerRelease
 import com.contextsolutions.mobileagent.language.LanguagePreferences
@@ -59,7 +61,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import org.koin.core.context.startKoin
 import org.koin.core.qualifier.named
@@ -145,6 +151,19 @@ fun main() {
     val clock = koin.get<AgentClock>()
     val presenter = koin.get<MutableNotificationPresenter>()
     val warmModel = koin.get<WarmModel>()
+    // PR #56 — drop the resident model when the Ollama server config changes so
+    // the next turn re-decides remote-vs-local. drop(1) skips the replayed value
+    // at startup (nothing loaded yet).
+    koin.get<OllamaPreferences>().configFlow()
+        .drop(1)
+        .distinctUntilChanged()
+        .onEach { warmModel.invalidate() }
+        .launchIn(appScope)
+    // PR #56 — drop the resident model when the Ollama server goes offline (fall
+    // back to local) or comes back (reconnect), so the next turn re-decides.
+    koin.get<OllamaConnectionMonitor>().reloadRequests
+        .onEach { warmModel.invalidate() }
+        .launchIn(appScope)
     val taskRunner = DesktopTaskRunner(
         warmModel = warmModel,
         factory = koin.get(),

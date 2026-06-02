@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  PR #56 — permit cleartext HTTP so the app can reach a user-entered Ollama
+  server on the LAN, which typically serves plain http:// with no TLS. The IP is
+  configured at runtime (Settings → Ollama server), so it can't be enumerated as
+  a per-domain entry here; a permissive base-config is the practical scope. The
+  app's only other outbound traffic is HTTPS (Brave Search, HuggingFace, model
+  downloads), which is unaffected.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

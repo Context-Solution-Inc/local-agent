@@ -129,7 +129,13 @@ data class SamplingParams(
     }
 }
 
-enum class Accelerator { AUTO, NPU, GPU, CPU }
+/**
+ * [REMOTE] is reported by [ModelHandle.activeAccelerator] when generation runs on
+ * a remote server (PR #56, Ollama) rather than an on-device accelerator. It is
+ * never a *requested* accelerator in [InferenceConfig]; the UI uses it to skip
+ * the local-load banner ("Loaded on CPU/GPU…"), which doesn't apply remotely.
+ */
+enum class Accelerator { AUTO, NPU, GPU, CPU, REMOTE }
 
 /**
  * Two paths supported:

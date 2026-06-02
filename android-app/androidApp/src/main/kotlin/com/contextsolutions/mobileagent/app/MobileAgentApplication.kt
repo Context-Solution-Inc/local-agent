@@ -15,7 +15,9 @@ import com.contextsolutions.mobileagent.app.service.UnloadReason
 import com.contextsolutions.mobileagent.app.di.androidModule
 import com.contextsolutions.mobileagent.di.agentCoreModule
 import com.contextsolutions.mobileagent.ui.di.uiModule
+import com.contextsolutions.mobileagent.inference.OllamaConnectionMonitor
 import com.contextsolutions.mobileagent.observability.SafeCrashReporter
+import com.contextsolutions.mobileagent.preferences.OllamaPreferences
 import com.contextsolutions.mobileagent.telemetry.TelemetryConsentManager
 import com.contextsolutions.mobileagent.telemetry.TelemetryFlusher
 import com.google.firebase.analytics.FirebaseAnalytics
@@ -27,6 +29,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.launch
@@ -43,6 +46,8 @@ class MobileAgentApplication : Application() {
     private val mainThreadWatchdog: MainThreadHeartbeatWatchdog by inject()
     private val memoryPressureWatchdog: MemoryPressureWatchdog by inject()
     private val systemMemoryMonitor: SystemMemoryMonitor by inject()
+    private val ollamaPreferences: OllamaPreferences by inject()
+    private val ollamaConnectionMonitor: OllamaConnectionMonitor by inject()
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -117,6 +122,24 @@ class MobileAgentApplication : Application() {
         // as the watchdog but polls unconditionally so the chat-header status
         // dot reflects device state regardless of whether Gemma is resident.
         systemMemoryMonitor.start()
+
+        // (g) PR #56 — drop a resident model whenever the Ollama server config
+        // changes so the next turn re-decides the backend (remote ↔ local).
+        // `drop(1)` skips the replayed current value at startup (nothing is
+        // loaded yet); forceUnload(Manual) defers if a generation is in flight.
+        ollamaPreferences.configFlow()
+            .drop(1)
+            .distinctUntilChanged()
+            .onEach { sessionManager.forceUnload(reason = UnloadReason.Manual) }
+            .launchIn(appScope)
+
+        // (h) PR #56 — recover from a remote Ollama server going offline/online:
+        // the monitor asks us to drop the resident handle so the next turn
+        // re-decides remote↔local (fall back when it dies, reconnect when it
+        // returns). forceUnload(Manual) defers if a generation is in flight.
+        ollamaConnectionMonitor.reloadRequests
+            .onEach { sessionManager.forceUnload(reason = UnloadReason.Manual) }
+            .launchIn(appScope)
     }
 
     /**
