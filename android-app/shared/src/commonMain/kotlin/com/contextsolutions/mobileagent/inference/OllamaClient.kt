@@ -1,10 +1,14 @@
 package com.contextsolutions.mobileagent.inference
 
 import com.contextsolutions.mobileagent.platform.HttpEngineFactory
+import com.contextsolutions.mobileagent.platform.SecureStorage
+import com.contextsolutions.mobileagent.platform.SecureStorageKeys
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.timeout
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.HttpHeaders
 import io.ktor.http.isSuccess
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
@@ -26,9 +30,19 @@ import kotlinx.serialization.json.jsonPrimitive
  * shared by the Settings UI and the engine so the Ollama wire shapes are
  * decoded in exactly one place.
  */
-class OllamaClient internal constructor(private val client: HttpClient) {
+class OllamaClient internal constructor(
+    private val client: HttpClient,
+    /**
+     * Optional — supplies the user's [SecureStorageKeys.OLLAMA_API_KEY] (PR #58),
+     * attached as `Authorization: Bearer` on the control-plane calls so Settings
+     * "Test" + the health probe work against a protected server. Read per-request;
+     * null/blank ⇒ no auth header.
+     */
+    private val secureStorage: SecureStorage? = null,
+) {
 
-    constructor(httpEngineFactory: HttpEngineFactory) : this(httpEngineFactory.create())
+    constructor(httpEngineFactory: HttpEngineFactory, secureStorage: SecureStorage? = null) :
+        this(httpEngineFactory.create(), secureStorage)
 
     /**
      * GET `<baseUrl>/api/tags` → the installed models. Vision-capability is a
@@ -40,6 +54,7 @@ class OllamaClient internal constructor(private val client: HttpClient) {
     suspend fun listModels(baseUrl: String): List<OllamaModel> = try {
         val response = client.get("${baseUrl.trimEnd('/')}/api/tags") {
             timeout { requestTimeoutMillis = LIST_TIMEOUT_MS; connectTimeoutMillis = CONNECT_TIMEOUT_MS }
+            apiKey()?.let { header(HttpHeaders.Authorization, "Bearer $it") }
         }
         if (!response.status.isSuccess()) {
             emptyList()
@@ -61,12 +76,17 @@ class OllamaClient internal constructor(private val client: HttpClient) {
     suspend fun health(baseUrl: String): Boolean = try {
         client.get("${baseUrl.trimEnd('/')}/api/tags") {
             timeout { requestTimeoutMillis = HEALTH_TIMEOUT_MS; connectTimeoutMillis = CONNECT_TIMEOUT_MS }
+            apiKey()?.let { header(HttpHeaders.Authorization, "Bearer $it") }
         }.status.isSuccess()
     } catch (c: CancellationException) {
         throw c
     } catch (_: Throwable) {
         false
     }
+
+    /** The configured outbound API key, or null when unset/blank (PR #58). */
+    private fun apiKey(): String? =
+        secureStorage?.get(SecureStorageKeys.OLLAMA_API_KEY)?.takeIf { it.isNotBlank() }
 
     private fun parseModels(raw: String): List<OllamaModel> = runCatching {
         JSON.parseToJsonElement(raw).jsonObject["models"]?.jsonArray.orEmpty().mapNotNull { el ->

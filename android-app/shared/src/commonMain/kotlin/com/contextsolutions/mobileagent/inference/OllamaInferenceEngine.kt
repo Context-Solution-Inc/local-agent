@@ -3,13 +3,17 @@ package com.contextsolutions.mobileagent.inference
 import com.contextsolutions.mobileagent.preferences.OllamaConfig
 import com.contextsolutions.mobileagent.preferences.OllamaPreferences
 import com.contextsolutions.mobileagent.platform.HttpEngineFactory
+import com.contextsolutions.mobileagent.platform.SecureStorage
+import com.contextsolutions.mobileagent.platform.SecureStorageKeys
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.request.header
 import io.ktor.client.request.preparePost
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.utils.io.readUTF8Line
@@ -65,6 +69,13 @@ class OllamaInferenceEngine(
     private val client: OllamaClient,
     /** Optional — drives offline/recovery handling (PR #56). See [OllamaConnectionMonitor]. */
     private val monitor: OllamaConnectionMonitor? = null,
+    /**
+     * Optional — supplies the user's [SecureStorageKeys.OLLAMA_API_KEY] (PR #58).
+     * Read per-request (not baked into the handle) so a key change applies on the
+     * next turn without a [RoutingInferenceEngine] reload; null/blank ⇒ no auth
+     * header (the pre-#58 default).
+     */
+    private val secureStorage: SecureStorage? = null,
     private val defaultTemperature: Float = InferenceConfig().temperature,
     private val keepAlive: String = DEFAULT_KEEP_ALIVE,
     private val logger: (String) -> Unit = {},
@@ -134,6 +145,7 @@ class OllamaInferenceEngine(
         try {
             h.client.preparePost("${h.baseUrl}/v1/chat/completions") {
                 contentType(ContentType.Application.Json)
+                apiKey()?.let { header(HttpHeaders.Authorization, "Bearer $it") }
                 setBody(body)
             }.execute { response ->
                 // We reached the server (even an HTTP error means it's up) — clear
@@ -172,6 +184,10 @@ class OllamaInferenceEngine(
             emit(GenerationEvent.Error(t.message ?: "Ollama generation failed", t))
         }
     }.flowOn(ioDispatcher)
+
+    /** The configured outbound API key, or null when unset/blank (PR #58). */
+    private fun apiKey(): String? =
+        secureStorage?.get(SecureStorageKeys.OLLAMA_API_KEY)?.takeIf { it.isNotBlank() }
 
     private companion object {
         const val DEFAULT_KEEP_ALIVE = "30m"

@@ -148,6 +148,27 @@ adb shell run-as com.contextsolutions.mobileagent.debug \
   sh -c 'mkdir -p files/models && cp /data/local/tmp/gemma-4-E2B-it.litertlm files/models/'
 ```
 
+**Skip bundling the classifier + embedder in the APK during dev** (PR #58 — saves re-pushing 88 MB of `.tflite` over adb on every `installDebug`). Push the two aux models to `filesDir/models/` once (like Gemma); the engines (`LiteRtClassifierEngine`/`LiteRtEmbedderEngine`) prefer filesDir, else the bundled asset. `-PexternalModels=true` strips them from the APK. Release builds always bundle them (don't set the flag):
+
+```bash
+# One-time push of the two aux models into filesDir/models/ (persists until
+# uninstall / clear-data). Copy ONE file per `run-as cp` — a multi-file
+# `cp a b dest/` mis-parses through the nested adb shell → run-as → sh quoting.
+PKG=com.contextsolutions.mobileagent.debug
+for f in preflight_memory_shared_v1.0.0_int8.tflite all-MiniLM-L6-v2_int8.tflite; do
+  adb push "models/$f" /data/local/tmp/
+  adb shell run-as $PKG cp /data/local/tmp/$f /data/data/$PKG/files/models/$f
+  adb shell rm -f /data/local/tmp/$f
+done
+./gradlew :androidApp:installDebug -PexternalModels=true   # ~88 MB smaller APK, fast install
+```
+
+If the models are absent from filesDir on an `-PexternalModels` install, warm-up
+fails (`ClassifierEngine: classifier warmUp failed`) and the agent silently falls
+through to Gemma. On success: `loading classifier from filesDir (…)` then
+`classifier loaded on CPU` (the `GPU init failed; falling back to CPU XNNPACK`
+line is normal — invariant #18's GPU-refusal, not a regression).
+
 **Wireless adb** (Pixel 7's USB is unstable — pair once, re-`connect` after each reboot; the port changes, the pairing persists):
 
 ```bash

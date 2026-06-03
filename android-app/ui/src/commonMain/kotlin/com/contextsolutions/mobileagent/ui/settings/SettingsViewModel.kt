@@ -352,11 +352,38 @@ class SettingsViewModel(
         _state.update { it.copy(ollamaJustSaved = false) }
     }
 
+    /**
+     * PR #58 — persist the optional outbound API key for the remote chat LLM.
+     * Stored encrypted in [SecureStorage] (same BYOK pattern as the Brave key);
+     * read per-request by [OllamaInferenceEngine]/[OllamaClient], so a change
+     * applies on the next turn. Blank clears it (reverts to no auth header).
+     */
+    fun saveOllamaApiKey(key: String) {
+        val trimmed = key.trim()
+        if (trimmed.isEmpty()) {
+            secureStorage.remove(SecureStorageKeys.OLLAMA_API_KEY)
+        } else {
+            secureStorage.put(SecureStorageKeys.OLLAMA_API_KEY, trimmed)
+        }
+        _state.update { it.copy(hasOllamaApiKey = trimmed.isNotEmpty(), ollamaApiKeyJustSaved = true) }
+    }
+
+    fun clearOllamaApiKey() {
+        secureStorage.remove(SecureStorageKeys.OLLAMA_API_KEY)
+        _state.update { it.copy(hasOllamaApiKey = false, ollamaApiKeyJustSaved = false) }
+    }
+
+    fun acknowledgeOllamaApiKeySaved() {
+        _state.update { it.copy(ollamaApiKeyJustSaved = false) }
+    }
+
     private fun initialState(): SettingsUiState {
         val hasUser = secureStorage.contains(SecureStorageKeys.BRAVE_API_KEY) &&
             !secureStorage.get(SecureStorageKeys.BRAVE_API_KEY).isNullOrBlank()
         val hasUserHf = secureStorage.contains(SecureStorageKeys.HF_AUTH_TOKEN) &&
             !secureStorage.get(SecureStorageKeys.HF_AUTH_TOKEN).isNullOrBlank()
+        val hasOllamaKey = secureStorage.contains(SecureStorageKeys.OLLAMA_API_KEY) &&
+            !secureStorage.get(SecureStorageKeys.OLLAMA_API_KEY).isNullOrBlank()
         val searchEnabled = secureStorage.get(SecureStorageKeys.SEARCH_ENABLED) != "false"
         return SettingsUiState(
             hasUserKey = hasUser,
@@ -370,6 +397,7 @@ class SettingsViewModel(
             isDebugBuild = buildConfig.isDebug,
             memoryCreationEnabled = memoryPreferences.creationEnabled(),
             ollamaConfig = ollamaPreferences.config(),
+            hasOllamaApiKey = hasOllamaKey,
             desktopLinkConfig = desktopLinkPreferences.config(),
             desktopLinkStatus = desktopLinkStatusProvider.status.value,
             desktopLinkQrPayload = desktopLinkQrProvider.qrPayload.value,
@@ -408,6 +436,9 @@ data class SettingsUiState(
     val ollamaModels: List<OllamaModel> = emptyList(),
     val ollamaTestStatus: OllamaTestStatus = OllamaTestStatus.Idle,
     val ollamaJustSaved: Boolean = false,
+    /** PR #58 — whether an optional outbound API key is set (never holds the key). */
+    val hasOllamaApiKey: Boolean = false,
+    val ollamaApiKeyJustSaved: Boolean = false,
     /** PR #57 — mobile↔desktop link config (enabled + paired peer). */
     val desktopLinkConfig: DesktopLinkConfig = DesktopLinkConfig.EMPTY,
     /** Live link reachability for the section status + the Ollama grey-out. */

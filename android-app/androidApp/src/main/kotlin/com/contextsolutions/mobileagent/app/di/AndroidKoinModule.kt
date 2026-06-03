@@ -223,7 +223,7 @@ val androidModule: Module = module {
     // PR #56 — remote Ollama config + client + engine (shared OpenAI-compatible
     // engine; only the prefs store is Android-specific).
     single<OllamaPreferences> { SharedPreferencesOllamaPreferences(androidContext()) }
-    single { OllamaClient(get<HttpEngineFactory>()) }
+    single { OllamaClient(get<HttpEngineFactory>(), get<SecureStorage>()) }
     single {
         OllamaConnectionMonitor(
             healthProbe = { url -> get<OllamaClient>().health(url) },
@@ -236,6 +236,7 @@ val androidModule: Module = module {
             preferences = get(),
             client = get(),
             monitor = get(),
+            secureStorage = get(),
             logger = { Log.i("Ollama", it) },
         )
     }

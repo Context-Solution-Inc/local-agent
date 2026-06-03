@@ -6,6 +6,7 @@ import com.google.ai.edge.litert.Accelerator
 import com.google.ai.edge.litert.CompiledModel
 import com.google.ai.edge.litert.Environment
 import com.google.ai.edge.litert.TensorBuffer
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -143,16 +144,25 @@ class LiteRtClassifierEngine(
      * `docs/M3_M4_HANDOFF.md` §5 and still hits the 80 ms target.
      */
     private fun createModel(env: Environment): Pair<CompiledModel, ClassifierAccelerator> {
-        val gpuOptions = CompiledModel.Options(Accelerator.GPU)
+        // PR #58 — prefer a copy pushed to filesDir/models/ (dev builds with
+        // `-PexternalModels` skip bundling the .tflite in the APK so installs stay
+        // small); fall back to the bundled asset (the production path).
+        val externalFile = File(context.filesDir, "models/$modelAssetPath").takeIf { it.isFile }
+        if (externalFile != null) {
+            Log.i(TAG, "loading classifier from filesDir (${externalFile.absolutePath})")
+        }
+        fun compile(options: CompiledModel.Options): CompiledModel =
+            if (externalFile != null) {
+                CompiledModel.create(externalFile.absolutePath, options, env)
+            } else {
+                CompiledModel.create(context.assets, modelAssetPath, options, env)
+            }
         try {
-            val compiled = CompiledModel.create(context.assets, modelAssetPath, gpuOptions, env)
-            return compiled to ClassifierAccelerator.GPU
+            return compile(CompiledModel.Options(Accelerator.GPU)) to ClassifierAccelerator.GPU
         } catch (t: Throwable) {
             Log.w(TAG, "GPU init failed; falling back to CPU XNNPACK (${t.message})")
         }
-        val cpuOptions = CompiledModel.Options(Accelerator.CPU)
-        val compiled = CompiledModel.create(context.assets, modelAssetPath, cpuOptions, env)
-        return compiled to ClassifierAccelerator.CPU
+        return compile(CompiledModel.Options(Accelerator.CPU)) to ClassifierAccelerator.CPU
     }
 
     /**

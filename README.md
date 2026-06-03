@@ -119,6 +119,11 @@ cd android-app
 
 # Dev iteration without loading the real Gemma model (uses StubInferenceEngine):
 ./gradlew :androidApp:installDebug -PuseStubEngine=true
+
+# Fast dev installs: keep the 88 MB classifier + embedder models OUT of the APK
+# (load them from on-device storage instead). Requires a one-time push of the
+# models to the device — see "Externalizing the classifier + embedder models".
+./gradlew :androidApp:installDebug -PexternalModels=true
 ```
 
 The first invocation of `./gradlew` downloads Gradle 9.3.1 (~150 MB) into `~/.gradle/wrapper/dists/`. The toolchain is Gradle 9.3.1 + AGP 9.1.1 + Kotlin 2.3.21 + KSP 2.3.7 + Hilt 2.59.2.
@@ -209,6 +214,50 @@ To skip the 5–10 minute download during dev iteration, push the model to the a
 adb push gemma-4-E2B-it.litertlm /data/local/tmp/
 adb shell "run-as com.contextsolutions.mobileagent.debug \
   sh -c 'mkdir -p files/models && cp /data/local/tmp/gemma-4-E2B-it.litertlm files/models/'"
+```
+
+### Externalizing the classifier + embedder models (fast dev installs)
+
+By default the classifier (`preflight_memory_shared_v1.0.0_int8.tflite`, ~67 MB) and
+embedder (`all-MiniLM-L6-v2_int8.tflite`, ~23 MB) are bundled in the APK, so ~88 MB is
+re-pushed over adb on **every** `installDebug` — slow over wireless adb.
+
+The **`-PexternalModels=true`** dev flag strips both from the APK. The engines
+(`LiteRtClassifierEngine` / `LiteRtEmbedderEngine`) then load them from
+`filesDir/models/` if present, falling back to the bundled asset otherwise — so you
+push the models to the device **once** (like the Gemma model above) and subsequent
+installs stay small. Release / production builds always bundle the models (never set
+the flag).
+
+**One-time push** (the models persist until you uninstall or clear app data):
+
+```bash
+cd android-app
+PKG=com.contextsolutions.mobileagent.debug
+for f in preflight_memory_shared_v1.0.0_int8.tflite all-MiniLM-L6-v2_int8.tflite; do
+  adb push "../models/$f" /data/local/tmp/
+  adb shell run-as $PKG cp /data/local/tmp/$f /data/data/$PKG/files/models/$f
+  adb shell rm -f /data/local/tmp/$f
+done
+```
+
+> Copy **one file per `run-as cp`** as shown — a multi-file `cp a b dest/` mis-parses
+> through the nested `adb shell` → `run-as` → `sh` quoting.
+
+**Then install with the flag:**
+
+```bash
+./gradlew :androidApp:installDebug -PexternalModels=true
+```
+
+If the models aren't in `filesDir` on an `-PexternalModels` install, warm-up fails and
+the agent silently falls through to plain Gemma. Confirm it worked:
+
+```bash
+adb logcat -d -s ClassifierEngine:* EmbedderEngine:*
+# loading classifier from filesDir (…)      ← picked up the pushed model
+# GPU init failed; falling back to CPU XNNPACK ← normal (the GPU delegate refuses these graphs)
+# classifier loaded on CPU                   ← success
 ```
 
 ### Hosted CI

@@ -449,6 +449,8 @@ fun SettingsScreen(
                 onTest = { viewModel.testOllama(ollamaHost, ollamaPort) },
                 onSave = { viewModel.saveOllama(ollamaHost, ollamaPort, ollamaChatModel, ollamaVisionModel) },
                 onClear = { viewModel.clearOllama() },
+                onSaveApiKey = { viewModel.saveOllamaApiKey(it) },
+                onClearApiKey = { viewModel.clearOllamaApiKey() },
             )
         }
     }
@@ -571,6 +573,8 @@ private fun OllamaServerSection(
     onTest: () -> Unit,
     onSave: () -> Unit,
     onClear: () -> Unit,
+    onSaveApiKey: (String) -> Unit,
+    onClearApiKey: () -> Unit,
 ) {
     SectionHeader("Ollama server")
     if (!enabled) {
@@ -653,6 +657,55 @@ private fun OllamaServerSection(
         ) { Text("Save") }
         if (state.ollamaConfig.isConfigured) {
             OutlinedButton(onClick = onClear, enabled = enabled) { Text("Clear") }
+        }
+    }
+
+    // PR #58 — optional API key. Sent as `Authorization: Bearer` on every outbound
+    // request (chat + the Test/health probe); leave blank for an unauthenticated
+    // LAN server (the default). Saved independently of the host/port above.
+    Spacer(Modifier.height(16.dp))
+    var apiKeyInput by remember { mutableStateOf("") }
+    var showApiKey by remember { mutableStateOf(false) }
+    Text(
+        if (state.hasOllamaApiKey) {
+            "API key set — sent as a Bearer token on outbound requests."
+        } else {
+            "No API key — requests use the server's default (no auth). Add one only " +
+                "if your server requires it."
+        },
+        style = MaterialTheme.typography.bodySmall,
+        color = if (state.hasOllamaApiKey) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+    )
+    Spacer(Modifier.height(8.dp))
+    OutlinedTextField(
+        value = apiKeyInput,
+        onValueChange = { apiKeyInput = it },
+        enabled = enabled,
+        modifier = Modifier.fillMaxWidth(),
+        label = { Text("API key (optional)") },
+        placeholder = { Text(if (state.hasOllamaApiKey) "Replace existing key" else "Paste key") },
+        singleLine = true,
+        visualTransformation = if (showApiKey) VisualTransformation.None else PasswordVisualTransformation(),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+        trailingIcon = {
+            Text(
+                text = if (showApiKey) "Hide" else "Show",
+                modifier = Modifier
+                    .padding(horizontal = 8.dp)
+                    .padding(vertical = 4.dp),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        },
+    )
+    Spacer(Modifier.height(8.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(
+            onClick = { onSaveApiKey(apiKeyInput); apiKeyInput = "" },
+            enabled = enabled && apiKeyInput.isNotBlank(),
+        ) { Text("Save key") }
+        if (state.hasOllamaApiKey) {
+            OutlinedButton(onClick = onClearApiKey, enabled = enabled) { Text("Clear key") }
         }
     }
 }

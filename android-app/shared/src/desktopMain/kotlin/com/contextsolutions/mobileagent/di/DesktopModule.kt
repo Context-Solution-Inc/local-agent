@@ -193,7 +193,7 @@ val desktopModule: Module = module {
     single<OllamaPreferences> {
         DesktopOllamaPreferences(DesktopJsonStore(File(DesktopAppDirs.dataDir(), "ollama_prefs.json")))
     }
-    single { OllamaClient(get<HttpEngineFactory>()) }
+    single { OllamaClient(get<HttpEngineFactory>(), get<SecureStorage>()) }
     single {
         OllamaConnectionMonitor(
             healthProbe = { url -> get<OllamaClient>().health(url) },
@@ -206,6 +206,7 @@ val desktopModule: Module = module {
             preferences = get(),
             client = get(),
             monitor = get(),
+            secureStorage = get(),
             logger = { System.err.println("[Ollama] $it") },
         )
     }

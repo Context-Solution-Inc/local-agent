@@ -82,6 +82,15 @@ val hfAuthToken: String = secrets.getProperty("HF_AUTH_TOKEN", "")
 // command line: `./gradlew :androidApp:assembleDebug -PuseStubEngine=true`.
 val useStubEngine: String = (project.findProperty("useStubEngine") as String? ?: "false")
 
+// PR #58 — dev escape hatch: when set, the 88 MB classifier + embedder .tflite are
+// NOT bundled into the APK, so installs over adb stay small. Push the two models to
+// the device once (filesDir/models/, exactly like the Gemma LLM) and the engines
+// load them from there (LiteRtClassifierEngine/LiteRtEmbedderEngine prefer filesDir,
+// else assets). Production / release builds must NOT set this — the shipped APK
+// bundles the models for an offline first run.
+//   ./gradlew :androidApp:installDebug -PexternalModels=true
+val externalModels: Boolean = (project.findProperty("externalModels") as String? ?: "false") == "true"
+
 // Build number == HEAD's committer-date epoch seconds, computed at configuration
 // time. This is monotonic AND deterministic per commit: every commit — including
 // a squash-merge commit on `main` — has a strictly newer committer date than its
@@ -400,14 +409,58 @@ tasks.matching {
         (it.name.endsWith("JniLibFolders") || it.name.endsWith("NativeLibs"))
 }.configureEach { dependsOn(extractLitertJni) }
 
+// PR #58 — when building with -PexternalModels, strip any previously-copied aux
+// models out of the assets dir before merge (a prior normal build leaves them on
+// disk; they're gitignored). A later normal build re-runs the SHA-verified copy
+// tasks and restores them, so toggling the flag is reversible.
+val removeExternalizedModels = tasks.register<Delete>("removeExternalizedModels") {
+    description = "Remove the classifier + embedder .tflite from assets (dev -PexternalModels build)."
+    group = "build"
+    delete(
+        rootDir.resolve("androidApp/src/main/assets/preflight_memory_shared_v1.0.0_int8.tflite"),
+        rootDir.resolve("androidApp/src/main/assets/all-MiniLM-L6-v2_int8.tflite"),
+    )
+}
+
 androidComponents.onVariants { variant ->
     val variantName = variant.name.replaceFirstChar { c -> c.titlecase() }
-    project.tasks
-        .matching { it.name == "merge${variantName}Assets" }
-        .configureEach {
-            dependsOn(copyClassifierTflite)
-            dependsOn(copyEmbedderTflite)
+    if (externalModels) {
+        // Keep the 88 MB of models out of the dev APK; load from filesDir.
+        project.tasks
+            .matching { it.name == "merge${variantName}Assets" }
+            .configureEach { dependsOn(removeExternalizedModels) }
+
+        // Force a COMPACT repackage. AGP's incremental APK packager edits the
+        // existing .apk in place, so removing the ~88 MB of models leaves their
+        // bytes behind as dead free space — the .apk file stays ~200 MB and
+        // `adb install` still pushes all of it over the wire (the bytes just
+        // aren't in the zip's central directory, so they're never installed). The
+        // win is wasted. Deleting the prior apk + the packager's incremental state
+        // before packaging makes it rebuild the archive from scratch (no holes):
+        // toggling into -PexternalModels then drops the install from ~203 MB to
+        // ~112 MB. Full repackage costs ~1 s locally; the apk is dev-only.
+        val compact = tasks.register<Delete>("compact${variantName}ExternalModelsApk") {
+            description = "Force a hole-free apk repackage for the -PexternalModels dev build."
+            delete(
+                layout.buildDirectory.dir("outputs/apk/${variant.name}"),
+                layout.buildDirectory.dir("intermediates/apk/${variant.name}"),
+                layout.buildDirectory.dir("intermediates/incremental/package$variantName"),
+            )
         }
+        project.tasks
+            .matching { it.name == "package$variantName" }
+            .configureEach {
+                dependsOn(compact)
+                mustRunAfter(removeExternalizedModels)
+            }
+    } else {
+        project.tasks
+            .matching { it.name == "merge${variantName}Assets" }
+            .configureEach {
+                dependsOn(copyClassifierTflite)
+                dependsOn(copyEmbedderTflite)
+            }
+    }
 }
 
 dependencies {

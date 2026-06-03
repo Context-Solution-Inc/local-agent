@@ -30,4 +30,15 @@ object SecureStorageKeys {
      * builds never bundle one. Resolved via [com.contextsolutions.mobileagent.inference.HfAuthTokenProvider].
      */
     const val HF_AUTH_TOKEN = "hf_auth_token"
+
+    /**
+     * Optional API key for the remote chat LLM (PR #58). When set, it rides every
+     * outbound request to the configured Ollama / OpenAI-compatible server as an
+     * `Authorization: Bearer <key>` header (see
+     * [com.contextsolutions.mobileagent.inference.OllamaInferenceEngine] +
+     * [com.contextsolutions.mobileagent.inference.OllamaClient]); when unset, no
+     * auth header is sent — the pre-#58 default. Same BYOK + encrypted-at-rest
+     * pattern as [BRAVE_API_KEY]; read per-request so a change applies next turn.
+     */
+    const val OLLAMA_API_KEY = "ollama_api_key"
 }

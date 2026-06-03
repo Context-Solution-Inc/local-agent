@@ -6,6 +6,7 @@ import com.contextsolutions.mobileagent.classifier.WordPieceTokenizer
 import com.google.ai.edge.litert.Accelerator
 import com.google.ai.edge.litert.CompiledModel
 import com.google.ai.edge.litert.Environment
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -113,16 +114,25 @@ class LiteRtEmbedderEngine(
     }
 
     private fun createModel(env: Environment): Pair<CompiledModel, EmbedderAccelerator> {
-        val gpuOptions = CompiledModel.Options(Accelerator.GPU)
+        // PR #58 — prefer a copy pushed to filesDir/models/ (dev builds with
+        // `-PexternalModels` skip bundling the .tflite in the APK so installs stay
+        // small); fall back to the bundled asset (the production path).
+        val externalFile = File(context.filesDir, "models/$modelAssetPath").takeIf { it.isFile }
+        if (externalFile != null) {
+            Log.i(TAG, "loading embedder from filesDir (${externalFile.absolutePath})")
+        }
+        fun compile(options: CompiledModel.Options): CompiledModel =
+            if (externalFile != null) {
+                CompiledModel.create(externalFile.absolutePath, options, env)
+            } else {
+                CompiledModel.create(context.assets, modelAssetPath, options, env)
+            }
         try {
-            val compiled = CompiledModel.create(context.assets, modelAssetPath, gpuOptions, env)
-            return compiled to EmbedderAccelerator.GPU
+            return compile(CompiledModel.Options(Accelerator.GPU)) to EmbedderAccelerator.GPU
         } catch (t: Throwable) {
             Log.w(TAG, "GPU init failed; falling back to CPU XNNPACK (${t.message})")
         }
-        val cpuOptions = CompiledModel.Options(Accelerator.CPU)
-        val compiled = CompiledModel.create(context.assets, modelAssetPath, cpuOptions, env)
-        return compiled to EmbedderAccelerator.CPU
+        return compile(CompiledModel.Options(Accelerator.CPU)) to EmbedderAccelerator.CPU
     }
 
     /**
