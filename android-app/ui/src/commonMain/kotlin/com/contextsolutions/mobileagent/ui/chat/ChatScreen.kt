@@ -41,7 +41,6 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -111,6 +110,7 @@ import com.contextsolutions.mobileagent.platform.AppBuildConfig
 import com.contextsolutions.mobileagent.platform.UrlOpener
 import com.contextsolutions.mobileagent.search.SearchSource
 import com.contextsolutions.mobileagent.voice.Dictation
+import com.contextsolutions.mobileagent.ui.branding.appLogoPainter
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -316,9 +316,10 @@ fun ChatScreen(
                     // PR #18 brand logo, now tappable (PR #32) — opens the
                     // About dialog so the running build is always identifiable.
                     IconButton(onClick = { showAbout = true }) {
-                        Icon(
-                            imageVector = Icons.Filled.SmartToy,
+                        Image(
+                            painter = appLogoPainter(),
                             contentDescription = "About Mobile Agent",
+                            modifier = Modifier.size(36.dp),
                         )
                     }
                 },
