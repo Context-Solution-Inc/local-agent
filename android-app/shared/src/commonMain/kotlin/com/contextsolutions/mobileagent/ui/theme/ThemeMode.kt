@@ -49,6 +49,22 @@ object FontScale {
 }
 
 /**
+ * Bounds for the desktop-only **UI zoom** — a whole-UI scale factor applied by
+ * multiplying `LocalDensity.density` (NOT just `fontScale`), so icons, padding,
+ * forms AND text grow together. Driven by Ctrl/Cmd `+`/`-`/`0` at the desktop
+ * window level; persisted in the desktop JSON prefs. The default desktop density
+ * renders small on HiDPI monitors and the text-only [FontScale] slider can't grow
+ * layout, so this is the lever for "everything is too small". Mobile does not use
+ * it (its caller defaults the multiplier to 1.0).
+ */
+object UiZoom {
+    const val MIN = 0.8f
+    const val MAX = 2.0f
+    const val DEFAULT = 1.0f
+    const val STEP = 0.1f
+}
+
+/**
  * Persistent state for the user's appearance preferences — theme mode, font
  * family, and font size. Default `System` theme so the app respects the OS
  * dark-mode setting until the user explicitly chooses otherwise; default font

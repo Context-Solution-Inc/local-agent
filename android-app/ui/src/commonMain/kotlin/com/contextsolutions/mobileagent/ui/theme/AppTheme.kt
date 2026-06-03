@@ -50,6 +50,10 @@ private fun Typography.withFontFamily(family: FontFamily): Typography = copy(
  *    `sp` text scales uniformly app-wide — including the Android markdown
  *    TextView (it derives its px size from `LocalDensity.current`, invariant #41)
  *    and the whole desktop UI (whose default density renders small on HiDPI).
+ *  - **[densityScale]** multiplies `LocalDensity.density`, so the WHOLE UI zooms
+ *    uniformly — `dp` (icons, padding, forms) AND `sp` (text). This is the desktop
+ *    Ctrl/Cmd `+`/`-` zoom (invariant: text-only [fontScale] can't grow layout).
+ *    Defaults to `1f`, so Android is unaffected (mobile uses [fontScale] only).
  *  - **[fontFamily]** overrides the typography family (System keeps the M3
  *    default). Note: the Android markdown TextView keeps its own typeface, so the
  *    family applies to all Compose text but not that one native view — size still
@@ -60,6 +64,7 @@ fun AppThemeScaffold(
     colorScheme: ColorScheme,
     fontScale: Float,
     fontFamily: AppFontFamily,
+    densityScale: Float = 1f,
     content: @Composable () -> Unit,
 ) {
     val typography = remember(fontFamily) {
@@ -67,8 +72,8 @@ fun AppThemeScaffold(
         fontFamily.toComposeFontFamily()?.let { base.withFontFamily(it) } ?: base
     }
     val base = LocalDensity.current
-    val scaled = remember(base, fontScale) {
-        Density(base.density, base.fontScale * fontScale)
+    val scaled = remember(base, fontScale, densityScale) {
+        Density(base.density * densityScale, base.fontScale * fontScale)
     }
     CompositionLocalProvider(LocalDensity provides scaled) {
         MaterialTheme(colorScheme = colorScheme, typography = typography, content = content)

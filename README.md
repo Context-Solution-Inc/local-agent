@@ -288,6 +288,21 @@ and model stay resident); quit from the tray menu.
 > force-resolves the whole Koin graph, prints `Koin agent graph resolved OK`, and
 > exits **without opening a window** — a display-free check of the wiring.
 
+### Appearance & window
+
+- **UI zoom:** `Ctrl`/`Cmd` `+` / `-` scales the whole desktop UI (icons, forms,
+  spacing **and** text — distinct from the text-only font-size slider in Settings);
+  `Ctrl`/`Cmd` `0` resets. Persisted across launches.
+- **Theme:** a monochrome scheme — white background + black trim (light), near-black
+  `#121212` + white trim (dark). Light / Auto / Dark live in Settings → Appearance.
+  **Auto** follows the OS theme on macOS and Windows; on **Linux** the underlying
+  `isSystemInDarkTheme()` is unreliable ([JetBrains CMP-6028](https://youtrack.jetbrains.com/projects/CMP/issues/CMP-6028/Implement-isSystemInDarkTheme-for-desktop)),
+  so pick Light/Dark explicitly there.
+- **Window size/position** (and maximized state) is remembered and restored on the
+  next launch.
+- **Chat bubbles** widen to fill wide windows (capped for readable line length);
+  narrow windows / mobile keep the compact width.
+
 ### First-run setup (models + Brave key)
 
 Like the Android build, the desktop ships **no model and no bundled API key** —

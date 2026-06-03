@@ -19,6 +19,7 @@ import com.contextsolutions.mobileagent.inference.DesktopSystemMemoryStatusProvi
 import com.contextsolutions.mobileagent.inference.SystemMemoryStatusProvider
 import com.contextsolutions.mobileagent.inference.InferenceEngine
 import com.contextsolutions.mobileagent.ui.theme.DesktopThemePreferences
+import com.contextsolutions.mobileagent.ui.theme.DesktopWindowPreferences
 import com.contextsolutions.mobileagent.ui.theme.ThemePreferences
 import com.contextsolutions.mobileagent.inference.LlamaServerBinaryStore
 import com.contextsolutions.mobileagent.inference.LlamaServerInferenceEngine
@@ -346,7 +347,13 @@ val desktopModule: Module = module {
     // System-memory status dot source (chat header) — constant healthy on desktop.
     single<SystemMemoryStatusProvider> { DesktopSystemMemoryStatusProvider() }
     // Theme-mode persistence for the shared :ui ThemeModeViewModel (Phase 9 inc 8d).
-    single<ThemePreferences> { DesktopThemePreferences(DesktopJsonStore(File(DesktopAppDirs.dataDir(), "theme_prefs.json"))) }
+    // Bound as the concrete type too so Main.kt can reach the desktop-only UI-zoom
+    // methods (Ctrl/Cmd +/-) that aren't on the shared ThemePreferences interface.
+    single { DesktopThemePreferences(DesktopJsonStore(File(DesktopAppDirs.dataDir(), "theme_prefs.json"))) }
+    single<ThemePreferences> { get<DesktopThemePreferences>() }
+    // Main-window geometry persistence (size/position/maximized) so the app reopens
+    // the way the user left it. Read once at window creation + saved on change.
+    single { DesktopWindowPreferences(DesktopJsonStore(File(DesktopAppDirs.dataDir(), "window_prefs.json"))) }
 
     // -- Vision (Phase 7 + PR #55, invariant #39). The image pipeline — Swing file
     //    chooser + ImageIO decode/downscale → JPEG ByteArray — feeds the Chat UI.

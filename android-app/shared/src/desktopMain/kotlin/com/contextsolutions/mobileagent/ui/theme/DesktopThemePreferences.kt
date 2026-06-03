@@ -28,6 +28,13 @@ class DesktopThemePreferences(private val store: DesktopJsonStore) : ThemePrefer
             .getOrDefault(AppFontFamily.System),
     )
 
+    // Desktop-only whole-UI zoom (Ctrl/Cmd +/-). Not on the ThemePreferences
+    // interface — mobile has no equivalent. Scales LocalDensity.density app-wide.
+    private val zoomState = MutableStateFlow(
+        (store.getString(KEY_UI_ZOOM)?.toFloatOrNull() ?: UiZoom.DEFAULT)
+            .coerceIn(UiZoom.MIN, UiZoom.MAX),
+    )
+
     override fun themeMode(): ThemeMode = state.value
     override fun themeModeFlow(): Flow<ThemeMode> = state.asStateFlow()
     override fun setThemeMode(mode: ThemeMode) {
@@ -53,9 +60,19 @@ class DesktopThemePreferences(private val store: DesktopJsonStore) : ThemePrefer
         store.putString(KEY_FONT_FAMILY, family.name)
     }
 
+    fun uiZoom(): Float = zoomState.value
+    fun uiZoomFlow(): Flow<Float> = zoomState.asStateFlow()
+    fun setUiZoom(zoom: Float) {
+        val clamped = zoom.coerceIn(UiZoom.MIN, UiZoom.MAX)
+        if (zoomState.value == clamped) return
+        zoomState.value = clamped
+        store.putString(KEY_UI_ZOOM, clamped.toString())
+    }
+
     private companion object {
         const val KEY_MODE = "mode"
         const val KEY_FONT_SCALE = "font_scale"
         const val KEY_FONT_FAMILY = "font_family"
+        const val KEY_UI_ZOOM = "ui_zoom"
     }
 }

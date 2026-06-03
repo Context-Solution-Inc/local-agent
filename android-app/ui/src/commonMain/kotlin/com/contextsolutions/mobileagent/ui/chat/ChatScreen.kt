@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -89,6 +90,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.contextsolutions.mobileagent.inference.SessionState
 import com.contextsolutions.mobileagent.ui.clock.ClockViewModel
@@ -390,13 +392,24 @@ fun ChatScreen(
             SessionBanner(session)
             Spacer(Modifier.height(8.dp))
 
-            // Wrap the LazyColumn in a Box so the "jump to latest" FAB can
-            // overlay the bottom-end of the message list (not the input bar).
-            Box(
+            // Wrap the LazyColumn in a BoxWithConstraints so the "jump to latest"
+            // FAB can overlay the bottom-end of the message list (not the input
+            // bar) AND so bubbles can size to the available width.
+            BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
             ) {
+                // Bubble width cap. Narrow windows (phones, narrow desktop) keep the
+                // mobile-tuned 320 dp; wider desktop windows let bubbles grow to a
+                // fraction of the list width, capped for line-length readability so
+                // they don't span the whole screen. `maxWidth` here is the list width
+                // (window minus the 16 dp side gutters).
+                val bubbleMaxWidth: Dp = if (maxWidth < 600.dp) {
+                    320.dp
+                } else {
+                    (maxWidth * 0.72f).coerceIn(480.dp, 760.dp)
+                }
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize(),
@@ -426,12 +439,13 @@ fun ChatScreen(
                 }
                 items(ui.messages) { message ->
                     when (message) {
-                        is UiMessage.User -> UserBubble(message.text, message.imageBytes)
+                        is UiMessage.User -> UserBubble(message.text, message.imageBytes, bubbleMaxWidth)
                         is UiMessage.Assistant -> AssistantBubble(
                             text = message.text,
                             citations = message.citations,
                             fromCache = message.fromCache,
                             renderMarkdown = message.renderMarkdown,
+                            maxWidth = bubbleMaxWidth,
                         )
                         is UiMessage.MemoryPrompt -> MemoryPromptCard(
                             text = message.text,
@@ -447,6 +461,7 @@ fun ChatScreen(
                             partial = ui.partialText,
                             searchStatus = ui.searchStatus,
                             isGenerating = ui.isGenerating,
+                            maxWidth = bubbleMaxWidth,
                         )
                     }
                 }
@@ -750,7 +765,7 @@ private fun ClockIconButton(
 }
 
 @Composable
-private fun UserBubble(text: String, imageBytes: ByteArray? = null) {
+private fun UserBubble(text: String, imageBytes: ByteArray? = null, maxWidth: Dp = 320.dp) {
     // The attached photo (PR #48 live send / PR #49 persisted on resume) arrives
     // as downscaled JPEG [imageBytes], decoded on demand here (off the main
     // thread) via the cross-platform `decodeImageBitmap` seam. LazyColumn
@@ -764,7 +779,7 @@ private fun UserBubble(text: String, imageBytes: ByteArray? = null) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         Box(
             modifier = Modifier
-                .widthIn(max = 320.dp)
+                .widthIn(max = maxWidth)
                 .background(
                     color = MaterialTheme.colorScheme.primaryContainer,
                     shape = RoundedCornerShape(12.dp),
@@ -804,11 +819,12 @@ private fun AssistantBubble(
     citations: List<SearchSource>,
     fromCache: Boolean,
     renderMarkdown: Boolean,
+    maxWidth: Dp = 320.dp,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Box(
             modifier = Modifier
-                .widthIn(max = 320.dp)
+                .widthIn(max = maxWidth)
                 .background(
                     color = MaterialTheme.colorScheme.surfaceVariant,
                     shape = RoundedCornerShape(12.dp),
@@ -846,6 +862,7 @@ private fun StreamingAssistantBubble(
     partial: String,
     searchStatus: SearchStatus,
     isGenerating: Boolean,
+    maxWidth: Dp = 320.dp,
 ) {
     // No liveRegion here — the partial text grows by tokens, and a live
     // region would re-announce the growing string on every update,
@@ -867,7 +884,7 @@ private fun StreamingAssistantBubble(
         if (partial.isNotEmpty()) {
             Box(
                 modifier = Modifier
-                    .widthIn(max = 320.dp)
+                    .widthIn(max = maxWidth)
                     .background(
                         color = MaterialTheme.colorScheme.surfaceVariant,
                         shape = RoundedCornerShape(12.dp),

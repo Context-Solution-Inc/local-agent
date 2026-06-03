@@ -6,12 +6,22 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.graphics.decodeToImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Tray
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowPlacement
+import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberTrayState
 import androidx.compose.ui.window.rememberWindowState
@@ -64,12 +74,17 @@ import com.contextsolutions.mobileagent.desktop.app.ui.theme.MobileAgentDesktopT
 import com.contextsolutions.mobileagent.sync.LinkSyncService
 import com.contextsolutions.mobileagent.ui.di.uiModule
 import com.contextsolutions.mobileagent.ui.navigation.AppNavHost
+import com.contextsolutions.mobileagent.ui.theme.DesktopThemePreferences
+import com.contextsolutions.mobileagent.ui.theme.DesktopWindowPreferences
 import com.contextsolutions.mobileagent.ui.theme.ThemePreferences
+import com.contextsolutions.mobileagent.ui.theme.UiZoom
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
@@ -370,7 +385,49 @@ fun main() {
             )
         }
 
-        val windowState = rememberWindowState(width = 960.dp, height = 720.dp)
+        // Restore the window the way the user left it (size/position/maximized),
+        // persisted in window_prefs.json. First run falls back to 960×720 centered.
+        val windowPrefs = koin.get<DesktopWindowPreferences>()
+        val savedGeometry = remember { windowPrefs.load() }
+        val savedX = savedGeometry?.xDp
+        val savedY = savedGeometry?.yDp
+        val windowState = rememberWindowState(
+            placement = if (savedGeometry?.maximized == true) WindowPlacement.Maximized else WindowPlacement.Floating,
+            position = if (savedX != null && savedY != null) {
+                WindowPosition(savedX.dp, savedY.dp)
+            } else {
+                WindowPosition.PlatformDefault
+            },
+            size = DpSize(
+                (savedGeometry?.widthDp ?: 960f).dp,
+                (savedGeometry?.heightDp ?: 720f).dp,
+            ),
+        )
+        // Persist geometry on change, debounced (collectLatest cancels the in-flight
+        // delay when a newer value arrives mid-drag, so we only write once it settles).
+        // Width/height are saved only while floating, so maximizing doesn't clobber the
+        // restore size; position is saved only when absolute (skips PlatformDefault).
+        LaunchedEffect(windowState) {
+            snapshotFlow { Triple(windowState.size, windowState.position, windowState.placement) }
+                .collectLatest { (size, position, placement) ->
+                    delay(500)
+                    val floating = placement == WindowPlacement.Floating
+                    val absolute = position as? WindowPosition.Absolute
+                    windowPrefs.save(
+                        widthDp = if (floating) size.width.value else null,
+                        heightDp = if (floating) size.height.value else null,
+                        xDp = absolute?.x?.value,
+                        yDp = absolute?.y?.value,
+                        maximized = placement == WindowPlacement.Maximized,
+                    )
+                }
+        }
+        // Desktop-only whole-UI zoom: Ctrl/Cmd +/-/0 (invariant — the text-only font
+        // slider can't grow icons/forms; this scales LocalDensity.density app-wide).
+        // We read the concrete DesktopThemePreferences (the zoom methods aren't on the
+        // shared ThemePreferences interface) and persist each step.
+        val zoomPrefs = koin.get<DesktopThemePreferences>()
+        val uiZoom by zoomPrefs.uiZoomFlow().collectAsState(initial = zoomPrefs.uiZoom())
         Window(
             // With a tray, close hides to it (background runtime stays resident). With
             // no tray, close exits cleanly so the window can never be trapped.
@@ -379,6 +436,25 @@ fun main() {
             state = windowState,
             title = "Mobile Agent",
             icon = AppIcon,
+            // Ctrl (Cmd on macOS) + Equals/Plus zoom in, + Minus zooms out, + 0 resets.
+            // `onKeyEvent` fires only on events the focused component left unconsumed —
+            // a focused text field never consumes Ctrl/Cmd combos, so typing is safe.
+            onKeyEvent = { event ->
+                if (event.type != KeyEventType.KeyDown || !(event.isCtrlPressed || event.isMetaPressed)) {
+                    false
+                } else when (event.key) {
+                    Key.Equals, Key.Plus, Key.NumPadAdd -> {
+                        zoomPrefs.setUiZoom(zoomPrefs.uiZoom() + UiZoom.STEP); true
+                    }
+                    Key.Minus, Key.NumPadSubtract -> {
+                        zoomPrefs.setUiZoom(zoomPrefs.uiZoom() - UiZoom.STEP); true
+                    }
+                    Key.Zero, Key.NumPad0 -> {
+                        zoomPrefs.setUiZoom(UiZoom.DEFAULT); true
+                    }
+                    else -> false
+                }
+            },
         ) {
             // The real shared UI (Phase 9 inc 8d). Onboarding is operator-driven on
             // desktop (keys via env/SecureStorage, Phase 6) and the GGUF is fetched
@@ -394,7 +470,7 @@ fun main() {
             val themeMode by themePrefs.themeModeFlow().collectAsState(initial = themePrefs.themeMode())
             val fontScale by themePrefs.fontScaleFlow().collectAsState(initial = themePrefs.fontScale())
             val fontFamily by themePrefs.fontFamilyFlow().collectAsState(initial = themePrefs.fontFamily())
-            MobileAgentDesktopTheme(themeMode = themeMode, fontScale = fontScale, fontFamily = fontFamily) {
+            MobileAgentDesktopTheme(themeMode = themeMode, fontScale = fontScale, fontFamily = fontFamily, densityScale = uiZoom) {
                 AppNavHost(
                     onboardingComplete = true,
                     modelPresent = true,
