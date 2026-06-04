@@ -22,6 +22,17 @@ interface Dictation {
     /** Finalized utterances, one per recognized phrase. Hot — collect while [start]ed. */
     val results: Flow<String>
 
+    /**
+     * Live, in-progress transcript of the CURRENT utterance as the engine refines
+     * it (Android `onPartialResults`, Vosk `partialResult`). Emitted as the user
+     * speaks so the consumer can show the words appearing in the prompt box before
+     * the phrase finalizes (PR #67); the text can change mid-utterance and is
+     * superseded by the matching [results] emission when the phrase ends. May be
+     * blank between utterances. Voice-command matching ([VoiceCommand]) still keys
+     * off [results] (whole finalized utterances) — partials are display-only.
+     */
+    val partials: Flow<String>
+
     /** `true` while the microphone is actively capturing. */
     val isListening: StateFlow<Boolean>
 

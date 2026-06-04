@@ -41,13 +41,19 @@ class AndroidDictation(context: Context) : Dictation {
     private val _results = MutableSharedFlow<String>(extraBufferCapacity = 16)
     override val results: Flow<String> = _results.asSharedFlow()
 
+    private val _partials = MutableSharedFlow<String>(extraBufferCapacity = 32)
+    override val partials: Flow<String> = _partials.asSharedFlow()
+
     private val _isListening = MutableStateFlow(false)
     override val isListening = _isListening.asStateFlow()
 
     private val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
         putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
         putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toString())
-        putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+        // PR #67 — stream the live transcript so the user sees words appear in the
+        // prompt box while talking. The final `onResults` still drives voice-command
+        // matching + the committed text; partials are display-only.
+        putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
     }
 
     override fun start() {
@@ -121,7 +127,14 @@ class AndroidDictation(context: Context) : Dictation {
         override fun onRmsChanged(rmsdB: Float) {}
         override fun onBufferReceived(buffer: ByteArray?) {}
         override fun onEndOfSpeech() {}
-        override fun onPartialResults(partialResults: Bundle?) {}
+
+        override fun onPartialResults(partialResults: Bundle?) {
+            partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                ?.firstOrNull()
+                ?.takeIf { it.isNotBlank() }
+                ?.let { _partials.tryEmit(it) }
+        }
+
         override fun onEvent(eventType: Int, params: Bundle?) {}
     }
 

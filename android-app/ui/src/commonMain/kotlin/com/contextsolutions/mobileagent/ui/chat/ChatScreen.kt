@@ -137,6 +137,14 @@ fun ChatScreen(
     val alarms by clockViewModel.alarms.collectAsState()
     val activeTodoCount by todoViewModel.activeCount.collectAsState()
     var input by remember { mutableStateOf("") }
+    // PR #67 — `input` is what the box SHOWS (and the user can type into);
+    // `committedInput` is the stable text minus any in-flight dictation partial.
+    // While the user speaks, the live transcript is rendered as
+    // `committedInput (+ space) + partial` so words appear immediately and keep
+    // changing as the engine refines them; the final transcript (or a manual
+    // edit) promotes into `committedInput`. They stay equal whenever no partial
+    // is in flight.
+    var committedInput by remember { mutableStateOf("") }
     // PR #48 — image picker behind the cross-platform :ui seam (Phase 9 inc 8c).
     // The actual decodes + downscales the chosen photo to the model-ready JPEG
     // off the main thread before handing back the bytes.
@@ -170,6 +178,19 @@ fun ChatScreen(
         }
     }
 
+    // PR #67 — live transcript: show the in-progress utterance in the box as the
+    // user talks (it may change as the engine refines words). Rendered on top of
+    // the committed text and superseded by the matching `results` emission below.
+    // Voice commands still key off finalized `results`, so we don't act on a
+    // partial — only display it (and drop it during TTS playback, echo #42).
+    LaunchedEffect(dictation) {
+        dictation.partials.collect { partial ->
+            if (!suppressDictationText) {
+                input = if (committedInput.isBlank()) partial else "$committedInput $partial"
+            }
+        }
+    }
+
     // Continuous dictation. Each finalized utterance is either a spoken command
     // (send / cancel / speaker off / … — fired instead of typed) or text
     // appended to the input box. Collected for the screen's lifetime; the engine
@@ -180,17 +201,28 @@ fun ChatScreen(
                 VoiceCommand.SEND -> {
                     val canSend = !ui.isGenerating &&
                         !viewModel.thermalStatus.value.isBlocking &&
-                        (input.isNotBlank() || ui.pendingImageBytes != null)
+                        (committedInput.isNotBlank() || ui.pendingImageBytes != null)
                     if (canSend) {
-                        viewModel.send(input)
+                        viewModel.send(committedInput)
                         input = ""
+                        committedInput = ""
+                    } else {
+                        // Discard the "send" partial that briefly flashed in the box.
+                        input = committedInput
                     }
                 }
-                VoiceCommand.CANCEL -> viewModel.cancel()
-                VoiceCommand.CLEAR -> input = ""
+                VoiceCommand.CANCEL -> {
+                    viewModel.cancel()
+                    input = committedInput
+                }
+                VoiceCommand.CLEAR -> {
+                    input = ""
+                    committedInput = ""
+                }
                 VoiceCommand.NEW_CHAT -> {
                     viewModel.newConversation()
                     input = ""
+                    committedInput = ""
                 }
                 VoiceCommand.MIC_OFF -> viewModel.setMicEnabled(false)
                 VoiceCommand.SPEAKER_OFF -> viewModel.setTtsEnabled(false)
@@ -200,9 +232,14 @@ fun ChatScreen(
                     // late-delivered transcripts), stay in command-only mode:
                     // keep listening so "speaker off" can interrupt, but DROP
                     // regular text since the mic is mostly hearing the
-                    // assistant's own playback (echo). Outside playback, append.
+                    // assistant's own playback (echo). Outside playback, promote
+                    // the finalized utterance into the committed text (replacing
+                    // the live partial that was on screen).
                     if (!suppressDictationText) {
-                        input = if (input.isBlank()) spoken else "$input $spoken"
+                        committedInput = if (committedInput.isBlank()) spoken else "$committedInput $spoken"
+                        input = committedInput
+                    } else {
+                        input = committedInput
                     }
                 }
             }
@@ -699,6 +736,7 @@ fun ChatScreen(
                 if (canSend) {
                     viewModel.send(input)
                     input = ""
+                    committedInput = ""
                 }
             }
             // PR #48 — staged-image chip: thumbnail + remove button, shown
@@ -726,7 +764,9 @@ fun ChatScreen(
             }
             OutlinedTextField(
                 value = input,
-                onValueChange = { input = it },
+                // A manual edit is authoritative: it becomes the committed text,
+                // abandoning any in-flight dictation partial (PR #67).
+                onValueChange = { input = it; committedInput = it },
                 modifier = Modifier
                     .fillMaxWidth()
                     .onPreviewKeyEvent { event ->

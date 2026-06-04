@@ -53,6 +53,9 @@ class VoskDictation(
     private val _results = MutableSharedFlow<String>(extraBufferCapacity = 16)
     override val results: Flow<String> = _results.asSharedFlow()
 
+    private val _partials = MutableSharedFlow<String>(extraBufferCapacity = 32)
+    override val partials: Flow<String> = _partials.asSharedFlow()
+
     private val _isListening = MutableStateFlow(false)
     override val isListening = _isListening.asStateFlow()
 
@@ -98,11 +101,23 @@ class VoskDictation(
                     }
                     _isListening.value = true
                     val buffer = ByteArray(BUFFER_BYTES)
+                    var lastPartial = ""
                     while (coroutineContext.isActive) {
                         val read = line.read(buffer, 0, buffer.size)
                         if (read <= 0) continue
                         if (recognizer.acceptWaveForm(buffer, read)) {
                             extractText(recognizer.result)?.let { _results.tryEmit(it) }
+                            lastPartial = ""
+                        } else {
+                            // PR #67 — stream the in-progress transcript so words
+                            // appear in the prompt box while talking. Vosk grows the
+                            // `partial` field each frame; emit only on change to
+                            // avoid spamming identical strings.
+                            val partial = extractPartial(recognizer.partialResult)
+                            if (partial != null && partial != lastPartial) {
+                                lastPartial = partial
+                                _partials.tryEmit(partial)
+                            }
                         }
                     }
                 }
@@ -119,6 +134,13 @@ class VoskDictation(
 
     private fun extractText(result: String): String? = try {
         json.parseToJsonElement(result).jsonObject["text"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+    } catch (_: Throwable) {
+        null
+    }
+
+    /** Vosk's `partialResult` carries the live transcript under `"partial"`. */
+    private fun extractPartial(result: String): String? = try {
+        json.parseToJsonElement(result).jsonObject["partial"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
     } catch (_: Throwable) {
         null
     }
