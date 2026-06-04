@@ -20,8 +20,6 @@ syntax). This script then composites it onto the navy plate and emits:
   desktopApp/icons/icon.ico             — Windows (.msi/.exe), multi-resolution
   desktopApp/icons/icon.icns            — macOS (.dmg/.pkg)
   desktopApp/src/main/resources/icon.png 512x512 — in-app tray/window resource
-  ui/src/androidMain/resources/app_logo.png 256 — chat logo (Android classpath)
-  ui/src/desktopMain/resources/app_logo.png 256 — chat logo (desktop classpath)
   iosApp/Assets.xcassets/AppIcon.appiconset/icon-1024.png 1024 — staged iOS icon
 
 Desktop/in-app variants are rounded squares; the iOS variant is an opaque,
@@ -44,15 +42,6 @@ from PIL import Image, ImageDraw
 HERE = Path(__file__).resolve().parent
 ANDROID_APP = HERE.parent.parent  # .../android-app
 RES_DIR = HERE.parent / "src" / "main" / "resources"
-# The chat top-bar logo ships as a JVM classpath resource on BOTH platforms
-# (Compose Resources don't package into the AGP-9
-# `com.android.kotlin.multiplatform.library` variant, and that plugin generates
-# no `R`). `src/<target>Main/resources/app_logo.png` is merged into the APK and
-# the desktop jar alike, loaded via the classloader behind an expect/actual
-# painter.
-UI = ANDROID_APP / "ui" / "src"
-UI_LOGO_ANDROID = UI / "androidMain" / "resources" / "app_logo.png"
-UI_LOGO_DESKTOP = UI / "desktopMain" / "resources" / "app_logo.png"
 IOS_ICONSET = ANDROID_APP / "iosApp" / "Assets.xcassets" / "AppIcon.appiconset"
 
 BRAND_NAVY = (0x1F, 0x29, 0x37, 0xFF)  # @color/ic_launcher_background
@@ -100,13 +89,6 @@ def main() -> None:
     )
     rounded.save(HERE / "icon.icns", format="ICNS")
 
-    # --- In-app chat logo (shared :ui, per-platform via expect/actual) ---
-    logo = rounded.resize((256, 256), Image.LANCZOS)
-    UI_LOGO_ANDROID.parent.mkdir(parents=True, exist_ok=True)
-    UI_LOGO_DESKTOP.parent.mkdir(parents=True, exist_ok=True)
-    logo.save(UI_LOGO_ANDROID, format="PNG")
-    logo.save(UI_LOGO_DESKTOP, format="PNG")
-
     # --- iOS app icon (staged): opaque 1024 square, no alpha, no rounding ---
     IOS_ICONSET.mkdir(parents=True, exist_ok=True)
     ios = Image.new("RGB", (MASTER, MASTER), BRAND_NAVY[:3])
@@ -119,8 +101,6 @@ def main() -> None:
         HERE / "icon.ico",
         HERE / "icon.icns",
         RES_DIR / "icon.png",
-        UI_LOGO_ANDROID,
-        UI_LOGO_DESKTOP,
         ios_path,
     ):
         print(f"wrote {p}")

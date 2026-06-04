@@ -106,11 +106,9 @@ import com.contextsolutions.mobileagent.inference.DesktopLinkStatus
 import com.contextsolutions.mobileagent.inference.DesktopLinkStatusProvider
 import com.contextsolutions.mobileagent.inference.SystemMemoryStatusProvider
 import com.contextsolutions.mobileagent.inference.ThermalStatus
-import com.contextsolutions.mobileagent.platform.AppBuildConfig
 import com.contextsolutions.mobileagent.platform.UrlOpener
 import com.contextsolutions.mobileagent.search.SearchSource
 import com.contextsolutions.mobileagent.voice.Dictation
-import com.contextsolutions.mobileagent.ui.branding.appLogoPainter
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -216,9 +214,6 @@ fun ChatScreen(
     LaunchedEffect(micEnabled) {
         if (micEnabled) dictation.start() else dictation.stop()
     }
-    // PR #32 — About dialog: tapping the brand logo surfaces app name + the
-    // build currently on the device (version name + commit-count build number).
-    var showAbout by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
@@ -312,23 +307,13 @@ fun ChatScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                navigationIcon = {
-                    // PR #18 brand logo, now tappable (PR #32) — opens the
-                    // About dialog so the running build is always identifiable.
-                    IconButton(onClick = { showAbout = true }) {
-                        Image(
-                            painter = appLogoPainter(),
-                            contentDescription = "About Mobile Agent",
-                            modifier = Modifier.size(36.dp),
-                        )
-                    }
-                },
-                // PR #44 — system-memory dot rides in the title slot so it
-                // sits left-justified right after the app icon, leaving a gap
-                // before the right-justified action icons. Green/yellow/red
-                // bands mirror the watchdog + send-time gate thresholds in
-                // SystemMemoryThresholds, so the dot the user sees can't
-                // drift out of sync with what actually gates inference.
+                // PR #44 — system-memory dot rides in the title slot, left-
+                // justified, leaving a gap before the right-justified action
+                // icons. Green/yellow/red bands mirror the watchdog + send-time
+                // gate thresholds in SystemMemoryThresholds, so the dot the user
+                // sees can't drift out of sync with what actually gates inference.
+                // (PR #63 removed the brand logo from the header; build identity
+                // now lives in Settings → About.)
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         SystemMemoryStatusIndicator()
@@ -726,31 +711,8 @@ fun ChatScreen(
         // user is no longer blocked when system free RAM is low. The
         // header SystemMemoryStatusIndicator (red LED) is the sole signal
         // for the condition.
-
-        // PR #32 — About dialog. Version name is the semantic release tag;
-        // build number is VERSION_CODE = HEAD's commit timestamp (see
-        // androidApp/build.gradle.kts). GIT_DESCRIBE (SHA + `-dirty`) added in
-        // PR #50 disambiguates working-tree dev builds whose versionCode hasn't
-        // bumped; the same identity prints at build time for easy comparison.
-        if (showAbout) {
-            val buildConfig = koinInject<AppBuildConfig>()
-            AlertDialog(
-                onDismissRequest = { showAbout = false },
-                title = { Text("Mobile Agent") },
-                text = {
-                    Text(
-                        "Version ${buildConfig.versionName}\n" +
-                            "Build ${buildConfig.versionCode}\n" +
-                            "Git ${buildConfig.gitDescribe}",
-                    )
-                },
-                confirmButton = {
-                    TextButton(onClick = { showAbout = false }) {
-                        Text("OK")
-                    }
-                },
-            )
-        }
+        // (PR #63 moved the About/build-identity surface from a header-logo
+        // dialog here to Settings → About.)
     }
 }
 

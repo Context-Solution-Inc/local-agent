@@ -13,6 +13,33 @@ kotlin {
     jvmToolchain(17)
 }
 
+// Build identity, computed at configuration time from the SAME git repo as the
+// Android `BuildConfig` (androidApp/build.gradle.kts), so the desktop About shows
+// the SAME version / build / git as mobile:
+//   • versionCode = HEAD's committer-date epoch seconds (monotonic per commit)
+//   • gitDescribe = short SHA + `-dirty` marker
+//   • versionName = the release tag (kept in lockstep with androidApp appVersionName)
+// `providers.exec` keeps this configuration-cache compatible; falls back outside a
+// git checkout. Emitted as a classpath resource that DesktopAppBuildConfig reads.
+val gitCommitTimestamp: Int =
+    providers.exec { commandLine("git", "log", "-1", "--format=%ct", "HEAD") }
+        .standardOutput.asText.get().trim().toIntOrNull() ?: 1
+val appVersionName = "0.1.0"
+val gitDescribe: String =
+    providers.exec { commandLine("git", "describe", "--always", "--dirty", "--abbrev=7") }
+        .standardOutput.asText.get().trim().ifEmpty { "unknown" }
+
+val buildInfoDir = layout.buildDirectory.dir("generated/buildInfo")
+val generateDesktopBuildInfo by tasks.registering(WriteProperties::class) {
+    destinationFile.set(buildInfoDir.map { it.file("desktop_build_info.properties") })
+    property("versionName", appVersionName)
+    property("versionCode", gitCommitTimestamp)
+    property("gitDescribe", gitDescribe)
+}
+
+sourceSets["main"].resources.srcDir(buildInfoDir)
+tasks.named("processResources") { dependsOn(generateDesktopBuildInfo) }
+
 dependencies {
     implementation(project(":shared"))
     implementation(project(":ui"))

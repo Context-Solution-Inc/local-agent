@@ -62,6 +62,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import com.contextsolutions.mobileagent.platform.AppBuildConfig
 import com.contextsolutions.mobileagent.preferences.OllamaConfig
 import com.contextsolutions.mobileagent.ui.platform.isDesktopPlatform
 import com.contextsolutions.mobileagent.ui.theme.AppFontFamily
@@ -69,6 +70,7 @@ import com.contextsolutions.mobileagent.ui.theme.FontScale
 import com.contextsolutions.mobileagent.ui.theme.ThemeMode
 import com.contextsolutions.mobileagent.ui.theme.ThemeModeViewModel
 import kotlin.math.roundToInt
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -533,8 +535,38 @@ fun SettingsScreen(
                 onSaveApiKey = { viewModel.saveOllamaApiKey(it) },
                 onClearApiKey = { viewModel.clearOllamaApiKey() },
             )
+
+            // PR #63 — About lives at the very bottom; surfaces the running
+            // build's identity (was a header-logo dialog in chat before).
+            HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
+            AboutSection()
         }
     }
+}
+
+/**
+ * PR #63 — About: the running agent's identity. `isDesktopPlatform` labels which
+ * agent this is (each platform's Settings shows its own build); Version is the
+ * semantic release tag, Build is VERSION_CODE (HEAD's commit timestamp), and Git
+ * is `git describe` (SHA + `-dirty`) — read through the cross-platform
+ * [AppBuildConfig] seam, the same source the former chat About dialog used.
+ */
+@Composable
+private fun AboutSection() {
+    val buildConfig = koinInject<AppBuildConfig>()
+    SectionHeader("About")
+    Text(
+        text = if (isDesktopPlatform) "Desktop Agent" else "Mobile Agent",
+        style = MaterialTheme.typography.bodyMedium,
+    )
+    Spacer(Modifier.height(4.dp))
+    Text(
+        text = "Version ${buildConfig.versionName}\n" +
+            "Build ${buildConfig.versionCode}\n" +
+            "Git ${buildConfig.gitDescribe}",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 /**
