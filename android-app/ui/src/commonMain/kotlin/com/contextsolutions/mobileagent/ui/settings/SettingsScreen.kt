@@ -322,6 +322,11 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.outline,
             )
 
+            // PR #66 — desktop-only read-aloud voice picker (engine/voice/rate). The
+            // section (incl. its own leading divider) renders nothing on Android,
+            // where the OS owns voice selection.
+            DesktopVoiceSection()
+
             HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
 
             // M6 Phase C — opt-in telemetry. PRD §3.2.1 + §4.4 explicit-opt-in

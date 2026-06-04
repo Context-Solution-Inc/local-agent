@@ -132,6 +132,10 @@ import com.contextsolutions.mobileagent.voice.ChatSpeaker
 import com.contextsolutions.mobileagent.voice.Dictation
 import com.contextsolutions.mobileagent.voice.DesktopTtsSpeaker
 import com.contextsolutions.mobileagent.voice.DesktopTtsPreferences
+import com.contextsolutions.mobileagent.voice.DesktopTtsVoices
+import com.contextsolutions.mobileagent.voice.PiperBinaryStore
+import com.contextsolutions.mobileagent.voice.PiperSpeechSynthesizer
+import com.contextsolutions.mobileagent.voice.PiperVoiceStore
 import com.contextsolutions.mobileagent.voice.TtsPreferences
 import com.contextsolutions.mobileagent.voice.VoskDictation
 import com.contextsolutions.mobileagent.voice.VoskModelStore
@@ -339,12 +343,24 @@ val desktopModule: Module = module {
     //    speech engine (say/spd-say/PowerShell); dictation is offline Vosk STT.
     //    Both degrade to no-op without an engine/model. Consumed by the shared
     //    Chat ViewModel in Phase 9; bindable now. --
-    single<ChatSpeaker> { DesktopTtsSpeaker() }
     // The Vosk acoustic model (~40 MB) is downloaded + cached on first mic use.
     single { VoskModelStore() }
     single<Dictation> { VoskDictation(modelProvider = { get<VoskModelStore>().ensure() }) }
-    // Read-aloud toggle persistence for the shared :ui ChatViewModel (Phase 9).
-    single<TtsPreferences> { DesktopTtsPreferences(DesktopJsonStore(File(DesktopAppDirs.dataDir(), "tts_prefs.json"))) }
+    // Read-aloud toggle + voice settings (PR #66). Bound as the concrete type too so
+    // the speaker + the desktop-only voice picker in Settings reach voiceConfig()
+    // (engine/voice/rate aren't on the shared TtsPreferences interface, #45).
+    single { DesktopTtsPreferences(DesktopJsonStore(File(DesktopAppDirs.dataDir(), "tts_prefs.json"))) }
+    single<TtsPreferences> { get<DesktopTtsPreferences>() }
+    single { DesktopTtsVoices() }
+    // Piper neural engine (PR #66) — self-contained binary + voice model downloaded on
+    // first use (like the LLM/Vosk models), played in-JVM via Java Sound. Selected via the
+    // "piper" engine in the desktop voice picker; falls back to the OS engine otherwise.
+    single { PiperBinaryStore() }
+    single { PiperVoiceStore() }
+    single { PiperSpeechSynthesizer(binaryStore = get(), voiceStore = get()) }
+    single<ChatSpeaker> {
+        DesktopTtsSpeaker(voiceConfig = { get<DesktopTtsPreferences>().voiceConfig() }, piper = get())
+    }
     // Chat-screen log sink (Phase 9 inc 8d) — desktop routes to stderr.
     single<ChatLogger> { ChatLogger { System.err.println("[ChatViewModel] $it") } }
     // System-memory status dot source (chat header) — constant healthy on desktop.
