@@ -107,8 +107,18 @@ JARs and extracted at first use — the always-works baseline.
 
 - `com.alphacephei:vosk:0.3.45` — bundles per-OS JNI natives (Linux/macOS/Windows).
 - `VoskDictation` degrades to a **no-op** when the acoustic model is absent, so a
-  default install has working TTS (OS shell-out) and silently-disabled dictation
-  until the model is provided.
+  default install has working TTS (OS shell-out, see below) and silently-disabled
+  dictation until the model is provided.
+
+### Read-aloud (TTS)
+
+- **Default = OS shell-out** (`DesktopTtsSpeaker`): `say` (macOS) / `spd-say --wait`
+  (Linux) / PowerShell `SpeechSynthesizer` (Windows); no-op + log when absent.
+  Stopping is engine-specific — Linux also issues `spd-say --cancel` because the
+  speech-dispatcher daemon outlives the killed client (invariant #48).
+- **Opt-in neural voice = Piper** (PR #66): selecting the "piper" engine in
+  Settings → Read-aloud voice downloads a self-contained prebuilt `piper` binary +
+  ONNX voice and plays in-JVM via Java Sound (no `aplay`/Python). See the table below.
 
 ## Models & assets — bundled vs downloaded
 
@@ -125,6 +135,7 @@ or operator-supplied):
 | GGUF Gemma (Q4_K_M) | `DesktopModelDownloader` → tray progress | Spec ships blank sha256/size (`isConfigured=false`); operator fills verified coordinates, same BYO policy as Android `secrets.properties`. **Use a standard instruction GGUF with the stock Gemma template (`<start_of_turn>`); avoid "thinking"/"reasoning" community conversions — they carry a `<\|think\|>` block in the chat template and reason out loud in the chat (Android's E2B doesn't). Quick check: `strings model.gguf \| grep -m1 '<\|think\|>'` should find nothing.** |
 | ONNX classifier + embedder | app-data `models/` or `MOBILEAGENT_{CLASSIFIER,EMBEDDER}_ONNX` | exported by `ct-export-onnx` / `export_minilm_onnx.py` |
 | Vosk acoustic model | app-data `models/vosk` or `MOBILEAGENT_VOSK_MODEL` | optional; STT no-ops without it |
+| Piper binary + voice (neural TTS) | `PiperBinaryStore` (`rhasspy/piper`, pinned `PiperRelease.TAG`) + `PiperVoiceStore` (HF `rhasspy/piper-voices`, `en_US-lessac-medium` ≈63 MB) → app-data `piper/` or `MOBILEAGENT_PIPER_BINARY` | optional; only when the user picks the "piper" engine. Pinned sha256/size per OS/arch (Linux/macOS/Windows). Played in-JVM (Java Sound); falls back to OS shell-out if no prebuilt for the host (PR #66) |
 
 App-data dir per OS:
 - Linux: `~/.local/share/MobileAgent/`
