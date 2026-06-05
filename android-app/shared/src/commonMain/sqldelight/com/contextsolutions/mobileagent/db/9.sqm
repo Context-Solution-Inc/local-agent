@@ -1,0 +1,53 @@
+-- v9 → v10 (PR #70): jobs + job_runs. A "job" is time-triggered work that runs
+-- ONLY on the desktop agent (cron or one-shot): it invokes `command`, passing
+-- `prompt` as an argument, and records the response. Each run creates a real
+-- conversation (user=prompt, assistant=response) that syncs via the existing
+-- conversation path; the latest run's conversation id + status are denormalized
+-- onto the job row so the mobile remote-view can link to it with only the
+-- (synced) job record.
+--
+-- Two new tables, no ALTERs to existing ones. The CREATE TABLE statements are
+-- byte-for-byte identical to Jobs.sq so Schema.create() (the .sq) matches
+-- Schema.migrate() (this file) — invariant #20. New columns are at the END of
+-- each CREATE TABLE for the same reason.
+--
+-- `jobs` syncs (last-write-wins via updated_at_epoch_ms + deleted_at tombstone),
+-- exactly like conversations/memories (PR #57). `job_runs` is desktop-local
+-- history and is NOT synced; its FK CASCADE only fires on a hard delete (jobs
+-- use tombstones, so the desktop prunes runs explicitly on tombstone).
+
+CREATE TABLE jobs (
+    id TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    command TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    working_dir TEXT,
+    schedule_type TEXT NOT NULL,
+    cron_expression TEXT,
+    fire_at_epoch_ms INTEGER,
+    paused INTEGER NOT NULL DEFAULT 0,
+    created_at_epoch_ms INTEGER NOT NULL,
+    updated_at_epoch_ms INTEGER NOT NULL,
+    deleted_at_epoch_ms INTEGER,
+    last_run_status TEXT,
+    last_run_at_epoch_ms INTEGER,
+    last_run_summary TEXT,
+    last_run_conversation_id TEXT
+);
+
+CREATE INDEX jobs_changed ON jobs(updated_at_epoch_ms);
+
+CREATE TABLE job_runs (
+    id TEXT NOT NULL PRIMARY KEY,
+    job_id TEXT NOT NULL,
+    conversation_id TEXT,
+    status TEXT NOT NULL,
+    started_at_epoch_ms INTEGER NOT NULL,
+    finished_at_epoch_ms INTEGER,
+    exit_code INTEGER,
+    response TEXT,
+    error TEXT,
+    FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE CASCADE
+);
+
+CREATE INDEX job_runs_by_job ON job_runs(job_id, started_at_epoch_ms);

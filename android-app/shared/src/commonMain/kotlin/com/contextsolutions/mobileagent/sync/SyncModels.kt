@@ -17,9 +17,10 @@ data class SyncBundle(
     val conversations: List<ConversationSyncRecord> = emptyList(),
     val memories: List<MemorySyncRecord> = emptyList(),
     val settings: List<SettingSyncRecord> = emptyList(),
+    val jobs: List<JobSyncRecord> = emptyList(),
 ) {
     val isEmpty: Boolean
-        get() = conversations.isEmpty() && memories.isEmpty() && settings.isEmpty()
+        get() = conversations.isEmpty() && memories.isEmpty() && settings.isEmpty() && jobs.isEmpty()
 }
 
 @Serializable
@@ -60,6 +61,34 @@ data class MemorySyncRecord(
     val updatedAtEpochMs: Long,
     val deletedAtEpochMs: Long? = null,
     // NOTE: no embedding — the receiver regenerates it from [text] on-device.
+)
+
+/**
+ * A synced job (PR #70). The desktop pushes the full definition + denormalized
+ * last-run state (incl. [lastRunConversationId], so mobile can open the run
+ * conversation — which itself syncs via [ConversationSyncRecord]). The only
+ * mutation a mobile peer may push is a [paused] toggle; the desktop's
+ * [JobSyncPolicy] enforces that on apply. Commands/prompts are NEVER accepted
+ * from a peer — the §2 trust boundary.
+ */
+@Serializable
+data class JobSyncRecord(
+    val id: String,
+    val name: String,
+    val command: String,
+    val prompt: String,
+    val workingDir: String? = null,
+    val scheduleType: String,
+    val cronExpression: String? = null,
+    val fireAtEpochMs: Long? = null,
+    val paused: Boolean = false,
+    val createdAtEpochMs: Long,
+    val updatedAtEpochMs: Long,
+    val deletedAtEpochMs: Long? = null,
+    val lastRunStatus: String? = null,
+    val lastRunAtEpochMs: Long? = null,
+    val lastRunSummary: String? = null,
+    val lastRunConversationId: String? = null,
 )
 
 /** A synced preference (allow-list only — never secrets; see [SyncedSettingsKeys]). */

@@ -1,0 +1,167 @@
+-- Jobs + job-run history (PR #70). New tables introduced at schema v10 via
+-- 9.sqm. A job is desktop-only time-triggered work that runs `command` with
+-- `prompt` passed as an argument and records the response.
+--
+-- Conventions follow Tasks.sq / Conversations.sq: timestamps as *_epoch_ms
+-- INTEGER, enum-like fields as TEXT, nullable fields with no DEFAULT, new
+-- columns appended at the END of CREATE TABLE so verifyMigrations doesn't flag
+-- column-order drift against 9.sqm (invariant #20).
+--
+-- The CREATE TABLE statements below are byte-for-byte identical to 9.sqm's so a
+-- fresh install (Schema.create at v10) and an upgrade (Schema.migrate v9->v10)
+-- produce the same schema.
+--
+-- `jobs` syncs LWW (updated_at_epoch_ms) + tombstone (deleted_at_epoch_ms), like
+-- conversations/memories. The denormalized last_run_* columns ride the job sync
+-- record so mobile can show "last result" + open the run conversation without a
+-- second synced record type. `job_runs` is desktop-local history (NOT synced).
+
+CREATE TABLE jobs (
+    id TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    command TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    working_dir TEXT,
+    schedule_type TEXT NOT NULL,
+    cron_expression TEXT,
+    fire_at_epoch_ms INTEGER,
+    paused INTEGER NOT NULL DEFAULT 0,
+    created_at_epoch_ms INTEGER NOT NULL,
+    updated_at_epoch_ms INTEGER NOT NULL,
+    deleted_at_epoch_ms INTEGER,
+    last_run_status TEXT,
+    last_run_at_epoch_ms INTEGER,
+    last_run_summary TEXT,
+    last_run_conversation_id TEXT
+);
+
+CREATE INDEX jobs_changed ON jobs(updated_at_epoch_ms);
+
+CREATE TABLE job_runs (
+    id TEXT NOT NULL PRIMARY KEY,
+    job_id TEXT NOT NULL,
+    conversation_id TEXT,
+    status TEXT NOT NULL,
+    started_at_epoch_ms INTEGER NOT NULL,
+    finished_at_epoch_ms INTEGER,
+    exit_code INTEGER,
+    response TEXT,
+    error TEXT,
+    FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE CASCADE
+);
+
+CREATE INDEX job_runs_by_job ON job_runs(job_id, started_at_epoch_ms);
+
+-- -- Jobs: inserts ----------------------------------------------------------
+
+-- Desktop-only create (the trust boundary: a job is only ever defined on the
+-- locally-trusted desktop).
+insertJob:
+INSERT INTO jobs(
+    id, name, command, prompt, working_dir, schedule_type, cron_expression,
+    fire_at_epoch_ms, paused, created_at_epoch_ms, updated_at_epoch_ms,
+    deleted_at_epoch_ms, last_run_status, last_run_at_epoch_ms, last_run_summary,
+    last_run_conversation_id
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL);
+
+-- -- Jobs: reads ------------------------------------------------------------
+
+-- Live jobs for the list, newest last. Tombstoned rows are filtered out.
+selectAllJobs:
+SELECT * FROM jobs WHERE deleted_at_epoch_ms IS NULL ORDER BY created_at_epoch_ms ASC;
+
+selectJobById:
+SELECT * FROM jobs WHERE id = ?;
+
+-- Sync change feed: everything changed strictly after :since, INCLUDING
+-- tombstones (so deletes propagate). Mirrors selectMemoriesChangedSince.
+selectJobsChangedSince:
+SELECT * FROM jobs WHERE updated_at_epoch_ms > ? ORDER BY updated_at_epoch_ms ASC;
+
+-- -- Jobs: mutations --------------------------------------------------------
+
+-- Local pause/resume toggle (desktop or mobile). Goes through the repo so it
+-- fires LocalChangeBus → pushed on the next reconcile.
+updatePaused:
+UPDATE jobs SET paused = ?, updated_at_epoch_ms = ? WHERE id = ?;
+
+-- Desktop-only edit of the full definition.
+updateJob:
+UPDATE jobs
+SET name = ?, command = ?, prompt = ?, working_dir = ?, schedule_type = ?,
+    cron_expression = ?, fire_at_epoch_ms = ?, updated_at_epoch_ms = ?
+WHERE id = ?;
+
+-- Desktop writes the denormalized last-run summary + the run's conversation id,
+-- bumping updated_at so it rides the change feed to mobile.
+updateLastRun:
+UPDATE jobs
+SET last_run_status = ?, last_run_at_epoch_ms = ?, last_run_summary = ?,
+    last_run_conversation_id = ?, updated_at_epoch_ms = ?
+WHERE id = ?;
+
+-- Desktop-only soft delete (tombstone), so the delete propagates to mobile.
+softDeleteJob:
+UPDATE jobs SET deleted_at_epoch_ms = ?, updated_at_epoch_ms = ? WHERE id = ?;
+
+-- -- Jobs: sync apply (raw, NOT through the repo → no LocalChangeBus echo) ---
+
+-- Mobile-apply path: a desktop-originated record is applied verbatim, but only
+-- when strictly newer (LWW guard) so a slow pull can't clobber a local toggle.
+upsertJobFromPeer:
+INSERT INTO jobs(
+    id, name, command, prompt, working_dir, schedule_type, cron_expression,
+    fire_at_epoch_ms, paused, created_at_epoch_ms, updated_at_epoch_ms,
+    deleted_at_epoch_ms, last_run_status, last_run_at_epoch_ms, last_run_summary,
+    last_run_conversation_id
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET
+    name = excluded.name,
+    command = excluded.command,
+    prompt = excluded.prompt,
+    working_dir = excluded.working_dir,
+    schedule_type = excluded.schedule_type,
+    cron_expression = excluded.cron_expression,
+    fire_at_epoch_ms = excluded.fire_at_epoch_ms,
+    paused = excluded.paused,
+    updated_at_epoch_ms = excluded.updated_at_epoch_ms,
+    deleted_at_epoch_ms = excluded.deleted_at_epoch_ms,
+    last_run_status = excluded.last_run_status,
+    last_run_at_epoch_ms = excluded.last_run_at_epoch_ms,
+    last_run_summary = excluded.last_run_summary,
+    last_run_conversation_id = excluded.last_run_conversation_id
+WHERE excluded.updated_at_epoch_ms > jobs.updated_at_epoch_ms;
+
+-- Desktop-apply path: a peer (mobile) may ONLY toggle paused on an EXISTING row,
+-- and only when strictly newer. command/prompt/schedule/last-run are never
+-- touched — the §2 trust boundary in SQL.
+updatePausedFromPeer:
+UPDATE jobs
+SET paused = :paused, updated_at_epoch_ms = :updatedAt
+WHERE id = :id AND :updatedAt > updated_at_epoch_ms;
+
+-- -- Job runs (desktop-local history) ---------------------------------------
+
+insertRun:
+INSERT INTO job_runs(
+    id, job_id, conversation_id, status, started_at_epoch_ms,
+    finished_at_epoch_ms, exit_code, response, error
+)
+VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, NULL);
+
+finishRun:
+UPDATE job_runs
+SET status = ?, finished_at_epoch_ms = ?, exit_code = ?, response = ?, error = ?
+WHERE id = ?;
+
+selectRunsForJob:
+SELECT * FROM job_runs WHERE job_id = ? ORDER BY started_at_epoch_ms DESC;
+
+selectLatestRunForJob:
+SELECT * FROM job_runs WHERE job_id = ? ORDER BY started_at_epoch_ms DESC LIMIT 1;
+
+-- Soft delete doesn't fire the FK CASCADE, so the desktop prunes runs here.
+deleteRunsForJob:
+DELETE FROM job_runs WHERE job_id = ?;

@@ -1,12 +1,72 @@
 # Jobs — design plan
 
-Status: **design (not yet implemented).** This doc is the reviewable design; the
-implementation lands in a later PR. The desktop **tray-robustness fix** that ships
-alongside this doc (PR #60) is a prerequisite — it makes tray notifications a
-best-effort enhancement so the in-window Jobs screen can be the source of truth.
+Status: **implemented in PR #70** (branch `feat/jobs`). The original design is
+preserved below as the design record; the **§0 As-built** section captures where
+the shipped feature deviates from it (the job model and a few UI/sync details
+changed during implementation — those changes, not the original wording, are
+authoritative).
 
 Tracking: see `PHASE1_PLAN.md` / CLAUDE.md for where this slots in. Numbered
 "invariants" referenced below are CLAUDE.md hard invariants.
+
+## 0. As-built (PR #70) — deviations from the design below
+
+- **A job is `command` + `prompt`, always a subprocess** (not the COMMAND-vs-
+  AGENT_PROMPT split of §1). The desktop runs `command` with `prompt` passed as a
+  bound positional shell argument (`sh -c '<cmd> "$1"' sh "<prompt>"` — injection
+  safe; PowerShell on Windows). There is **no `TaskQueue`/AGENT_PROMPT path** —
+  `JobExecutor` always spawns a process.
+- **Each run continues the job's single conversation thread.** On fire,
+  `JobExecutor` reuses the job's existing conversation (`last_run_conversation_id`)
+  if present, else creates one, appending `user = prompt` then `assistant =
+  response` (`renderMarkdown = false`). The conversation syncs through the normal
+  `ConversationSyncRecord` path, so **"View conversation"** on either platform opens
+  it in Chat via `ChatViewModel.loadConversation` (the conversation-history resume
+  flow). The job row denormalises the latest run (`last_run_status/at/summary` +
+  `last_run_conversation_id`).
+- **`job_runs` is desktop-local history (NOT synced); only the `jobs` row syncs**
+  (LWW + tombstone), carrying the denormalised last-run so mobile renders "last
+  result" and the conversation link with no second synced record type.
+- **Trust boundary = an injected `JobSyncPolicy`** (commonMain), not an inline flag
+  in `applyFromPeer`. `DesktopJobSyncPolicy` fails **closed** — drops remote inserts
+  + remote tombstones, applies only a `paused` toggle to an existing row;
+  `MobileJobSyncPolicy` applies authoritative desktop records verbatim. A
+  desktop-only `onJobPausedFromPeer` seam on `SqlDelightLinkSyncService` re-drives
+  `DesktopJobScheduler` after a peer pause (the raw `updatePausedFromPeer` write
+  fires no `LocalChangeBus`).
+- **`SqlDelightJobRepository.flow()` MUST be a reactive SQLDelight query**
+  (`selectAllJobs().asFlow().mapToList`). Synced rows are written by the sync layer
+  via the raw `*FromPeer` queries, **bypassing the repo**, so a manually-seeded
+  `StateFlow` (the `tasks`/`todos` pattern) goes stale and synced jobs never appear
+  on the phone until an app restart. The reactive query repaints on any write to the
+  `jobs` table on that driver (both directions).
+- **Mobile Jobs icon is ALWAYS enabled** (Material Symbol `rule_settings`, a
+  hand-built `ImageVector` since the pinned material-icons-extended predates it),
+  even offline/unlinked — it opens the last-synced list. A header shows **"Synced Nm
+  ago • Offline"** (persisted `LastSyncStore` + reactive `MutableLastSyncStatus`, set
+  when `SyncController` reaches the peer). Pause/resume is **view-only offline**
+  (enabled only when the desktop controls: `isAdmin || link UP`) **and** only while
+  the job has future runs.
+- **Control gating** (`hasFutureRuns`, keyed on `fireAt > now` for one-shots, always
+  true for cron): Run-now + the pause toggle disable once a one-shot is done; **Edit
+  stays enabled** so a completed one-shot can be reopened and given a new time (it
+  re-runs into the same conversation thread); Delete always enabled.
+- **Schedule UI mirrors the mobile clock screens** (desktop has no alarm/timer icons
+  by design, but reuses the layout): **Repeat** = the alarm flow (time-of-day + day
+  chips → a 5-field cron `min hour * * dows`, `*` = daily), **Once** = the timer flow
+  (h/m/s duration → one-shot `fireAt = now + duration`). **No `DatePicker`** — its
+  desktop kotlinx-datetime calendar model throws `NoSuchMethodError`. Desktop uses
+  **`TimeInput`** (text fields), not the analog clock, whose selector knob obscured
+  the digit under the monochrome theme; mobile keeps the clock dial.
+- **Desktop monochrome theme** gained the Material3 `surfaceContainer*` roles
+  (neutral greys). Unset, they fell back to M3's purple baseline, tinting
+  `AlertDialog`/menus light purple.
+- **Schema:** migration `9.sqm` (v9→v10) adds `jobs` + `job_runs` (`Jobs.sq`); cron
+  parsing/next-fire via `cron-utils`, **desktopMain only**.
+
+The numbered design sections below remain accurate for the scheduler/executor
+mechanics, persistence conventions, sync envelope reuse, Koin wiring, and the
+trust-boundary rationale — read them with the §0 deviations applied.
 
 ## 1. What a "job" is
 

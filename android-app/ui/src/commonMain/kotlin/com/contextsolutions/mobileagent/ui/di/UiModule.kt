@@ -3,6 +3,7 @@ package com.contextsolutions.mobileagent.ui.di
 import com.contextsolutions.mobileagent.ui.chat.ChatViewModel
 import com.contextsolutions.mobileagent.ui.clock.ClockViewModel
 import com.contextsolutions.mobileagent.ui.history.ConversationHistoryViewModel
+import com.contextsolutions.mobileagent.ui.job.JobsViewModel
 import com.contextsolutions.mobileagent.ui.memory.MemoryViewModel
 import com.contextsolutions.mobileagent.ui.onboarding.OnboardingViewModel
 import com.contextsolutions.mobileagent.ui.settings.SearchSourcesViewModel
@@ -65,4 +66,15 @@ val uiModule: Module = module {
     // resolves on both shells.
     viewModelOf(::ThemeModeViewModel)
     viewModelOf(::ChatViewModel)
+    // PR #70 — Jobs. Bound with an explicit lambda (not viewModelOf): `admin` is
+    // resolved via getOrNull() so it's the desktop JobService where bound and
+    // null on mobile (the read-only remote view).
+    viewModel {
+        JobsViewModel(
+            repository = get(),
+            lastSyncStatus = get(),
+            linkStatusProvider = get(),
+            admin = getOrNull(),
+        )
+    }
 }

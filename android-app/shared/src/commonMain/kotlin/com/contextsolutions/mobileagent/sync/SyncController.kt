@@ -34,7 +34,10 @@ class SyncController(
     private val local: LinkSyncService,
     private val http: LinkSyncHttpClient,
     private val watermarks: SyncWatermarkStore,
+    private val lastSync: LastSyncStore,
+    private val lastSyncStatus: MutableLastSyncStatus,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    private val nowEpochMs: () -> Long = { kotlinx.datetime.Clock.System.now().toEpochMilliseconds() },
     private val logger: (String) -> Unit = {},
 ) {
     private val reconcileMutex = Mutex()
@@ -81,6 +84,9 @@ class SyncController(
             logger("reconcile: desktop unreachable")
             return
         }
+        // Peer reached — record the wall-clock sync time (PR #70) even if nothing
+        // moved, so the Jobs screen can show "Synced Nm ago".
+        nowEpochMs().also { lastSync.set(it); lastSyncStatus.mark(it) }
         if (!peer.isEmpty) local.applyFromPeer(peer)
 
         // Push local changes since the watermark.
@@ -91,7 +97,10 @@ class SyncController(
         val newWm = maxOf(wm, peer.maxWatermarkMs, localBundle.maxWatermarkMs)
         if (newWm > wm) watermarks.set(newWm)
         if (!peer.isEmpty || !localBundle.isEmpty) {
-            logger("reconciled: pulled=${peer.conversations.size}c/${peer.memories.size}m pushed=${localBundle.conversations.size}c/${localBundle.memories.size}m wm=$newWm")
+            logger(
+                "reconciled: pulled=${peer.conversations.size}c/${peer.memories.size}m/${peer.jobs.size}j " +
+                    "pushed=${localBundle.conversations.size}c/${localBundle.memories.size}m/${localBundle.jobs.size}j wm=$newWm",
+            )
         }
     }
 

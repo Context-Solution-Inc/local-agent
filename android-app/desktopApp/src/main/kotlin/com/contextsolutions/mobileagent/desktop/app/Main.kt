@@ -282,6 +282,9 @@ fun main() {
     koin.get<ClockService>().rearmAll()
     koin.get<DesktopTelemetryScheduler>().start()
     taskQueue.start()
+    // PR #70 — re-arm persisted jobs (cron + future one-shots). After taskQueue
+    // so any immediately-firing job has a live runtime. rearmAll is suspend.
+    appScope.launch { koin.get<com.contextsolutions.mobileagent.job.JobService>().rearmAll() }
     modelDownload.ensurePresent()
     mmprojDownload.ensurePresent()
     // Server binary in the background, driving serverStatus (loadModel also ensures it lazily).

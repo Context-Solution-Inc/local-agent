@@ -51,6 +51,17 @@ private val LightMonochromeColorScheme = lightColorScheme(
     onSurface = Color(0xFF000000),
     surfaceVariant = Color(0xFFE0E0E0),
     onSurfaceVariant = Color(0xFF1A1A1A),
+    // Surface container roles (Material3 1.2+). The monochrome scheme must define
+    // these — left unset they fall back to M3's purple baseline, which tinted
+    // dialogs/menus light purple (e.g. the AlertDialog container). Neutral light
+    // greys keep dialogs consistent with the white job/chat surfaces.
+    surfaceDim = Color(0xFFDADADA),
+    surfaceBright = Color(0xFFFFFFFF),
+    surfaceContainerLowest = Color(0xFFFFFFFF),
+    surfaceContainerLow = Color(0xFFF5F5F5),
+    surfaceContainer = Color(0xFFF0F0F0),
+    surfaceContainerHigh = Color(0xFFEAEAEA),
+    surfaceContainerHighest = Color(0xFFE4E4E4),
     outline = Color(0xFF000000),
     outlineVariant = Color(0xFFBDBDBD),
     surfaceTint = Color.Transparent,
@@ -77,6 +88,15 @@ private val DarkMonochromeColorScheme = darkColorScheme(
     onSurface = Color(0xFFFFFFFF),
     surfaceVariant = Color(0xFF2A2A2A),
     onSurfaceVariant = Color(0xFFE0E0E0),
+    // Neutral dark greys (vs M3's dark-purple baseline) so dialogs/menus match the
+    // #121212 surface.
+    surfaceDim = Color(0xFF121212),
+    surfaceBright = Color(0xFF2E2E2E),
+    surfaceContainerLowest = Color(0xFF0D0D0D),
+    surfaceContainerLow = Color(0xFF1A1A1A),
+    surfaceContainer = Color(0xFF1E1E1E),
+    surfaceContainerHigh = Color(0xFF242424),
+    surfaceContainerHighest = Color(0xFF2E2E2E),
     outline = Color(0xFFFFFFFF),
     outlineVariant = Color(0xFF3A3A3A),
     surfaceTint = Color.Transparent,

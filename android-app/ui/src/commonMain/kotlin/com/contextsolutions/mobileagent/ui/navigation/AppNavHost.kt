@@ -10,6 +10,7 @@ import com.contextsolutions.mobileagent.ui.chat.ChatViewModel
 import com.contextsolutions.mobileagent.ui.clock.AlarmManagementScreen
 import com.contextsolutions.mobileagent.ui.clock.TimerManagementScreen
 import com.contextsolutions.mobileagent.ui.history.ConversationHistoryScreen
+import com.contextsolutions.mobileagent.ui.job.JobsScreen
 import com.contextsolutions.mobileagent.ui.memory.ConversationMemoryListScreen
 import com.contextsolutions.mobileagent.ui.memory.MemoryScreen
 import com.contextsolutions.mobileagent.ui.onboarding.OnboardingHost
@@ -68,7 +69,19 @@ fun AppNavHost(
                 onOpenTodos = { route = MainRoute.TodoManagement },
                 onOpenTimers = { route = MainRoute.TimerManagement },
                 onOpenAlarms = { route = MainRoute.AlarmManagement },
+                onOpenJobs = { route = MainRoute.JobManagement },
                 viewModel = chatViewModel,
+            )
+        }
+        MainRoute.JobManagement -> {
+            PlatformBackHandler { route = MainRoute.Chat }
+            JobsScreen(
+                onBack = { route = MainRoute.Chat },
+                // Open a job's run conversation in Chat, reusing the resume path.
+                onOpenConversation = { conversationId ->
+                    chatViewModel.loadConversation(conversationId)
+                    route = MainRoute.Chat
+                },
             )
         }
         MainRoute.TodoManagement -> {

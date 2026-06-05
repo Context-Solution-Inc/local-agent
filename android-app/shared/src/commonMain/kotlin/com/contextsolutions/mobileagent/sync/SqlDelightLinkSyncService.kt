@@ -1,6 +1,7 @@
 package com.contextsolutions.mobileagent.sync
 
 import com.contextsolutions.mobileagent.db.ConversationsQueries
+import com.contextsolutions.mobileagent.db.JobsQueries
 import com.contextsolutions.mobileagent.db.MemoriesQueries
 import com.contextsolutions.mobileagent.memory.EmbedderEngine
 import com.contextsolutions.mobileagent.memory.Memory
@@ -33,10 +34,19 @@ import kotlinx.coroutines.withContext
 class SqlDelightLinkSyncService(
     private val conversations: ConversationsQueries,
     private val memories: MemoriesQueries,
+    private val jobs: JobsQueries,
+    private val jobPolicy: JobSyncPolicy,
     private val embedder: EmbedderEngine,
     private val bus: LocalChangeBus,
     private val logger: (String) -> Unit = {},
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    /**
+     * Desktop-only hook fired AFTER a peer's paused toggle is applied to an
+     * existing job (the raw `*FromPeer` write doesn't go through the repo, so it
+     * never fires [LocalChangeBus]). The desktop binds this to its scheduler so a
+     * mobile pause actually cancels/rearms the job's coroutine. No-op on mobile.
+     */
+    private val onJobPausedFromPeer: (id: String, paused: Boolean) -> Unit = { _, _ -> },
 ) : LinkSyncService {
 
     override val localChanges: SharedFlow<Unit> = bus.changes
@@ -87,10 +97,35 @@ class SqlDelightLinkSyncService(
             )
         }
 
+        val jobRecords = jobPolicy.outgoing(
+            jobs.selectJobsChangedSince(sinceMs).executeAsList().map { j ->
+                watermark = maxOf(watermark, j.updated_at_epoch_ms)
+                JobSyncRecord(
+                    id = j.id,
+                    name = j.name,
+                    command = j.command,
+                    prompt = j.prompt,
+                    workingDir = j.working_dir,
+                    scheduleType = j.schedule_type,
+                    cronExpression = j.cron_expression,
+                    fireAtEpochMs = j.fire_at_epoch_ms,
+                    paused = j.paused != 0L,
+                    createdAtEpochMs = j.created_at_epoch_ms,
+                    updatedAtEpochMs = j.updated_at_epoch_ms,
+                    deletedAtEpochMs = j.deleted_at_epoch_ms,
+                    lastRunStatus = j.last_run_status,
+                    lastRunAtEpochMs = j.last_run_at_epoch_ms,
+                    lastRunSummary = j.last_run_summary,
+                    lastRunConversationId = j.last_run_conversation_id,
+                )
+            },
+        )
+
         SyncBundle(
             maxWatermarkMs = watermark,
             conversations = convRecords,
             memories = memRecords,
+            jobs = jobRecords,
         )
     }
 
@@ -153,9 +188,49 @@ class SqlDelightLinkSyncService(
             )
             embedded++
         }
+        var jobsApplied = 0
+        var jobsDropped = 0
+        for (rec in bundle.jobs) {
+            val exists = jobs.selectJobById(rec.id).executeAsOneOrNull() != null
+            when (val action = jobPolicy.apply(rec, exists)) {
+                JobApplyAction.Drop -> jobsDropped++
+                is JobApplyAction.UpsertFull -> {
+                    val r = action.record
+                    jobs.upsertJobFromPeer(
+                        id = r.id,
+                        name = r.name,
+                        command = r.command,
+                        prompt = r.prompt,
+                        working_dir = r.workingDir,
+                        schedule_type = r.scheduleType,
+                        cron_expression = r.cronExpression,
+                        fire_at_epoch_ms = r.fireAtEpochMs,
+                        paused = if (r.paused) 1L else 0L,
+                        created_at_epoch_ms = r.createdAtEpochMs,
+                        updated_at_epoch_ms = r.updatedAtEpochMs,
+                        deleted_at_epoch_ms = r.deletedAtEpochMs,
+                        last_run_status = r.lastRunStatus,
+                        last_run_at_epoch_ms = r.lastRunAtEpochMs,
+                        last_run_summary = r.lastRunSummary,
+                        last_run_conversation_id = r.lastRunConversationId,
+                    )
+                    jobsApplied++
+                }
+                is JobApplyAction.PausedOnly -> {
+                    val r = action.record
+                    jobs.updatePausedFromPeer(
+                        paused = if (r.paused) 1L else 0L,
+                        updatedAt = r.updatedAtEpochMs,
+                        id = r.id,
+                    )
+                    onJobPausedFromPeer(r.id, r.paused)
+                    jobsApplied++
+                }
+            }
+        }
         logger(
             "applied: conversations=${bundle.conversations.size} memories=$embedded " +
-                "(skipped $skipped, no embedding)",
+                "(skipped $skipped, no embedding) jobs=$jobsApplied (dropped $jobsDropped)",
         )
     }
 }

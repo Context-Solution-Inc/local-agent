@@ -34,11 +34,23 @@ import com.contextsolutions.mobileagent.link.DesktopLinkConnectionStatus
 import com.contextsolutions.mobileagent.link.DesktopLinkQrProvider
 import com.contextsolutions.mobileagent.link.MutableDesktopLinkConnectionStatus
 import com.contextsolutions.mobileagent.link.MutableDesktopLinkQr
+import com.contextsolutions.mobileagent.sync.DesktopLastSyncStore
 import com.contextsolutions.mobileagent.sync.DesktopSyncWatermarkStore
+import com.contextsolutions.mobileagent.sync.DesktopJobSyncPolicy
+import com.contextsolutions.mobileagent.sync.JobSyncPolicy
+import com.contextsolutions.mobileagent.sync.LastSyncStatus
+import com.contextsolutions.mobileagent.sync.LastSyncStore
 import com.contextsolutions.mobileagent.sync.LinkSyncService
 import com.contextsolutions.mobileagent.sync.LocalChangeBus
+import com.contextsolutions.mobileagent.sync.MutableLastSyncStatus
 import com.contextsolutions.mobileagent.sync.SqlDelightLinkSyncService
 import com.contextsolutions.mobileagent.sync.SyncWatermarkStore
+import com.contextsolutions.mobileagent.job.DesktopJobScheduler
+import com.contextsolutions.mobileagent.job.JobAdmin
+import com.contextsolutions.mobileagent.job.JobExecutor
+import com.contextsolutions.mobileagent.job.JobRepository
+import com.contextsolutions.mobileagent.job.JobService
+import com.contextsolutions.mobileagent.job.SqlDelightJobRepository
 import com.contextsolutions.mobileagent.preferences.DesktopDesktopLinkPreferences
 import com.contextsolutions.mobileagent.preferences.DesktopLinkPreferences
 import com.contextsolutions.mobileagent.preferences.DesktopOllamaPreferences
@@ -259,13 +271,29 @@ val desktopModule: Module = module {
     single<SyncWatermarkStore> {
         DesktopSyncWatermarkStore(DesktopJsonStore(File(DesktopAppDirs.dataDir(), "sync_state.json")))
     }
+    // PR #70 — last-successful-sync wall-clock (shares sync_state.json). Desktop
+    // has no SyncController, so it stays null ("Never synced"); bound only so the
+    // shared Jobs UI can inject LastSyncStatus without a missing-binding crash.
+    single<LastSyncStore> {
+        DesktopLastSyncStore(DesktopJsonStore(File(DesktopAppDirs.dataDir(), "sync_state.json")))
+    }
+    single { MutableLastSyncStatus(get<LastSyncStore>().get()) }
+    single<LastSyncStatus> { get<MutableLastSyncStatus>() }
+    // PR #70 — desktop is the authority: drop remote inserts/tombstones, accept
+    // only a paused toggle on existing jobs (the §2 trust boundary, fail-closed).
+    single<JobSyncPolicy> { DesktopJobSyncPolicy() }
     single<LinkSyncService> {
         SqlDelightLinkSyncService(
             conversations = get(),
             memories = get(),
+            jobs = get(),
+            jobPolicy = get(),
             embedder = get(),
             bus = get(),
             logger = { System.err.println("[Sync] $it") },
+            // A mobile pause wrote the row via the raw query (no bus) — drive the
+            // scheduler so the job's coroutine actually cancels/rearms.
+            onJobPausedFromPeer = { id, paused -> get<JobService>().reactToPausedChange(id, paused) },
         )
     }
     // Desktop publishes the pairing-QR payload here once the link server is bound
@@ -333,6 +361,10 @@ val desktopModule: Module = module {
     // (mirrors androidModule). Persists/resumes chats through the shared :ui VM.
     single { get<MobileAgentDatabase>().conversationsQueries }
     single<ConversationRepository> { SqlDelightConversationRepository(get(), get(), localChangeBus = get()) }
+    // PR #70 — jobs. Repository on both platforms (mobile renders synced state);
+    // the scheduler/executor/service below are desktop-only.
+    single { get<MobileAgentDatabase>().jobsQueries }
+    single<JobRepository> { SqlDelightJobRepository(queries = get(), bus = get()) }
     single { SearchCacheDao(queries = get(), nowEpochMs = { get<AgentClock>().nowEpochMs() }) }
 
     // Translation-intent detector — platform-agnostic commonMain class consumed by
@@ -653,6 +685,39 @@ val desktopModule: Module = module {
     }
     single { ClockService(repository = get(), scheduler = get()) }
     single { ClockToolHandler(get()) }
+
+    // -- Job subsystem (PR #70), desktop-only. Mirrors the clock subsystem: a
+    //    coroutine delay-until-instant scheduler (jobServiceProvider lazy to break
+    //    the JobService↔scheduler cycle) + an executor that runs the subprocess
+    //    and writes the run conversation + history. JobService.rearmAll() is
+    //    called from Main.kt at startup, next to ClockService.rearmAll(). --
+    single {
+        DesktopJobScheduler(
+            jobServiceProvider = { get<JobService>() },
+            clock = get(),
+            logger = { System.err.println("[JobScheduler] $it") },
+        )
+    }
+    single {
+        JobExecutor(
+            jobs = get(),
+            conversations = get(),
+            clock = get(),
+            logger = { System.err.println("[JobExecutor] $it") },
+        )
+    }
+    single {
+        JobService(
+            repository = get(),
+            scheduler = get(),
+            executor = get(),
+            clock = get(),
+            logger = { System.err.println("[JobService] $it") },
+        )
+    }
+    // The desktop is the authority: bind the admin seam so the shared Jobs UI can
+    // create/edit/delete/run. Mobile leaves this unbound → the UI is read-only.
+    single<JobAdmin> { get<JobService>() }
 
     // -- Todo subsystem (agent tool). --
     single<TodoRepository> { SqlDelightTodoRepository(get()) }

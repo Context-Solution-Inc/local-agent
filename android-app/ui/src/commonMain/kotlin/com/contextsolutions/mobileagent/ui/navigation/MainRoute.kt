@@ -22,6 +22,7 @@ sealed interface MainRoute {
     data object TimerManagement : MainRoute
     data object AlarmManagement : MainRoute
     data object SearchSources : MainRoute
+    data object JobManagement : MainRoute
     data class ConversationMemory(val conversationId: String) : MainRoute
 
     companion object {
@@ -42,6 +43,7 @@ sealed interface MainRoute {
                     TimerManagement -> "timers"
                     AlarmManagement -> "alarms"
                     SearchSources -> "search_sources"
+                    JobManagement -> "jobs"
                     is ConversationMemory -> "cmem:${it.conversationId}"
                 }
             },
@@ -55,6 +57,7 @@ sealed interface MainRoute {
                     encoded == "timers" -> TimerManagement
                     encoded == "alarms" -> AlarmManagement
                     encoded == "search_sources" -> SearchSources
+                    encoded == "jobs" -> JobManagement
                     encoded.startsWith("cmem:") -> ConversationMemory(encoded.substringAfter("cmem:"))
                     else -> Chat
                 }

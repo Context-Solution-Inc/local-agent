@@ -95,6 +95,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.contextsolutions.mobileagent.inference.SessionState
 import com.contextsolutions.mobileagent.ui.clock.ClockViewModel
+import com.contextsolutions.mobileagent.ui.icons.RuleSettingsIcon
 import com.contextsolutions.mobileagent.ui.platform.isDesktopPlatform
 import com.contextsolutions.mobileagent.ui.markdown.MarkdownMath
 import com.contextsolutions.mobileagent.ui.todo.TodoViewModel
@@ -127,6 +128,7 @@ fun ChatScreen(
     onOpenTodos: () -> Unit,
     onOpenTimers: () -> Unit,
     onOpenAlarms: () -> Unit,
+    onOpenJobs: () -> Unit,
     viewModel: ChatViewModel = koinViewModel(),
     clockViewModel: ClockViewModel = koinViewModel(),
     todoViewModel: TodoViewModel = koinViewModel(),
@@ -501,6 +503,16 @@ fun ChatScreen(
                             icon = Icons.Filled.AccessAlarm,
                             contentDescription = "Alarms (${alarms.count { it.enabled }} active)",
                             onClick = onOpenAlarms,
+                        )
+                    }
+                    // PR #70 — Jobs. Shown on BOTH platforms and ALWAYS enabled,
+                    // even when the desktop link is offline/unconfigured: it opens
+                    // the last-synced list from local storage. (Pause/resume inside
+                    // is gated on the link being UP; viewing never is.)
+                    IconButton(onClick = onOpenJobs) {
+                        Icon(
+                            imageVector = RuleSettingsIcon,
+                            contentDescription = "Jobs",
                         )
                     }
                     IconButton(onClick = onOpenSettings) {

@@ -143,6 +143,10 @@ kotlin {
                 // Vosk — desktop offline STT (Phase 7). Bundles JNI natives; the
                 // acoustic model is downloaded separately (VoskDictation no-ops without it).
                 implementation(libs.vosk)
+                // PR #70 — cron parsing / next-fire for the desktop job scheduler.
+                // Desktop-only: the synced job model carries only the cronExpr string;
+                // only the desktop interprets it (never in commonMain).
+                implementation(libs.cron.utils)
             }
         }
         val desktopTest by getting {

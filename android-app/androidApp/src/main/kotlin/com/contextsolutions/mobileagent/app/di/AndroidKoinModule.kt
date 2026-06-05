@@ -101,13 +101,21 @@ import com.contextsolutions.mobileagent.link.DesktopLinkConnectionStatus
 import com.contextsolutions.mobileagent.link.DesktopLinkQrProvider
 import com.contextsolutions.mobileagent.link.NoDesktopLinkConnection
 import com.contextsolutions.mobileagent.link.NoDesktopLinkQr
+import com.contextsolutions.mobileagent.sync.LastSyncStatus
+import com.contextsolutions.mobileagent.sync.LastSyncStore
 import com.contextsolutions.mobileagent.sync.LinkSyncHttpClient
 import com.contextsolutions.mobileagent.sync.LinkSyncService
 import com.contextsolutions.mobileagent.sync.LocalChangeBus
+import com.contextsolutions.mobileagent.sync.MobileJobSyncPolicy
+import com.contextsolutions.mobileagent.sync.MutableLastSyncStatus
+import com.contextsolutions.mobileagent.sync.JobSyncPolicy
+import com.contextsolutions.mobileagent.sync.SharedPreferencesLastSyncStore
 import com.contextsolutions.mobileagent.sync.SharedPreferencesSyncWatermarkStore
 import com.contextsolutions.mobileagent.sync.SqlDelightLinkSyncService
 import com.contextsolutions.mobileagent.sync.SyncController
 import com.contextsolutions.mobileagent.sync.SyncWatermarkStore
+import com.contextsolutions.mobileagent.job.JobRepository
+import com.contextsolutions.mobileagent.job.SqlDelightJobRepository
 import com.contextsolutions.mobileagent.language.LanguagePreferences
 import com.contextsolutions.mobileagent.language.SharedPreferencesLanguagePreferences
 import com.contextsolutions.mobileagent.telemetry.SharedPreferencesTelemetryConsentManager
@@ -197,6 +205,10 @@ val androidModule: Module = module {
     single { MobileAgentDatabase(AndroidSqliteDriver(MobileAgentDatabase.Schema, androidContext(), DB_NAME)) }
     single { get<MobileAgentDatabase>().searchCacheQueries }
     single { get<MobileAgentDatabase>().telemetryAggregateQueries }
+    // PR #70 — jobs. The repo renders synced state offline; mobile binds NO
+    // scheduler/executor (jobs run only on the desktop).
+    single { get<MobileAgentDatabase>().jobsQueries }
+    single<JobRepository> { SqlDelightJobRepository(queries = get(), bus = get()) }
     single { get<MobileAgentDatabase>().conversationsQueries }
     single { get<MobileAgentDatabase>().todosQueries }
     single { get<MobileAgentDatabase>().memoriesQueries }
@@ -278,10 +290,20 @@ val androidModule: Module = module {
     // drives mobile→desktop reconcile (pull + push + SSE subscribe).
     single { LocalChangeBus() }
     single<SyncWatermarkStore> { SharedPreferencesSyncWatermarkStore(androidContext()) }
+    // PR #70 — last-successful-sync wall-clock for the Jobs screen. Seed the
+    // mutable holder from disk so the first emission survives a restart.
+    single<LastSyncStore> { SharedPreferencesLastSyncStore(androidContext()) }
+    single { MutableLastSyncStatus(get<LastSyncStore>().get()) }
+    single<LastSyncStatus> { get<MutableLastSyncStatus>() }
+    // PR #70 — mobile trusts the authoritative desktop and applies its job records
+    // verbatim; mobile only ever pushes a paused toggle.
+    single<JobSyncPolicy> { MobileJobSyncPolicy() }
     single<LinkSyncService> {
         SqlDelightLinkSyncService(
             conversations = get(),
             memories = get(),
+            jobs = get(),
+            jobPolicy = get(),
             embedder = get(),
             bus = get(),
             logger = { Log.i("Sync", it) },
@@ -294,6 +316,8 @@ val androidModule: Module = module {
             local = get(),
             http = get(),
             watermarks = get(),
+            lastSync = get(),
+            lastSyncStatus = get(),
             logger = { Log.i("Sync", it) },
         )
     }

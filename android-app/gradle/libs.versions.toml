@@ -118,6 +118,9 @@ jlatexmath = "1.0.7"
 # Windows; the acoustic model is downloaded separately (VoskDictation degrades to
 # no-op when absent, like the ONNX/GGUF engines).
 vosk = "0.3.45"
+# PR #70 — desktop job scheduler. cron-utils parses + computes next-fire for
+# 5-field cron expressions (pure-JVM, desktopMain only — never in commonMain).
+cronUtils = "9.2.1"
 # PR #57 — QR pairing. zxing-core encodes the QR on desktop (pure-JVM, #40-safe);
 # zxing-android-embedded scans it on mobile (CameraX + a drop-in scanner Activity,
 # Android-only — never commonMain, invariant #18).
@@ -195,6 +198,7 @@ markdown-renderer-m3 = { module = "com.mikepenz:multiplatform-markdown-renderer-
 jlatexmath = { module = "org.scilab.forge:jlatexmath", version.ref = "jlatexmath" }
 # Desktop offline STT (Phase 7).
 vosk = { module = "com.alphacephei:vosk", version.ref = "vosk" }
+cron-utils = { module = "com.cronutils:cron-utils", version.ref = "cronUtils" }
 zxing-core = { module = "com.google.zxing:core", version.ref = "zxingCore" }
 zxing-android-embedded = { module = "com.journeyapps:zxing-android-embedded", version.ref = "zxingAndroid" }
 
