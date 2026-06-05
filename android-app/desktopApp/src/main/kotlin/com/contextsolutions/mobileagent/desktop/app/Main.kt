@@ -112,6 +112,13 @@ import java.nio.channels.FileLock
  * `DI_CHECK=1` force-resolves the agent graph and the Phase-7 runtime singletons,
  * then exits without opening a window — a headless smoke test of the DI wiring.
  *
+ * `MOBILEAGENT_HEADLESS=1` starts the full background runtime (jobs, clock, task queue,
+ * mobile-link server, warm LLM, aux engines) but does NOT open the main window on launch —
+ * for running the agent as a system-startup service. With a system tray it starts minimized
+ * to the tray (Show opens the UI, Shut down quits); on a display-less box with no tray it
+ * runs fully windowless and blocks. See docs/DESKTOP_PACKAGING.md "Headless / standalone
+ * deployment".
+ *
  * Phase 7 (inc 5): a Compose Desktop [Tray] keeps the app alive when the window
  * is hidden (window-close hides to tray rather than quitting); the model stays
  * resident ([WarmModel]) and the single-consumer [TaskQueue] runs queued agent
@@ -362,6 +369,39 @@ fun main() {
         System.err.println("[desktopApp] System tray unavailable; running without a tray icon (close-to-quit).")
     }
 
+    // Background / startup-service mode (systemd, launchd, Task Scheduler): the full
+    // runtime above is already live on appScope — jobs, clock, task queue, mobile-link
+    // server, warm LLM, aux engines. We don't open the main window on launch; the user
+    // opens it on demand from the tray (Show), or shuts the agent down (Shut down).
+    //   • Tray available → fall through to application{} but START HIDDEN — the tray keeps
+    //     AWT's non-daemon thread alive (same as hide-to-tray today), so the window can be
+    //     summoned later. This is the good-UX path on a graphical login session.
+    //   • No tray (display-less server, or the GNOME/Wayland trap) → there's nothing to
+    //     summon the window from and an invisible-window composition would just exit, so
+    //     run FULLY WINDOWLESS: block the main thread and rely on the service manager.
+    val startHeadless = System.getenv("MOBILEAGENT_HEADLESS") == "1"
+    if (startHeadless && !traySupported) {
+        System.err.println(
+            "[desktopApp] headless (no tray): runtime started (jobs/clock/tasks/link/LLM). SIGTERM to stop.",
+        )
+        // Block the non-daemon main thread to keep the JVM alive — appScope runs on
+        // Dispatchers.Default (daemon threads), so returning from main would exit. The
+        // shutdown hook fires on SIGTERM (systemd's default) / Ctrl-C and mirrors the GUI
+        // shutdown() cleanup (sans exitProcess — we're already tearing down).
+        val done = java.util.concurrent.CountDownLatch(1)
+        Runtime.getRuntime().addShutdownHook(Thread {
+            runCatching { linkServer.stop() }
+            runCatching { warmModel.unload() }
+            runCatching { appScope.cancel() }
+            done.countDown()
+        })
+        done.await()
+        return
+    }
+    if (startHeadless) {
+        System.err.println("[desktopApp] background: runtime started, minimized to tray (Show to open).")
+    }
+
     application {
         // Shared shutdown path: the tray "Shut down" item AND the no-tray window-close
         // both use it. Without a tray, hiding the window would trap it (no Show/Shut down
@@ -380,7 +420,10 @@ fun main() {
             exitProcess(0)
         }
 
-        var windowVisible by remember { mutableStateOf(true) }
+        // Start hidden in background/startup mode (tray-only until the user clicks Show);
+        // normal launches open the window. Only reached with a tray (the no-tray headless
+        // path returned above), so a hidden start is always recoverable.
+        var windowVisible by remember { mutableStateOf(!startHeadless) }
 
         // Theme + UI-zoom prefs, collected up here so BOTH the styled tray menu (PR #71)
         // and the main Window below share them. desktopApp has no koin-compose, so we read

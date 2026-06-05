@@ -197,6 +197,96 @@ name defaults to `jllama` → `libjllama.so`/`.dll`/`.dylib`:
 intendedBackend=CUDA …` and the warning is gone. `activeAccelerator` reports the
 intended backend (best-effort — the JNI probe is deferred below).
 
+## Headless / standalone deployment
+
+The desktop agent is the **only** host that runs Jobs (cron + one-shot) and serves the
+mobile↔desktop link, so it's useful to run it as an always-on background service — at
+boot, without popping a window, no login required. Set the env var
+**`MOBILEAGENT_HEADLESS=1`** and the same launcher starts the full runtime (jobs, clock,
+task queue, mobile-link server, warm LLM, ONNX classifier/embedder) **without opening the
+main window**. What happens next depends on whether a system tray is available:
+
+- **Tray available (a graphical login session)** → the agent starts **minimized to the
+  system tray**. Click the tray icon's **Show** to open the chat UI on demand, or **Shut
+  down** to quit. This is the recommended way to autostart on a desktop you log into.
+- **No tray (a display-less server, or the GNOME/Wayland tray trap)** → the agent runs
+  **fully windowless** and blocks until signalled. `SIGTERM` (systemd's default stop) /
+  Ctrl-C trigger a clean shutdown (link server stop, model unload). This is the path a
+  systemd/launchd service on a headless box takes.
+
+Same gate convention as `DI_CHECK` / `MOBILEAGENT_LLAMA_SERVER_VARIANT`. The windowless
+fallback needs no display (X11/Wayland/Quartz) — safe on a true headless server.
+
+> **One instance only.** A process-wide file lock (`<app-data>/.instance.lock`) is shared
+> by both modes, so the headless service and the GUI can't both run (two warm models, two
+> task/job consumers racing the same SQLite rows). Stop the service before opening the GUI,
+> and vice versa.
+
+### End-to-end deploy
+
+1. **Build the standalone app on the target OS** (jpackage cross-builds nothing):
+
+   ```bash
+   cd android-app
+   ./gradlew :desktopApp:packageDistributionForCurrentOS   # → .deb/.rpm | .dmg/.pkg | .msi/.exe
+   # or, no OS packaging tools / no install:
+   ./gradlew :desktopApp:createDistributable               # → build/compose/binaries/main/app/MobileAgent/
+   ```
+
+   The app-image / installer bundles the JDK runtime + app jars but **no models** — those
+   download at first run (see [Models & assets](#models--assets--bundled-vs-downloaded)).
+
+2. **Install it.** `.deb` → `/opt/mobile-agent/bin/MobileAgent`; `.dmg`/`.pkg` →
+   `/Applications/MobileAgent.app`; Windows `.msi`/`.exe` → per-user
+   `%LOCALAPPDATA%\MobileAgent\MobileAgent.exe`. A `createDistributable` app-image runs
+   from its `bin/MobileAgent` in place.
+
+3. **Provision models + keys once** (the service runs unattended, so seed first). Easiest
+   is to launch the GUI once and let it download the GGUF + ONNX + (optional) Vosk into the
+   app-data dir, fill the GGUF coordinates / Brave key, and — if you use the phone — pair
+   it. Everything persists in the app-data dir
+   ([per-OS paths](#models--assets--bundled-vs-downloaded)); the headless service inherits
+   it. Alternatively point the `MOBILEAGENT_*` model env vars at pre-staged files and pass
+   the Brave key via the service environment. Verify headless before wiring startup:
+
+   ```bash
+   MOBILEAGENT_HEADLESS=1 /opt/mobile-agent/bin/MobileAgent
+   # graphical session → starts minimized to tray (banner: "background: ... minimized to tray");
+   # display-less box  → runs windowless and blocks (banner: "headless (no tray): ...").
+   ```
+
+4. **Register it as a startup task** (templates in `android-app/desktopApp/packaging/`):
+
+   **Linux — systemd user service** (`mobileagent.user.service`):
+   ```bash
+   cp android-app/desktopApp/packaging/mobileagent.user.service \
+      ~/.config/systemd/user/mobileagent.service          # edit ExecStart to your install path
+   systemctl --user daemon-reload
+   systemctl --user enable --now mobileagent.service
+   sudo loginctl enable-linger "$USER"                    # start at boot before login
+   journalctl --user -u mobileagent -f                    # logs (the stderr banner)
+   ```
+
+   **Linux — systemd system service** (`mobileagent.system.service`): same, but edit
+   `User=`/`Environment=HOME=` to the account owning the app-data dir, install to
+   `/etc/systemd/system/`, and `sudo systemctl enable --now mobileagent`.
+
+   **macOS — launchd** (`com.contextsolutions.mobileagent.plist`):
+   ```bash
+   cp android-app/desktopApp/packaging/com.contextsolutions.mobileagent.plist \
+      ~/Library/LaunchAgents/
+   launchctl load -w ~/Library/LaunchAgents/com.contextsolutions.mobileagent.plist
+   ```
+
+   **Windows — Task Scheduler** (no template file). Set the env var, then create a task:
+   ```powershell
+   setx MOBILEAGENT_HEADLESS 1     # user-scoped; or set it inside the task's action
+   schtasks /Create /SC ONLOGON /TN MobileAgent ^
+     /TR "%LOCALAPPDATA%\MobileAgent\MobileAgent.exe"
+   ```
+   (Or drop a shortcut to `MobileAgent.exe` in `shell:startup`.) Env vars can also be set
+   machine-wide with `setx /M`.
+
 ## Deferred (not in v0.1.0)
 
 - **Shipping a prebuilt GPU `libjllama` + a real `activeAccelerator` probe.** LLM GPU
