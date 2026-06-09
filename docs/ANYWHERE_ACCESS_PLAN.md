@@ -223,12 +223,48 @@ both dial `wss /v1/connect` → relay reports `peer_online` → chat streams + s
 over the relay. Pull the subscription (`stripe subscriptions cancel`) → `4004` →
 transparent fallback to LAN/local.
 
-## Remaining on-device step
+On-device crypto smoke (proves the real AAR runs on arm64):
+```sh
+cd android-app
+ANDROID_HOME=/home/lawrenceley/android-sdk ./gradlew :androidApp:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=com.contextsolutions.mobileagent.relay.RelayCryptoSmokeTest
+# RelayCryptoSmokeTest — X25519 derive + XChaCha20-Poly1305 session round-trip + tamper
+# detection under lazysodium-android on the device (where lazysodium-java's JNA build can't load).
+```
 
-The secure-gateway `:android` SDK is still the plain-JVM build (lazysodium-**java**),
-kept that way so the hermetic cross-platform E2E runs on the JVM. The app COMPILES
-against it via mavenLocal (API-identical), but real on-device relay crypto needs the
-`com.android.library` AAR with **lazysodium-android** + a hardware-backed Android
-Keystore, then the #40 native-lib (`.so`) collision check on a Pixel 7 (litert /
-litertlm vs libsodium). The chat-header relay status dot is also deferred (cosmetic —
-relay chat + sync work without it).
+## On-device relay (shipped — secure-gateway PR #8 / mobile-agent PR #76)
+
+The secure-gateway mobile SDK now ships a **real Android AAR** (`com.securegateway:android`,
+the `:android-aar` `com.android.library` module on **lazysodium-android**), so relay crypto
+runs natively on the device. The plain-JVM `:android` module is retained — unpublished —
+solely so the hermetic cross-platform `:java:e2eTest` keeps running on the JVM. Key points:
+
+- **Crypto seam:** `:core/Crypto` types against the base `LazySodium` and resolves the
+  concrete binding via a `ServiceLoader` `SodiumProvider` (JVM modules register a
+  `LazySodiumJava` provider; the AAR registers a `LazySodiumAndroid` one). `:core`'s
+  lazysodium-java is `compileOnly`, so it never leaks onto the Android classpath.
+- **JNA native:** `SodiumAndroid` is JNA-based and needs `libjnidispatch.so` (arm64); the
+  AAR excludes lazysodium-android's plain-jar `jna` and pulls `net.java.dev.jna:jna:5.17.0@aar`
+  so AGP unpacks the native into the APK.
+- **16 KB page-size (Play requirement, API 35+):** lazysodium-android is pinned **5.2.0** —
+  its `libsodium.so` ELF LOAD segments are 16 KB-aligned (5.1.0 was 4 KB and tripped Android's
+  16 KB compatibility check). 5.2.0 transitively needs the Kotlin-2.1 stdlib (via androidx.core-ktx),
+  so the `:android-aar` module bumps its Kotlin plugin to 2.1.x — a separate plugin application
+  from the JVM modules' kotlin-jvm 1.9.24, which keeps `:java:e2eTest` untouched. Verified on the
+  Pixel 7 APK: every native lib (libsodium/libjnidispatch + litert/tflite/datastore/graphics.path)
+  is `p_align` 0x4000.
+- **Identity at rest:** `AndroidKeystoreKeyStore` (mobile-agent `androidMain`) stores the
+  X25519 private key in an androidx `EncryptedFile` under a hardware-backed AndroidKeyStore
+  master key. (The Android hardware Keystore can't hold a raw X25519/Curve25519 key directly,
+  so the libsodium-generated key is encrypted at rest rather than hardware-resident.)
+- **#40 native check (Pixel 7):** the APK packages `libsodium.so` + `libjnidispatch.so`
+  alongside `libLiteRt.so` / `libLiteRtClGlAccelerator.so` / `liblitertlm_jni.so` — all
+  distinct names, **no collision**, so the litert `pickFirst`/`extractLitertJni` packaging is
+  unchanged. Verified on-device: classifier + embedder + Gemma all load; `RelayCryptoSmokeTest`
+  passes.
+
+The **full live-relay run** (Stripe subscribe → relay QR → camera scan → chat+sync over the
+relay → `4004` revoke fallback) is the manual procedure above; the device-specific risk it
+covered (does the arm64 crypto load + round-trip) is now proven by `RelayCryptoSmokeTest`.
+
+The chat-header relay status dot remains deferred (cosmetic — relay chat + sync work without it).

@@ -559,6 +559,11 @@ dependencies {
     androidTestImplementation(libs.play.services.tflite.gpu)
     androidTestImplementation(libs.play.services.tflite.support)
     androidTestImplementation(libs.ai.edge.litert)
+
+    // Secure Gateway Android AAR — surfaced here only for RelayCryptoSmokeTest, which
+    // exercises the real lazysodium-android crypto on-device (#55). The production path
+    // consumes it via :shared/androidMain's implementation() behind the transport seam.
+    androidTestImplementation(libs.securegateway.android)
 }
 
 // Same rationale as :shared — keep litert's bundled `org.tensorflow.lite.*`
