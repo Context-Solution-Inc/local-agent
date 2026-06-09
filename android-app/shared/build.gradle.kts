@@ -91,6 +91,11 @@ kotlin {
             implementation(libs.ktor.client.okhttp)
             implementation(libs.sqldelight.android.driver)
             implementation(libs.androidx.security.crypto)
+            // Mobile relay SDK (MobileClient) for the E2EE relay transport. The
+            // on-device AAR with lazysodium-android + a hardware-backed Android
+            // Keystore is the remaining device step (CLAUDE.md #40 — verify the
+            // libsodium .so doesn't collide with litert/litertlm natives).
+            implementation(libs.securegateway.android)
             // PR #23 — vertical search preferences. Single-blob JSON storage
             // avoids the SQLDelight .sqm snapshot dance (invariant #20).
             implementation(libs.androidx.datastore.preferences)

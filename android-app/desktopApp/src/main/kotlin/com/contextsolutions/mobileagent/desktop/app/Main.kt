@@ -66,8 +66,11 @@ import com.contextsolutions.mobileagent.task.TaskQueue
 import com.contextsolutions.mobileagent.task.TaskRepository
 import com.contextsolutions.mobileagent.telemetry.DesktopTelemetryScheduler
 import com.contextsolutions.mobileagent.inference.DesktopAppDirs
+import com.contextsolutions.mobileagent.link.DesktopLinkRequestHandler
 import com.contextsolutions.mobileagent.link.DesktopLinkServer
+import com.contextsolutions.mobileagent.subscription.DesktopRelayHost
 import com.contextsolutions.mobileagent.subscription.RelaySubscriptionService
+import com.contextsolutions.mobileagent.subscription.SubscriptionPreferences
 import com.contextsolutions.mobileagent.link.LanAddress
 import com.contextsolutions.mobileagent.link.LinkPairingPayload
 import com.contextsolutions.mobileagent.link.MutableDesktopLinkConnectionStatus
@@ -92,6 +95,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
@@ -99,6 +103,8 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.time.Duration
 import org.koin.core.context.startKoin
 import org.koin.core.qualifier.named
 import java.io.RandomAccessFile
@@ -213,10 +219,16 @@ fun main() {
     // PR #74 — paid "anywhere access". The link server hosts the Stripe Checkout
     // success callback; the service claims the credential and re-validates on launch.
     val subscription = koin.get<RelaySubscriptionService>()
-    val linkServer = DesktopLinkServer(
+    // The one implementation of each link route body, shared by the LAN server
+    // and (in the relay follow-up) the relay frame dispatcher.
+    val linkHandler = DesktopLinkRequestHandler(
         preferences = desktopLinkPrefs,
         sessionProvider = { warmModel.session() },
         syncService = koin.get<LinkSyncService>(),
+    )
+    val linkServer = DesktopLinkServer(
+        preferences = desktopLinkPrefs,
+        handler = linkHandler,
         connectionStatus = koin.get<MutableDesktopLinkConnectionStatus>(),
         onSubscribeCallback = { code -> subscription.handleClaimCode(code) },
         logger = { System.err.println("[DesktopLink] $it") },
@@ -225,22 +237,57 @@ fun main() {
     subscription.callbackPortProvider = { linkServer.boundPort.takeIf { it > 0 } }
     // Launch-time subscription re-validation (only if an account exists locally, #74).
     appScope.launch { runCatching { subscription.refresh() } }
+    // The relay pairing QR (JSON), published while subscribed; null otherwise. It
+    // takes precedence over the LAN `magent://` QR so a subscribed desktop shows
+    // the "anywhere" QR, falling back to LAN when the subscription lapses/revokes.
+    val relayQrPayload = MutableStateFlow<String?>(null)
     appScope.launch {
         runCatching {
             val port = linkServer.start()
             val host = LanAddress.primaryIpv4()
             // Republish the pairing QR whenever the token/device id changes (e.g.
             // a Disconnect rotates the token), so a fresh phone scans a valid QR
-            // and the old phone's stale token is rejected.
-            desktopLinkPrefs.configFlow()
+            // and the old phone's stale token is rejected. Relay QR wins when set.
+            val lanQr = desktopLinkPrefs.configFlow()
                 .map { cfg -> host?.let { LinkPairingPayload(it, port, cfg.pairingToken, cfg.selfDeviceId).encode() } }
+            combine(lanQr, relayQrPayload) { lan, relay -> relay ?: lan }
                 .distinctUntilChanged()
                 .onEach { payload ->
                     koin.get<MutableDesktopLinkQr>().set(payload)
-                    System.err.println("[DesktopLink] pairing QR ${if (payload != null) "ready ($host:$port)" else "unavailable (no LAN address)"}")
+                    System.err.println("[DesktopLink] pairing QR ${if (payload != null) "ready" else "unavailable"}")
                 }
                 .launchIn(appScope)
         }.onFailure { System.err.println("[DesktopLink] server failed to start: ${it.message}") }
+    }
+
+    // Relay transport lifecycle (follow-up). While a subscription is active, mint
+    // the relay QR, wait for the phone to pair, connect, and serve framed link
+    // requests through the SAME handler as the LAN server — concurrently with the
+    // LAN server, which stays the same-network fast path + offline/revoked fallback.
+    val relayHost = koin.get<DesktopRelayHost>()
+    appScope.launch {
+        koin.get<SubscriptionPreferences>().stateFlow()
+            .map { it.isActive }
+            .distinctUntilChanged()
+            .collectLatest { active ->
+                if (!active) {
+                    relayHost.close()
+                    relayQrPayload.value = null
+                    return@collectLatest
+                }
+                runCatching {
+                    withContext(Dispatchers.IO) {
+                        relayQrPayload.value = relayHost.generatePairingQr()
+                        System.err.println("[Relay] pairing QR ready; awaiting phone…")
+                        relayHost.awaitPairing(Duration.ofMinutes(5))
+                        relayHost.connectAndServe(linkHandler, appScope)
+                        System.err.println("[Relay] connected; serving framed link requests")
+                    }
+                }.onFailure {
+                    System.err.println("[Relay] setup failed: ${it.message}")
+                    relayQrPayload.value = null
+                }
+            }
     }
 
     val taskRunner = DesktopTaskRunner(
@@ -399,6 +446,7 @@ fun main() {
         // shutdown() cleanup (sans exitProcess — we're already tearing down).
         val done = java.util.concurrent.CountDownLatch(1)
         Runtime.getRuntime().addShutdownHook(Thread {
+            runCatching { relayHost.close() }
             runCatching { linkServer.stop() }
             runCatching { warmModel.unload() }
             runCatching { appScope.cancel() }
@@ -423,6 +471,7 @@ fun main() {
             // thread alive, so the JVM lingers) and its window teardown could surface the
             // hidden main window for an instant. exitProcess(0) terminates immediately and
             // unconditionally; the OS drops the tray icon when the process dies.
+            runCatching { relayHost.close() }
             runCatching { linkServer.stop() }
             runCatching { warmModel.unload() }
             runCatching { appScope.cancel() }

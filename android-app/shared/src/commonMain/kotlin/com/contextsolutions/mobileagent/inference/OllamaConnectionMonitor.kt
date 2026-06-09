@@ -75,6 +75,15 @@ class OllamaConnectionMonitor(
         scope.launch { stopWatch() }
     }
 
+    /**
+     * Drop the resident handle so the next turn re-decides the backend. Used by the
+     * relay transport provider when the relay pipe comes up/down (the relay has no
+     * pollable health URL, so it pushes the reload instead of being watched).
+     */
+    fun requestReload() {
+        _reloadRequests.tryEmit(Unit)
+    }
+
     private suspend fun startWatch(baseUrl: String) = mutex.withLock {
         if (watchJob?.isActive == true && watchedUrl == baseUrl) return
         watchJob?.cancel()

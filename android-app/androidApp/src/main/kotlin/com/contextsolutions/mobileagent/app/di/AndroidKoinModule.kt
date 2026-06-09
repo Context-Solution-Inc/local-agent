@@ -105,9 +105,15 @@ import com.contextsolutions.mobileagent.link.DesktopLinkConnectionStatus
 import com.contextsolutions.mobileagent.link.DesktopLinkQrProvider
 import com.contextsolutions.mobileagent.link.NoDesktopLinkConnection
 import com.contextsolutions.mobileagent.link.NoDesktopLinkQr
+import com.contextsolutions.mobileagent.link.transport.AndroidRelayBytePipeFactory
+import com.contextsolutions.mobileagent.link.transport.DefaultLinkTransportProvider
+import com.contextsolutions.mobileagent.link.transport.LanLinkTransport
+import com.contextsolutions.mobileagent.link.transport.LinkTransport
+import com.contextsolutions.mobileagent.link.transport.LinkTransportProvider
+import com.contextsolutions.mobileagent.link.transport.RelayBytePipeFactory
 import com.contextsolutions.mobileagent.sync.LastSyncStatus
 import com.contextsolutions.mobileagent.sync.LastSyncStore
-import com.contextsolutions.mobileagent.sync.LinkSyncHttpClient
+import com.contextsolutions.mobileagent.sync.LinkSyncClient
 import com.contextsolutions.mobileagent.sync.LinkSyncService
 import com.contextsolutions.mobileagent.sync.LocalChangeBus
 import com.contextsolutions.mobileagent.sync.MobileJobSyncPolicy
@@ -269,6 +275,26 @@ val androidModule: Module = module {
     // status provider polls /health for the chat-header link dot.
     single<DesktopLinkPreferences> { SharedPreferencesDesktopLinkPreferences(androidContext()) }
     single { DesktopLinkClient(get<HttpEngineFactory>()) }
+    // PR #57 / relay follow-up — the link transport seam. LAN today; the provider
+    // returns the relay transport when a subscription is active (added in the
+    // relay PR). The desktop-link engine + sync client route through the provider.
+    single<LinkTransport>(named("lan")) {
+        LanLinkTransport(get<HttpEngineFactory>()) { get<DesktopLinkPreferences>().config() }
+    }
+    single<RelayBytePipeFactory> {
+        AndroidRelayBytePipeFactory(androidContext(), logger = { Log.i("Relay", it) })
+    }
+    single<LinkTransportProvider> {
+        DefaultLinkTransportProvider(
+            preferences = get(),
+            lan = get(named("lan")),
+            relayFactory = get(),
+            // The relay has no pollable health URL — push a reload when it comes
+            // up/down so the next turn re-decides (reuses the desktop-link monitor).
+            onRelayConnectivityChanged = { get<OllamaConnectionMonitor>(named("desktopLink")).requestReload() },
+            logger = { Log.i("Relay", it) },
+        )
+    }
     single(named("desktopLink")) {
         OllamaConnectionMonitor(
             healthProbe = { url ->
@@ -279,9 +305,7 @@ val androidModule: Module = module {
     }
     single {
         DesktopLinkInferenceEngine(
-            httpEngineFactory = get(),
-            preferences = get(),
-            client = get(),
+            transports = get(),
             monitor = get(named("desktopLink")),
             logger = { Log.i("DesktopLink", it) },
         )
@@ -318,7 +342,7 @@ val androidModule: Module = module {
             logger = { Log.i("Sync", it) },
         )
     }
-    single { LinkSyncHttpClient(get<HttpEngineFactory>()) }
+    single { LinkSyncClient(get<LinkTransportProvider>()) }
     single {
         SyncController(
             preferences = get(),

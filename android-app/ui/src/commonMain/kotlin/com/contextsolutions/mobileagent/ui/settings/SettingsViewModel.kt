@@ -3,6 +3,8 @@ package com.contextsolutions.mobileagent.ui.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.contextsolutions.mobileagent.inference.DesktopLinkClient
+import com.contextsolutions.mobileagent.link.transport.LinkAccessMode
+import com.contextsolutions.mobileagent.link.transport.RelayQrPayload
 import com.contextsolutions.mobileagent.inference.DesktopLinkStatus
 import com.contextsolutions.mobileagent.inference.DesktopLinkStatusProvider
 import com.contextsolutions.mobileagent.inference.OllamaClient
@@ -134,27 +136,55 @@ class SettingsViewModel(
      * the QR parsed (pairing reachability is reflected later by the status dot).
      */
     fun applyScannedLink(rawQr: String): Boolean {
-        val payload = LinkPairingPayload.parse(rawQr) ?: return false
-        val self = desktopLinkPreferences.config().selfDeviceId
-        desktopLinkPreferences.setConfig(
-            desktopLinkPreferences.config().copy(
-                enabled = true,
-                peerHost = payload.host,
-                peerPort = payload.port,
-                pairingToken = payload.token,
-                pairedDeviceId = payload.deviceId,
-            ),
-        )
-        viewModelScope.launch {
-            val baseUrl = "http://${payload.host}:${payload.port}"
-            withContext(Dispatchers.IO) { desktopLinkClient.pair(baseUrl, payload.token, self) }
+        // LAN `magent://link` QR (PR #57).
+        LinkPairingPayload.parse(rawQr)?.let { payload ->
+            val self = desktopLinkPreferences.config().selfDeviceId
+            desktopLinkPreferences.setConfig(
+                desktopLinkPreferences.config().copy(
+                    enabled = true,
+                    accessMode = LinkAccessMode.LAN,
+                    relayQrJson = "",
+                    peerHost = payload.host,
+                    peerPort = payload.port,
+                    pairingToken = payload.token,
+                    pairedDeviceId = payload.deviceId,
+                ),
+            )
+            viewModelScope.launch {
+                val baseUrl = "http://${payload.host}:${payload.port}"
+                withContext(Dispatchers.IO) { desktopLinkClient.pair(baseUrl, payload.token, self) }
+            }
+            return true
         }
-        return true
+        // Relay QR (anywhere access). The phone has no subscription of its own —
+        // the QR carries the desktop's account secret, stored in SecureStorage. The
+        // transport provider pairs + connects the relay in the background.
+        RelayQrPayload.parseOrNull(rawQr)?.let { relay ->
+            if (relay.accountSecret.isNotBlank()) {
+                secureStorage.put(SecureStorageKeys.RELAY_ACCOUNT_SECRET, relay.accountSecret)
+            }
+            desktopLinkPreferences.setConfig(
+                desktopLinkPreferences.config().copy(
+                    enabled = true,
+                    accessMode = LinkAccessMode.RELAY,
+                    relayQrJson = rawQr,
+                    pairedDeviceId = relay.desktopDeviceId,
+                    // Clear stale LAN endpoint so the LAN path can't be picked.
+                    peerHost = "",
+                    peerPort = null,
+                    pairingToken = "",
+                ),
+            )
+            return true
+        }
+        return false
     }
 
     /** Forget the paired desktop (and disable the link). Mobile side. */
     fun unpairDesktop() {
         desktopLinkPreferences.clear()
+        // Drop the relay account secret the QR conveyed — don't leave it on the phone.
+        secureStorage.remove(SecureStorageKeys.RELAY_ACCOUNT_SECRET)
     }
 
     /**

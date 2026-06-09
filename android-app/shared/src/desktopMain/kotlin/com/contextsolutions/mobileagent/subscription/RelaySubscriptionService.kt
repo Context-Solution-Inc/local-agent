@@ -149,5 +149,21 @@ class RelaySubscriptionService(
 
         /** Stripe Customer Portal / account URL for "Subscription Settings". */
         fun portalUrlFromEnv(): String = System.getenv("MOBILEAGENT_SUBSCRIPTION_PORTAL_URL").orEmpty()
+
+        /**
+         * Relay WebSocket URL for the E2EE transport. Explicit env wins; otherwise
+         * derived from the gateway base URL (`http→ws`, `https→wss`, `/v1/connect`).
+         */
+        fun relayWsUrlFromEnv(): String {
+            System.getenv("MOBILEAGENT_RELAY_WS_URL")?.takeIf { it.isNotBlank() }?.let { return it }
+            val base = gatewayUrlFromEnv().trimEnd('/')
+            if (base.isEmpty()) return ""
+            val ws = when {
+                base.startsWith("https://") -> "wss://" + base.removePrefix("https://")
+                base.startsWith("http://") -> "ws://" + base.removePrefix("http://")
+                else -> base
+            }
+            return "$ws/v1/connect"
+        }
     }
 }

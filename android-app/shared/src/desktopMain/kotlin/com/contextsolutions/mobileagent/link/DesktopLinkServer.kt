@@ -1,13 +1,12 @@
 package com.contextsolutions.mobileagent.link
 
-import com.contextsolutions.mobileagent.agent.InferenceSession
-import com.contextsolutions.mobileagent.inference.GenerationEvent
-import com.contextsolutions.mobileagent.inference.openAiDeltaChunk
-import com.contextsolutions.mobileagent.inference.parseOpenAiChatRequest
+import com.contextsolutions.mobileagent.link.transport.LinkMethod
+import com.contextsolutions.mobileagent.link.transport.LinkRequest
+import com.contextsolutions.mobileagent.link.transport.LinkRequestHandler
+import com.contextsolutions.mobileagent.link.transport.LinkResponse
+import com.contextsolutions.mobileagent.link.transport.LinkStreamEvent
 import com.contextsolutions.mobileagent.preferences.DesktopLinkConfig
 import com.contextsolutions.mobileagent.preferences.DesktopLinkPreferences
-import com.contextsolutions.mobileagent.sync.LinkSyncService
-import com.contextsolutions.mobileagent.sync.SyncBundle
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
@@ -17,49 +16,38 @@ import io.ktor.server.engine.EmbeddedServer
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.request.receiveText
+import io.ktor.server.response.respondBytesWriter
 import io.ktor.server.response.respondText
-import io.ktor.server.response.respondTextWriter
+import io.ktor.utils.io.writeStringUtf8
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * The desktop half of the mobile↔desktop link (PR #57): a small Ktor (CIO) HTTP
  * server bound on `0.0.0.0` so a paired phone on the LAN can reach it. Plain HTTP
  * by design (trusted LAN, no SSL); a QR-provisioned bearer token gates every
- * route except `/ping`, so random LAN clients are ignored.
+ * route except `/ping` + `/subscribe/callback`, so random LAN clients are ignored.
+ *
+ * The route bodies live in the shared [LinkRequestHandler]
+ * ([DesktopLinkRequestHandler]) — the SAME implementation the relay frame
+ * dispatcher calls — so this server only owns LAN concerns: bearer auth, the
+ * HTTP/SSE marshaling, the pairing-token lifecycle, and the held-subscriber count.
  *
  * Endpoints:
  *  - `GET /ping` — unauthenticated liveness (used to find the bound port).
- *  - `GET /health` — token-gated; reports the desktop device id (the mobile
- *    link monitor + the chat-header dot poll this).
- *  - `POST /v1/chat/completions` — OpenAI-compatible proxy. Drives generation
- *    through [sessionProvider] (the desktop's warm model via the InferenceEngine
- *    seam), so it transparently serves from whatever the desktop is configured
- *    for — its local LLM OR the desktop's own remote Ollama — without ever
- *    exposing that downstream endpoint to the phone.
- *  - `POST /pair` — records the paired mobile's device id; returns the desktop's.
- *  - `GET /sync/changes?since=` / `POST /sync/upsert` — bidirectional LWW sync.
- *  - `GET /sync/subscribe` — SSE the phone holds to learn of desktop-side changes
- *    (then pulls `/sync/changes`); the phone never needs its own server.
- *
- * The proxy is backend-agnostic: it MUST always go through [sessionProvider]
- * (never a hard-coded local target) so the desktop's own backend choice is
- * honored end-to-end.
+ *  - `GET /subscribe/callback` — PR #74 Stripe Checkout redirect (browser-facing).
+ *  - `GET /health` / `POST /pair` / `GET /sync/changes` / `POST /sync/upsert` —
+ *    token-gated unary calls → [LinkRequestHandler.handleUnary].
+ *  - `POST /v1/chat/completions` / `GET /sync/subscribe` — token-gated SSE streams
+ *    → [LinkRequestHandler.handleStream].
  */
 class DesktopLinkServer(
     private val preferences: DesktopLinkPreferences,
-    private val sessionProvider: suspend () -> InferenceSession,
-    private val syncService: LinkSyncService,
+    private val handler: LinkRequestHandler,
     /** Updated as phones connect/disconnect (their held `/sync/subscribe` SSE). */
     private val connectionStatus: MutableDesktopLinkConnectionStatus? = null,
     /**
@@ -73,8 +61,6 @@ class DesktopLinkServer(
     private val preferredPort: Int = DesktopLinkConfig.DEFAULT_PORT,
     private val logger: (String) -> Unit = {},
 ) {
-    private val json = Json { ignoreUnknownKeys = true }
-
     // Number of phones currently holding a /sync/subscribe stream. The mobile keeps
     // it open while foregrounded + linked, so >0 means "a phone is connected".
     private val activeSubscribers = java.util.concurrent.atomic.AtomicInteger(0)
@@ -127,7 +113,7 @@ class DesktopLinkServer(
                 exception<Throwable> { call, cause ->
                     logger("route error: ${cause.message}")
                     call.respondText(
-                        """{"error":${json.encodeToString(kotlinx.serialization.json.JsonPrimitive.serializer(), kotlinx.serialization.json.JsonPrimitive(cause.message ?: "error"))}}""",
+                        """{"error":${jsonString(cause.message ?: "error")}}""",
                         ContentType.Application.Json,
                         HttpStatusCode.InternalServerError,
                     )
@@ -138,8 +124,7 @@ class DesktopLinkServer(
 
                 // PR #74 — Stripe Checkout success redirect. Browser-facing (no
                 // bearer); the gateway only ever redirects a one-time claim_code
-                // to this loopback address. Hands the code to the subscription
-                // service, then shows a "return to the app" page.
+                // to this loopback address.
                 get("/subscribe/callback") {
                     val code = call.request.queryParameters["claim_code"].orEmpty()
                     val canceled = call.request.queryParameters["status"] == "canceled"
@@ -160,83 +145,40 @@ class DesktopLinkServer(
 
                 get("/health") {
                     if (!call.authorized()) return@get call.unauthorized()
-                    call.respondText(
-                        """{"status":"ok","deviceId":"${preferences.config().selfDeviceId}"}""",
-                        ContentType.Application.Json,
-                    )
+                    call.respondUnary(handler.handleUnary(LinkRequest(LinkMethod.HEALTH)))
                 }
 
                 post("/v1/chat/completions") {
                     if (!call.authorized()) return@post call.unauthorized()
                     val body = call.receiveText()
-                    val request = parseOpenAiChatRequest(body)
-                    val session = sessionProvider()
-                    call.respondTextWriter(contentType = ContentType.parse("text/event-stream")) {
-                        session.generate(request, null).collect { event ->
-                            when (event) {
-                                is GenerationEvent.TokenChunk -> {
-                                    write("data: ${openAiDeltaChunk(event.text)}\n\n")
-                                    flush()
-                                }
-                                is GenerationEvent.Done -> {
-                                    write("data: [DONE]\n\n")
-                                    flush()
-                                }
-                                is GenerationEvent.Error -> {
-                                    write("data: ${openAiDeltaChunk("[error] ${event.message}")}\n\n")
-                                    write("data: [DONE]\n\n")
-                                    flush()
-                                }
-                                is GenerationEvent.FunctionCall -> Unit // not used over the link
-                            }
-                        }
-                    }
+                    call.respondStream(handler.handleStream(LinkRequest(LinkMethod.CHAT, body = body)))
                 }
 
                 post("/pair") {
                     if (!call.authorized()) return@post call.unauthorized()
-                    val mobileId = runCatching {
-                        json.parseToJsonElement(call.receiveText()).jsonObject["deviceId"]
-                            ?.jsonPrimitive?.contentOrNull
-                    }.getOrNull().orEmpty()
-                    if (mobileId.isNotBlank()) {
-                        preferences.setConfig(preferences.config().copy(pairedDeviceId = mobileId))
-                        logger("paired with mobile ${mobileId.take(12)}")
-                    }
-                    call.respondText(
-                        """{"ok":true,"deviceId":"${preferences.config().selfDeviceId}"}""",
-                        ContentType.Application.Json,
-                    )
+                    val body = call.receiveText()
+                    call.respondUnary(handler.handleUnary(LinkRequest(LinkMethod.PAIR, body = body)))
                 }
 
                 get("/sync/changes") {
                     if (!call.authorized()) return@get call.unauthorized()
-                    val since = call.request.queryParameters["since"]?.toLongOrNull() ?: 0L
-                    val bundle = syncService.changesSince(since)
-                    call.respondText(
-                        json.encodeToString(SyncBundle.serializer(), bundle),
-                        ContentType.Application.Json,
+                    val since = call.request.queryParameters["since"] ?: "0"
+                    call.respondUnary(
+                        handler.handleUnary(LinkRequest(LinkMethod.SYNC_CHANGES, query = mapOf("since" to since))),
                     )
                 }
 
                 post("/sync/upsert") {
                     if (!call.authorized()) return@post call.unauthorized()
-                    val bundle = json.decodeFromString(SyncBundle.serializer(), call.receiveText())
-                    syncService.applyFromPeer(bundle)
-                    call.respondText("""{"ok":true}""", ContentType.Application.Json)
+                    val body = call.receiveText()
+                    call.respondUnary(handler.handleUnary(LinkRequest(LinkMethod.SYNC_UPSERT, body = body)))
                 }
 
                 get("/sync/subscribe") {
                     if (!call.authorized()) return@get call.unauthorized()
                     subscriberOpened()
                     try {
-                        call.respondTextWriter(contentType = ContentType.parse("text/event-stream")) {
-                            // Tell the phone to pull immediately, then on every local change.
-                            write("data: changed\n\n"); flush()
-                            syncService.localChanges.collect {
-                                write("data: changed\n\n"); flush()
-                            }
-                        }
+                        call.respondStream(handler.handleStream(LinkRequest(LinkMethod.SYNC_SUBSCRIBE)))
                     } finally {
                         subscriberClosed()
                     }
@@ -246,6 +188,41 @@ class DesktopLinkServer(
         s.start(wait = false)
         server = s
         return s.resolvedConnectorsBlocking().first().port
+    }
+
+    private suspend fun ApplicationCall.respondUnary(response: LinkResponse) =
+        respondText(response.body, ContentType.Application.Json, HttpStatusCode.fromValue(response.status))
+
+    /**
+     * Marshal a handler stream back over SSE, flushing each event to the socket so
+     * the phone sees tokens as they're produced. NOTE: `respondTextWriter` +
+     * `Writer.flush()` does NOT stream on Ktor CIO — the Writer's flush only pushes
+     * into the response `ByteWriteChannel`, which then buffers until it fills or the
+     * response completes (the whole reply effectively batches, and a long turn times
+     * out the client before anything arrives). `respondBytesWriter` +
+     * `ByteWriteChannel.flush()` forces each event out to the socket.
+     */
+    private suspend fun ApplicationCall.respondStream(stream: kotlinx.coroutines.flow.Flow<LinkStreamEvent>) {
+        respondBytesWriter(contentType = ContentType.parse("text/event-stream")) {
+            try {
+                stream.collect { event ->
+                    val sse = when (event) {
+                        is LinkStreamEvent.Data -> "data: ${event.body}\n\n"
+                        is LinkStreamEvent.End -> "data: [DONE]\n\n"
+                        is LinkStreamEvent.Error -> "data: ${event.message}\n\ndata: [DONE]\n\n"
+                    }
+                    writeStringUtf8(sse)
+                    flush()
+                }
+            } catch (c: kotlin.coroutines.cancellation.CancellationException) {
+                throw c
+            } catch (_: Exception) {
+                // The paired phone hung up mid-stream — the write fails with
+                // "Broken pipe" or Ktor's "Cannot write to a channel". Nothing more
+                // to send; the upstream engine cancels via the closed collector. Stop
+                // quietly instead of surfacing it as a route error.
+            }
+        }
     }
 
     private fun ApplicationCall.authorized(): Boolean {
@@ -258,6 +235,21 @@ class DesktopLinkServer(
     private suspend fun ApplicationCall.unauthorized() =
         respondText("""{"error":"unauthorized"}""", ContentType.Application.Json, HttpStatusCode.Unauthorized)
 }
+
+/** Minimal JSON string-escape for the error wrapper (avoids pulling a serializer for one field). */
+private fun jsonString(value: String): String =
+    buildString {
+        append('"')
+        for (c in value) when (c) {
+            '"' -> append("\\\"")
+            '\\' -> append("\\\\")
+            '\n' -> append("\\n")
+            '\r' -> append("\\r")
+            '\t' -> append("\\t")
+            else -> append(c)
+        }
+        append('"')
+    }
 
 /** Blocking read of the resolved port (CIO resolves connectors asynchronously). */
 private fun EmbeddedServer<*, *>.resolvedConnectorsBlocking() =

@@ -151,3 +151,84 @@ go test ./test/integration/ -run TestDesktopCheckoutClaimFlow -v
   `MOBILEAGENT_SUBSCRIPTION_PORTAL_URL` is set as a static fallback).
 - **Go not on PATH** → `/home/lawrenceley/.local/go-sdk/go/bin`. Android build →
   `export ANDROID_HOME=/home/lawrenceley/android-sdk`.
+
+---
+
+# Relay transport — tunnel the link over the E2EE relay (PR #75 / secure-gateway PR #7)
+
+The follow-up that delivers the deferred B4/C/T from #54: when a subscription is
+active, the mobile↔desktop link (chat inference + bidirectional sync) tunnels over
+the Secure Gateway's E2EE relay WebSocket, so the phone reaches the desktop from
+anywhere. The LAN path (PR #57) stays intact for non-subscribers and as the
+offline/revoked fallback. See CLAUDE.md invariant **#55**.
+
+## As-built
+
+- **One transport seam** — `link/transport/LinkTransport` (commonMain): `unary` +
+  `serverStream` of opaque strings, picked by `LinkTransportProvider`. The existing
+  wire payloads (OpenAI chat JSON, post-`data:` SSE chunks, `SyncBundle` JSON) ride
+  unchanged inside the frames, so `DesktopLinkInferenceEngine` / `LinkSyncClient`
+  (renamed from `LinkSyncHttpClient`) / `SyncController` are transport-agnostic.
+  - `LanLinkTransport` — today's Ktor HTTP, relocated (LAN behaviour byte-identical).
+  - `RelayLinkTransport` (mobile) — frames RPC over a `RelayBytePipe` (the SDK's
+    opaque `send`/`onMessage`) via `FrameMultiplexer` (client) ↔ `FrameDispatcher`
+    (server). Envelope: `LinkFrame{v,id,kind,method,query,status,body}` — `id`
+    correlation; `REQUEST→RESPONSE` (unary) / `REQUEST→STREAM_DATA*→STREAM_END|
+    STREAM_ERROR` (stream) + `CANCEL`; each frame `send` awaits the peer ack
+    (per-stream backpressure).
+- **Desktop = relay request-server** — the route bodies live in ONE shared
+  `DesktopLinkRequestHandler : LinkRequestHandler` used by BOTH the Ktor
+  `DesktopLinkServer` and the relay `FrameDispatcher`. `Main.kt` runs the relay
+  **concurrently** with the LAN server when `subscription.isActive`: mint relay QR →
+  `awaitPairing` → `connect` → serve. The published QR shows the relay payload while
+  subscribed (wins over the LAN `magent://`), reverting to LAN on lapse/revoke.
+  `DesktopRelayHost` (repurposed from the PR #74 `RelayLinkTransport` stub) +
+  `DesktopRelayBytePipe` wrap the SDK `DesktopClient`.
+- **Mobile** — `AndroidRelayBytePipe`/`AndroidRelayBytePipeFactory` (androidMain)
+  wrap `MobileClient` (SDK types stay out of commonMain, #23). `AccessMode`
+  (`DesktopLinkConfig.accessMode`/`relayQrJson`) is derived in
+  `SettingsViewModel.applyScannedLink` — a relay QR is detected via the commonMain
+  `RelayQrPayload` mirror (NOT the SDK type). `DefaultLinkTransportProvider`
+  establishes the relay pipe in the background; `current()` returns it only while
+  the pipe is UP, else null → on-device fallback. A relay up/down pushes
+  `OllamaConnectionMonitor.requestReload()` so the next turn re-decides.
+- **Mobile credential** — the phone has no subscription; the desktop embeds its
+  account secret in the relay QR (SDK `QrPayload.accountSecret`, injected
+  client-side by `generatePairingQr`, read by `MobileClient.pair`). The phone stores
+  it in `SecureStorage` (`RELAY_ACCOUNT_SECRET`) and clears it on unpair. A relay
+  `4004` (REVOKED) close ⇒ `LinkConnectionState.DISABLED` ⇒ fall back to LAN/local.
+
+## Verification
+
+In-process (no relay/device):
+```sh
+cd android-app
+./gradlew :shared:desktopTest --tests "com.contextsolutions.mobileagent.link.transport.*"
+# FrameRoundTripTest — multiplexer↔dispatcher unary + streaming + id correlation
+# RelayRoutingTest   — relay-QR detection, config gating, LAN/relay selection
+./gradlew :shared:compileKotlinDesktop :androidApp:compileDebugKotlin   # both targets
+```
+
+Gateway hermetic E2E (boots the Go relay + auth, runs the Kotlin mobile SDK ↔ Java
+desktop SDK through a live relay — exercises the `account_secret` QR flow):
+```sh
+cd ../secure-gateway/sdk
+./gradlew publishToMavenLocal                       # com.securegateway:{core,java,android}:0.1.0
+PATH="$PATH:/home/lawrenceley/.local/go-sdk/go/bin" ./gradlew :java:e2eTest
+```
+
+Live local run (manual): set `MOBILEAGENT_GATEWAY_URL` (+ `MOBILEAGENT_RELAY_WS_URL`
+if not derivable), subscribe on desktop → the relay QR renders → scan on the phone →
+both dial `wss /v1/connect` → relay reports `peer_online` → chat streams + sync flow
+over the relay. Pull the subscription (`stripe subscriptions cancel`) → `4004` →
+transparent fallback to LAN/local.
+
+## Remaining on-device step
+
+The secure-gateway `:android` SDK is still the plain-JVM build (lazysodium-**java**),
+kept that way so the hermetic cross-platform E2E runs on the JVM. The app COMPILES
+against it via mavenLocal (API-identical), but real on-device relay crypto needs the
+`com.android.library` AAR with **lazysodium-android** + a hardware-backed Android
+Keystore, then the #40 native-lib (`.so`) collision check on a Pixel 7 (litert /
+litertlm vs libsodium). The chat-header relay status dot is also deferred (cosmetic —
+relay chat + sync work without it).

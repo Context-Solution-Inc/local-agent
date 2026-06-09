@@ -1,5 +1,6 @@
 package com.contextsolutions.mobileagent.preferences
 
+import com.contextsolutions.mobileagent.link.transport.LinkAccessMode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.Serializable
 
@@ -69,14 +70,28 @@ data class DesktopLinkConfig(
     val pairingToken: String = "",
     val pairedDeviceId: String = "",
     val selfDeviceId: String = "",
+    /** LAN (the `magent://` QR) or RELAY (the Secure Gateway relay QR). */
+    val accessMode: LinkAccessMode = LinkAccessMode.LAN,
+    /** The scanned relay QR JSON (`accessMode == RELAY`); enough to re-pair/reconnect. */
+    val relayQrJson: String = "",
 ) {
-    /** True once a desktop is paired (regardless of the [enabled] toggle). */
+    /**
+     * True once a desktop is paired (regardless of the [enabled] toggle): a LAN
+     * peer (host/port/token) OR a relay peer (the scanned relay QR).
+     */
     val isPaired: Boolean
-        get() = peerHost.isNotBlank() && peerPort != null && pairingToken.isNotBlank()
+        get() = when (accessMode) {
+            LinkAccessMode.RELAY -> relayQrJson.isNotBlank()
+            LinkAccessMode.LAN -> peerHost.isNotBlank() && peerPort != null && pairingToken.isNotBlank()
+        }
 
     /** The gate that makes the link the active backend: toggled on AND paired. */
     val isLinkConfigured: Boolean
         get() = enabled && isPaired
+
+    /** Relay path active: toggled on, relay mode, with a scanned relay QR. */
+    val isRelayConfigured: Boolean
+        get() = enabled && accessMode == LinkAccessMode.RELAY && relayQrJson.isNotBlank()
 
     /**
      * Base URL of the desktop link server, e.g. `http://192.168.1.20:47215`.

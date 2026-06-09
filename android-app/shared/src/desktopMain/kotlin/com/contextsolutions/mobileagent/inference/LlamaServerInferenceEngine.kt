@@ -20,6 +20,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
@@ -161,42 +162,43 @@ class LlamaServerInferenceEngine(
         var generated = 0
         var chunkIndex = 0
         var finish = FinishReason.END_OF_TURN
-        try {
-            h.client.preparePost("${h.baseUrl}/v1/chat/completions") {
-                headers { append(HttpHeaders.Authorization, "Bearer ${h.apiKey}") }
-                contentType(ContentType.Application.Json)
-                setBody(body)
-            }.execute { response ->
-                if (!response.status.isSuccess()) {
-                    val err = runCatching { response.bodyAsText() }.getOrDefault("")
-                    emit(GenerationEvent.Error("llama-server HTTP ${response.status.value}: ${err.take(300)}"))
-                    return@execute
-                }
-                val channel = response.bodyAsChannel()
-                while (true) {
-                    currentCoroutineContext().ensureActive()
-                    val line = channel.readUTF8Line() ?: break
-                    if (line.isBlank() || !line.startsWith("data:")) continue
-                    val data = line.substringAfter("data:").trim()
-                    if (data == "[DONE]") break
-                    val (delta, fr) = parseStreamChunk(data)
-                    if (fr != null) finish = fr
-                    if (delta.isNotEmpty()) {
-                        generated++
-                        val visible = stripper.push(delta)
-                        if (visible.isNotEmpty()) emit(GenerationEvent.TokenChunk(visible, chunkIndex++))
-                    }
+        h.client.preparePost("${h.baseUrl}/v1/chat/completions") {
+            headers { append(HttpHeaders.Authorization, "Bearer ${h.apiKey}") }
+            contentType(ContentType.Application.Json)
+            setBody(body)
+        }.execute { response ->
+            if (!response.status.isSuccess()) {
+                val err = runCatching { response.bodyAsText() }.getOrDefault("")
+                emit(GenerationEvent.Error("llama-server HTTP ${response.status.value}: ${err.take(300)}"))
+                return@execute
+            }
+            val channel = response.bodyAsChannel()
+            while (true) {
+                currentCoroutineContext().ensureActive()
+                val line = channel.readUTF8Line() ?: break
+                if (line.isBlank() || !line.startsWith("data:")) continue
+                val data = line.substringAfter("data:").trim()
+                if (data == "[DONE]") break
+                val (delta, fr) = parseStreamChunk(data)
+                if (fr != null) finish = fr
+                if (delta.isNotEmpty()) {
+                    generated++
+                    val visible = stripper.push(delta)
+                    if (visible.isNotEmpty()) emit(GenerationEvent.TokenChunk(visible, chunkIndex++))
                 }
             }
-            val tail = stripper.finish()
-            if (tail.isNotEmpty()) emit(GenerationEvent.TokenChunk(tail, chunkIndex++))
-            emit(GenerationEvent.Done(totalTokens = generated, finishReason = finish))
-        } catch (c: CancellationException) {
-            // Collector cancelled → Ktor cancels the request → server frees the slot.
-            throw c
-        } catch (t: Throwable) {
-            emit(GenerationEvent.Error(t.message ?: "llama-server generation failed", t))
         }
+        val tail = stripper.finish()
+        if (tail.isNotEmpty()) emit(GenerationEvent.TokenChunk(tail, chunkIndex++))
+        emit(GenerationEvent.Done(totalTokens = generated, finishReason = finish))
+    }.catch { t ->
+        // Emit our OWN errors (can't reach llama-server, parse failure). A
+        // downstream collector failure — e.g. the desktop-link SSE client hanging
+        // up mid-stream (Broken pipe) — is rethrown transparently by `catch`, never
+        // re-emitted: emitting from a `catch {}` block inside `flow {}` would
+        // violate flow exception transparency. CancellationException is likewise
+        // rethrown, so the cancelled-collector path is unchanged.
+        emit(GenerationEvent.Error(t.message ?: "llama-server generation failed", t))
     }.flowOn(ioDispatcher)
 
     private companion object {

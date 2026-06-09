@@ -27,6 +27,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
@@ -130,29 +131,32 @@ class OllamaInferenceEngine(
         handle: ModelHandle,
         request: GenerationRequest,
         toolDispatcher: ToolDispatcher?,
-    ): Flow<GenerationEvent> = flow {
+    ): Flow<GenerationEvent> {
         val h = handle as OllamaHandle
-        val hasImage = request.history.lastOrNull { it.role == HistoryRole.USER }?.imageBytes != null
-        val model = h.config.modelFor(hasImage)
-        val temperature = request.sampling?.temperature ?: defaultTemperature
-        val body = buildOllamaChatRequest(request, model, temperature, keepAlive, h.config.serverType)
-        logger(
-            "[generate] model=$model historyTurns=${request.history.size} hasImage=$hasImage " +
-                "maxTokens=${request.maxTokens} sampling=${if (request.sampling != null) "greedy" else "default"}",
-        )
-        var generated = 0
-        var chunkIndex = 0
-        var finish = FinishReason.END_OF_TURN
-        var sawDataLine = false
-        val url = "${h.baseUrl}${h.config.serverType.chatCompletionsPath}"
-        // PR #73 — full outbound request diagnostic (URL incl. port, Bearer token,
-        // and the JSON body/query). Prints the API key in cleartext: a deliberate
-        // on-device debug aid.
-        logger(
-            "[request] POST $url | header Authorization: ${apiKey()?.let { "Bearer $it" } ?: "(none)"} " +
-                "| body=$body",
-        )
-        try {
+        // Captured for the `.catch` operator below — the flow lambda's locals are
+        // not in scope there.
+        val baseUrl = h.baseUrl
+        return flow {
+            val hasImage = request.history.lastOrNull { it.role == HistoryRole.USER }?.imageBytes != null
+            val model = h.config.modelFor(hasImage)
+            val temperature = request.sampling?.temperature ?: defaultTemperature
+            val body = buildOllamaChatRequest(request, model, temperature, keepAlive, h.config.serverType)
+            logger(
+                "[generate] model=$model historyTurns=${request.history.size} hasImage=$hasImage " +
+                    "maxTokens=${request.maxTokens} sampling=${if (request.sampling != null) "greedy" else "default"}",
+            )
+            var generated = 0
+            var chunkIndex = 0
+            var finish = FinishReason.END_OF_TURN
+            var sawDataLine = false
+            val url = "${h.baseUrl}${h.config.serverType.chatCompletionsPath}"
+            // PR #73 — full outbound request diagnostic (URL incl. port, Bearer token,
+            // and the JSON body/query). Prints the API key in cleartext: a deliberate
+            // on-device debug aid.
+            logger(
+                "[request] POST $url | header Authorization: ${apiKey()?.let { "Bearer $it" } ?: "(none)"} " +
+                    "| body=$body",
+            )
             h.client.preparePost(url) {
                 contentType(ContentType.Application.Json)
                 apiKey()?.let { header(HttpHeaders.Authorization, "Bearer $it") }
@@ -195,18 +199,20 @@ class OllamaInferenceEngine(
             } else {
                 emit(GenerationEvent.Done(totalTokens = generated, finishReason = finish))
             }
-        } catch (c: CancellationException) {
-            // Collector cancelled → Ktor cancels the request → Ollama frees the slot.
-            throw c
-        } catch (t: Throwable) {
-            // Couldn't reach the server (connection refused, timeout, dropped
-            // mid-stream): fall back to local now and watch for the server's
-            // return (PR #56). HTTP-status errors don't land here — the server
-            // is up, so they're left as a plain error.
-            monitor?.onRemoteUnreachable(h.baseUrl)
+        }.catch { t ->
+            // Couldn't reach the server (refused, timeout, dropped mid-stream): fall
+            // back to local + watch for its return (PR #56). HTTP-status / no-SSE
+            // errors are emitted in-flow above (the server is up), so they don't
+            // reach here. A downstream collector failure — e.g. the desktop-link SSE
+            // client hanging up (Broken pipe) — is rethrown transparently by `catch`
+            // and is NEVER re-emitted: emitting from `catch {}` would violate flow
+            // exception transparency, and such a failure must not mark the server
+            // unreachable (it's the consumer that left). CancellationException is
+            // likewise rethrown by `catch`, so the cancelled-collector path is unchanged.
+            monitor?.onRemoteUnreachable(baseUrl)
             emit(GenerationEvent.Error(t.message ?: "Ollama generation failed", t))
-        }
-    }.flowOn(ioDispatcher)
+        }.flowOn(ioDispatcher)
+    }
 
     /** The configured outbound API key, or null when unset/blank (PR #58). */
     private fun apiKey(): String? =

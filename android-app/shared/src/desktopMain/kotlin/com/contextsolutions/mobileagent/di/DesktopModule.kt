@@ -56,6 +56,7 @@ import com.contextsolutions.mobileagent.preferences.DesktopLinkPreferences
 import com.contextsolutions.mobileagent.preferences.DesktopOllamaPreferences
 import com.contextsolutions.mobileagent.preferences.DesktopSubscriptionPreferences
 import com.contextsolutions.mobileagent.preferences.OllamaPreferences
+import com.contextsolutions.mobileagent.subscription.DesktopRelayHost
 import com.contextsolutions.mobileagent.subscription.DesktopSubscriptionUiController
 import com.contextsolutions.mobileagent.subscription.RelayGatewayClient
 import com.contextsolutions.mobileagent.subscription.RelaySubscriptionService
@@ -244,6 +245,19 @@ val desktopModule: Module = module {
             service = get(),
             scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
             logger = { System.err.println("[Subscription] $it") },
+        )
+    }
+    // Relay follow-up — the desktop relay host (mints the relay QR + serves framed
+    // link requests over the E2EE relay when subscribed). Main.kt drives its
+    // lifecycle off the subscription state.
+    single {
+        DesktopRelayHost(
+            prefs = get(),
+            secureStorage = get(),
+            gatewayBaseUrl = RelaySubscriptionService.gatewayUrlFromEnv(),
+            relayWsUrl = RelaySubscriptionService.relayWsUrlFromEnv(),
+            keyStorePath = File(DesktopAppDirs.dataDir(), "relay_identity.key").toPath(),
+            logger = { System.err.println("[Relay] $it") },
         )
     }
     single {

@@ -32,7 +32,7 @@ import kotlinx.coroutines.sync.withLock
 class SyncController(
     private val preferences: DesktopLinkPreferences,
     private val local: LinkSyncService,
-    private val http: LinkSyncHttpClient,
+    private val http: LinkSyncClient,
     private val watermarks: SyncWatermarkStore,
     private val lastSync: LastSyncStore,
     private val lastSyncStatus: MutableLastSyncStatus,
@@ -56,7 +56,7 @@ class SyncController(
                 // (c) Pull on desktop change (SSE), restarting on drop.
                 launch {
                     while (isActive) {
-                        runCatching { http.subscribe(cfg.baseUrl()!!, cfg.pairingToken).collect { reconcile() } }
+                        runCatching { http.subscribe().collect { reconcile() } }
                         delay(SUBSCRIBE_RETRY_MS)
                     }
                 }
@@ -74,12 +74,10 @@ class SyncController(
     private suspend fun reconcile() = reconcileMutex.withLock {
         val cfg = preferences.config()
         if (!cfg.isLinkConfigured) return
-        val baseUrl = cfg.baseUrl() ?: return
-        val token = cfg.pairingToken
         val wm = watermarks.get()
 
         // Pull peer changes since the watermark and apply LWW.
-        val peer = http.fetchChanges(baseUrl, token, wm)
+        val peer = http.fetchChanges(wm)
         if (peer == null) {
             logger("reconcile: desktop unreachable")
             return
@@ -91,7 +89,7 @@ class SyncController(
 
         // Push local changes since the watermark.
         val localBundle = local.changesSince(wm)
-        if (!localBundle.isEmpty) http.pushChanges(baseUrl, token, localBundle)
+        if (!localBundle.isEmpty) http.pushChanges(localBundle)
 
         // Advance the watermark past everything seen this round.
         val newWm = maxOf(wm, peer.maxWatermarkMs, localBundle.maxWatermarkMs)
