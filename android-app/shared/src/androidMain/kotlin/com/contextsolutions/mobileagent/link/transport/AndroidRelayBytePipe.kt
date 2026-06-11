@@ -5,6 +5,7 @@ import com.securegateway.mobile.MobileClient
 import java.util.concurrent.CompletableFuture
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -58,7 +59,17 @@ class AndroidRelayBytePipe(
             return
         }
         logger("pipe: send ${bytes.size}B (state=${_state.value})")
-        client.send(bytes).awaitVoid()
+        try {
+            client.send(bytes).awaitVoid()
+        } catch (c: CancellationException) {
+            throw c
+        } catch (t: Throwable) {
+            // Peer offline / connection lost / revoked mid-send (e.g. the desktop disconnected).
+            // The send can't be delivered; the onStateChange → _state transition already drives
+            // fallback. Drop it quietly so it can't escape a fire-and-forget coroutine and print
+            // a stack trace.
+            logger("pipe: send failed (${t::class.simpleName}: ${t.message}); dropping")
+        }
     }
 
     override suspend fun unpair() {

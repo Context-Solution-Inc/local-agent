@@ -82,7 +82,12 @@ class FrameDispatcher(
             scope.launch {
                 val response = runCatching { handler.handleUnary(request) }
                     .getOrElse { LinkResponse(500, """{"error":"${it.message ?: "error"}"}""") }
-                send(LinkFrame(id = frame.id, kind = FrameKind.RESPONSE, status = response.status, body = response.body))
+                // The response send can fail if the peer went offline mid-request (relay
+                // PeerOfflineException). Swallow it — symmetric with the streaming branch — so it
+                // can't escape this launch and reach the uncaught handler.
+                runCatching {
+                    send(LinkFrame(id = frame.id, kind = FrameKind.RESPONSE, status = response.status, body = response.body))
+                }.onFailure { logger("unary ${frame.id} response send failed: ${it.message}") }
             }
         }
     }

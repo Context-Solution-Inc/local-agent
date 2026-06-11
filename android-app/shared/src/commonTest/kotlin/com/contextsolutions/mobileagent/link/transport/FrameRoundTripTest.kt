@@ -1,5 +1,9 @@
 package com.contextsolutions.mobileagent.link.transport
 
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -7,6 +11,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -83,6 +89,37 @@ class FrameRoundTripTest {
         val data = events.filterIsInstance<LinkStreamEvent.Data>().map { it.body }
         assertEquals(listOf("a", "b"), data)
         assertTrue(events.last() is LinkStreamEvent.End, "stream ends with End")
+    }
+
+    @Test
+    fun unaryResponseSendFailureDoesNotEscape() = runTest {
+        // The peer goes offline mid-request, so the RESPONSE send throws (the relay surfaces a
+        // PeerOfflineException). The dispatcher runs that send in a fire-and-forget launch on the
+        // app scope (SupervisorJob + Dispatchers.Default, no CoroutineExceptionHandler), so an
+        // escaping throw reaches the thread's uncaught handler — the original bug:
+        // "Exception in thread DefaultDispatcher-worker-N: peer is offline". We model that scope
+        // here with a capturing CoroutineExceptionHandler: an escaping throw lands in `escaped`.
+        val inbound = Channel<ByteArray>(Channel.UNLIMITED)
+        val failingServer = object : RelayBytePipe {
+            override suspend fun send(bytes: ByteArray) {
+                throw RuntimeException("peer is offline")
+            }
+            override val inbound: Flow<ByteArray> = inbound.receiveAsFlow()
+            override val state: StateFlow<LinkConnectionState> = MutableStateFlow(LinkConnectionState.UP)
+            override suspend fun close() {}
+        }
+        val escaped = mutableListOf<Throwable>()
+        val appScope = CoroutineScope(
+            SupervisorJob() + StandardTestDispatcher(testScheduler) +
+                CoroutineExceptionHandler { _, t -> escaped.add(t) },
+        )
+        FrameDispatcher(failingServer, FakeHandler(), appScope).start()
+
+        inbound.send(LinkFrameCodec.encode(LinkFrame(id = 1, kind = FrameKind.REQUEST, method = LinkMethod.HEALTH)))
+        advanceUntilIdle()
+
+        assertTrue(escaped.isEmpty(), "send failure must not escape the dispatcher launch: $escaped")
+        appScope.cancel()
     }
 
     @Test
