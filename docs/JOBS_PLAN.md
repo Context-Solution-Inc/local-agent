@@ -18,12 +18,15 @@ Tracking: see `PHASE1_PLAN.md` / CLAUDE.md for where this slots in. Numbered
   `JobExecutor` always spawns a process.
 - **Each run continues the job's single conversation thread.** On fire,
   `JobExecutor` reuses the job's existing conversation (`last_run_conversation_id`)
-  if present, else creates one, appending `user = prompt` then `assistant =
-  response` (`renderMarkdown = false`). The conversation syncs through the normal
-  `ConversationSyncRecord` path, so **"View conversation"** on either platform opens
-  it in Chat via `ChatViewModel.loadConversation` (the conversation-history resume
-  flow). The job row denormalises the latest run (`last_run_status/at/summary` +
-  `last_run_conversation_id`).
+  if present, else creates one, appending `user = job name` (PR #84 — **not** the
+  `prompt`/"Command Argument", which is the command's input, not chat text) then
+  `assistant = response` (`renderMarkdown = true` since PR #82). The conversation
+  syncs through the normal `ConversationSyncRecord` path, so **"View conversation"**
+  on either platform opens it in Chat via `ChatViewModel.loadConversation` (the
+  conversation-history resume flow). The job row denormalises the latest run
+  (`last_run_status/at/summary` + `last_run_conversation_id`); **run start writes
+  `last_run_status = RUNNING`** to that synced row so both platforms show a working
+  spinner mid-run, and the terminal `recordLastRun` overwrites it (PR #84).
 - **`job_runs` is desktop-local history (NOT synced); only the `jobs` row syncs**
   (LWW + tombstone), carrying the denormalised last-run so mobile renders "last
   result" and the conversation link with no second synced record type.
@@ -34,6 +37,14 @@ Tracking: see `PHASE1_PLAN.md` / CLAUDE.md for where this slots in. Numbered
   desktop-only `onJobPausedFromPeer` seam on `SqlDelightLinkSyncService` re-drives
   `DesktopJobScheduler` after a peer pause (the raw `updatePausedFromPeer` write
   fires no `LocalChangeBus`).
+- **Mobile run-now does NOT ride sync** (PR #84) — running a job spawns an OS
+  subprocess, which only ever happens on the trusted desktop, so the phone sends an
+  imperative **`RUN_JOB` `LinkMethod`** over the relay (job id in `query["id"]`):
+  `RemoteJobRunner`/`RelayRemoteJobRunner` (commonMain seam, **bound mobile-only**) →
+  `DesktopLinkRequestHandler.runJob` seam (guards on `JobRepository.get(id)`) →
+  `JobService.runNow`. Online-only (needs the link UP). Create/edit/delete remain
+  desktop-only; the sync trust boundary above is unchanged (run-now is a separate
+  imperative channel, not a synced column).
 - **`SqlDelightJobRepository.flow()` MUST be a reactive SQLDelight query**
   (`selectAllJobs().asFlow().mapToList`). Synced rows are written by the sync layer
   via the raw `*FromPeer` queries, **bypassing the repo**, so a manually-seeded
@@ -52,11 +63,14 @@ Tracking: see `PHASE1_PLAN.md` / CLAUDE.md for where this slots in. Numbered
   the job has future runs.
 - **Control gating** (`hasFutureRuns`, keyed on `fireAt > now` for one-shots, always
   true for cron): the **pause toggle** disables once a one-shot is done (nothing left
-  to pause). **Run-now is always enabled** (gated only on the job not being deleted,
-  NOT on `hasFutureRuns`) so a job can be executed on demand at any time — before or
-  after its scheduled run — re-running into the same conversation thread (PR #83).
-  **Edit stays enabled** so a completed one-shot can be reopened and given a new time;
-  Delete always enabled.
+  to pause). **Run-now ▶ is enabled whenever the job isn't deleted and a run isn't
+  already in flight** (`lastRunStatus != RUNNING`, PR #84), NOT gated on
+  `hasFutureRuns` — so a job runs on demand any time, before or after its scheduled
+  run (PR #83). The ▶ button renders under **`canControl`** (desktop always; mobile
+  when the relay link is UP, firing the `RUN_JOB` RPC above); **Edit/Delete stay
+  `isAdmin`-only** (desktop). While a run is in flight the row shows a spinner +
+  "Running…"; on completion it switches to the result text. **Edit stays enabled** so
+  a completed one-shot can be reopened and given a new time.
 - **Schedule UI mirrors the mobile clock screens** (desktop has no alarm/timer icons
   by design, but reuses the layout): **Repeat** = the alarm flow (time-of-day + day
   chips → a 5-field cron `min hour * * dows`, `*` = daily), **Once** = the timer flow
