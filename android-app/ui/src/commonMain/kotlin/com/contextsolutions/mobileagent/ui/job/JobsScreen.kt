@@ -30,7 +30,12 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PlainTooltip
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -389,7 +394,11 @@ private fun JobFormDialog(
     var name by remember { mutableStateOf(initial?.name.orEmpty()) }
     var command by remember { mutableStateOf(initial?.command.orEmpty()) }
     var prompt by remember { mutableStateOf(initial?.prompt.orEmpty()) }
+    // Hidden (no visible field) — set by the program picker to the job folder so the
+    // subprocess runs there and picks up `.env`/state. Null on manual entry; the
+    // executor then derives it from the command path (PR #86).
     var workingDir by remember { mutableStateOf(initial?.workingDir.orEmpty()) }
+    val programPicker = rememberJobProgramPicker()
     var scheduleType by remember { mutableStateOf(initial?.scheduleType ?: JobScheduleType.CRON) }
 
     // Repeat (alarm-style): time-of-day + day-of-week chips → cron `m h * * dows`.
@@ -448,9 +457,22 @@ private fun JobFormDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(name, { name = it }, label = { Text("Job Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(command, { command = it }, label = { Text("Command") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(prompt, { prompt = it }, label = { Text("Command Argument") }, minLines = 2, maxLines = 4, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(workingDir, { workingDir = it }, label = { Text("Working dir (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(command, { command = it }, label = { Text("Job Location") }, singleLine = true, modifier = Modifier.weight(1f))
+                    if (isDesktopPlatform) {
+                        // Tooltip states the requirement; the picker (Part B) then enforces it.
+                        TooltipBox(
+                            positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+                            tooltip = { PlainTooltip { Text("Select a job directory that contains a job.settings.json file.") } },
+                            state = rememberTooltipState(),
+                        ) {
+                            OutlinedButton(onClick = {
+                                programPicker.launch { picked -> picked?.let { command = it.programPath; workingDir = it.workingDir } }
+                            }) { Text("Choose job…") }
+                        }
+                    }
+                }
+                OutlinedTextField(prompt, { prompt = it }, label = { Text("Keyword(s)") }, minLines = 2, maxLines = 4, modifier = Modifier.fillMaxWidth())
 
                 Text("Schedule", style = MaterialTheme.typography.labelMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {

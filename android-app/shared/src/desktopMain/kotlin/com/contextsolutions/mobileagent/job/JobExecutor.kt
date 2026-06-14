@@ -117,9 +117,18 @@ class JobExecutor(
     }
 
     private fun runProcess(job: Job): ProcessResult {
+        // Run the program in its OWN directory so it picks up cwd-relative state —
+        // e.g. a `.env` loaded by dotenv, or other persistent files (PR #86). A
+        // program launched by absolute path does NOT otherwise get its own folder
+        // as cwd. Order: an explicit workingDir, else the program's parent dir
+        // (when the command is an absolute path), else the user's home.
         val workingDir = job.workingDir?.takeIf { it.isNotBlank() }?.let(::File)
+            ?: File(job.command).takeIf { it.isAbsolute }?.parentFile
             ?: File(System.getProperty("user.home"))
-        val pb = ProcessBuilder(buildArgv(job.command, job.prompt))
+        // Hidden CLI args from the program folder's job.settings.json (read live, so
+        // they never enter the DB and never collide with the user's keyword(s)).
+        val extraArgs = JobSettingsLoader.load(workingDir)?.args.orEmpty()
+        val pb = ProcessBuilder(buildArgv(job.command, extraArgs, job.prompt))
             .directory(workingDir)
             .redirectErrorStream(true)
         // Convenience for commands that prefer the env var over the positional arg.
@@ -157,16 +166,19 @@ class JobExecutor(
             get() = System.getProperty("os.name").orEmpty().lowercase().contains("win")
 
         /**
-         * Build argv so the prompt is passed as the command's trailing argument
-         * WITHOUT being re-tokenized (no shell injection): the prompt is bound to
-         * a positional shell parameter rather than concatenated into the script.
-         * POSIX: `sh -c '<command> "$1"' sh <prompt>`. Windows: PowerShell, prompt
-         * appended as a quoted argument (best-effort).
+         * Build argv so the hidden settings [args] and the user keyword [prompt]
+         * are passed as the command's trailing arguments WITHOUT being re-tokenized
+         * (no shell injection): each rides a distinct positional shell parameter
+         * rather than being concatenated into the script. Order is
+         * `<command> [args…] <prompt>`.
+         * POSIX: `sh -c '<command> "$@"' sh <arg…> <prompt>`. Windows: PowerShell,
+         * args + prompt appended as quoted arguments (best-effort).
          */
-        fun buildArgv(command: String, prompt: String): List<String> = if (isWindows) {
-            listOf("powershell", "-NoProfile", "-Command", "$command \"$prompt\"")
+        fun buildArgv(command: String, args: List<String>, prompt: String): List<String> = if (isWindows) {
+            val rendered = args.joinToString(" ") { "\"$it\"" }
+            listOf("powershell", "-NoProfile", "-Command", "$command $rendered \"$prompt\"")
         } else {
-            listOf("sh", "-c", "$command \"\$1\"", "sh", prompt)
+            listOf("sh", "-c", "$command \"\$@\"", "sh") + args + prompt
         }
     }
 }
