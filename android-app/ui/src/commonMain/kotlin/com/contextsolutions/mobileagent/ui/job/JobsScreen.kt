@@ -269,10 +269,11 @@ private fun JobRow(
             }
         }
         if (isAdmin) {
-            // Run-now is disabled once a job is done (no future runs). Edit stays
-            // active so a completed one-shot can be reopened + given a new time (it
-            // re-runs into the SAME conversation thread). Delete always active.
-            IconButton(onClick = onRunNow, enabled = hasFutureRuns) {
+            // Run-now is always available (except on a deleted/tombstoned job) so a
+            // job can be executed on demand at any time — before OR after its
+            // scheduled run — re-running into the SAME conversation thread. Edit and
+            // Delete are always active.
+            IconButton(onClick = onRunNow, enabled = job.deletedAtEpochMs == null) {
                 Icon(Icons.Filled.PlayArrow, contentDescription = "Run now")
             }
             IconButton(onClick = onEdit) {
@@ -417,9 +418,9 @@ private fun JobFormDialog(
         title = { Text(if (initial == null) "New job" else "Edit job") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(name, { name = it }, label = { Text("Job Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(command, { command = it }, label = { Text("Command") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(prompt, { prompt = it }, label = { Text("Prompt (passed as an argument)") }, minLines = 2, maxLines = 4, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(prompt, { prompt = it }, label = { Text("Command Argument") }, minLines = 2, maxLines = 4, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(workingDir, { workingDir = it }, label = { Text("Working dir (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
 
                 Text("Schedule", style = MaterialTheme.typography.labelMedium)

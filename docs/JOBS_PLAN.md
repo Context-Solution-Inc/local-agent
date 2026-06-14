@@ -51,9 +51,12 @@ Tracking: see `PHASE1_PLAN.md` / CLAUDE.md for where this slots in. Numbered
   (enabled only when the desktop controls: `isAdmin || link UP`) **and** only while
   the job has future runs.
 - **Control gating** (`hasFutureRuns`, keyed on `fireAt > now` for one-shots, always
-  true for cron): Run-now + the pause toggle disable once a one-shot is done; **Edit
-  stays enabled** so a completed one-shot can be reopened and given a new time (it
-  re-runs into the same conversation thread); Delete always enabled.
+  true for cron): the **pause toggle** disables once a one-shot is done (nothing left
+  to pause). **Run-now is always enabled** (gated only on the job not being deleted,
+  NOT on `hasFutureRuns`) so a job can be executed on demand at any time — before or
+  after its scheduled run — re-running into the same conversation thread (PR #83).
+  **Edit stays enabled** so a completed one-shot can be reopened and given a new time;
+  Delete always enabled.
 - **Schedule UI mirrors the mobile clock screens** (desktop has no alarm/timer icons
   by design, but reuses the layout): **Repeat** = the alarm flow (time-of-day + day
   chips → a 5-field cron `min hour * * dows`, `*` = daily), **Once** = the timer flow
