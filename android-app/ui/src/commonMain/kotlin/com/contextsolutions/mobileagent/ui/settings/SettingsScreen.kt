@@ -20,7 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import com.contextsolutions.mobileagent.inference.DesktopLinkStatus
-import com.contextsolutions.mobileagent.link.MobileLinkKind
+import com.contextsolutions.mobileagent.link.MobileLinkPresence
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AssistChip
@@ -681,12 +681,16 @@ private fun DesktopLinkSection(
  */
 @Composable
 private fun ConnectedMobileRow(state: SettingsUiState, onDisconnect: () -> Unit) {
-    val paired = state.desktopLinkConfig.pairedDeviceId.isNotBlank()
-    val (label, color) = when (state.mobileConnectionKind) {
-        MobileLinkKind.RELAY -> "Phone connected via gateway" to Color(0xFF43A047)
-        MobileLinkKind.NONE ->
-            (if (paired) "Phone paired (offline)" else "No phone paired yet") to
-                MaterialTheme.colorScheme.outline
+    // PR #90 — drive label + Disconnect off the relay's 3-state presence, NOT the
+    // LAN-era pairedDeviceId (never set on the relay path, so an offline phone used to
+    // read as "No phone paired yet" with no Disconnect).
+    val (label, color) = when (state.mobilePresence) {
+        MobileLinkPresence.CONNECTED ->
+            "Mobile Agent connected via gateway" to Color(0xFF43A047)
+        MobileLinkPresence.OFFLINE ->
+            "Mobile agent offline" to MaterialTheme.colorScheme.outline
+        MobileLinkPresence.UNPAIRED ->
+            "No Mobile Agent paired yet" to MaterialTheme.colorScheme.outline
     }
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -703,7 +707,7 @@ private fun ConnectedMobileRow(state: SettingsUiState, onDisconnect: () -> Unit)
             Spacer(Modifier.width(8.dp))
             Text(label, style = MaterialTheme.typography.bodyMedium, color = color)
         }
-        if (paired || state.mobileConnectionKind != MobileLinkKind.NONE) {
+        if (state.mobilePresence != MobileLinkPresence.UNPAIRED) {
             OutlinedButton(onClick = onDisconnect) { Text("Disconnect") }
         }
     }

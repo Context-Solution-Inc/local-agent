@@ -9,6 +9,7 @@ import com.contextsolutions.mobileagent.inference.OllamaClient
 import com.contextsolutions.mobileagent.inference.OllamaModel
 import com.contextsolutions.mobileagent.link.DesktopLinkConnectionStatus
 import com.contextsolutions.mobileagent.link.MobileLinkKind
+import com.contextsolutions.mobileagent.link.MobileLinkPresence
 import com.contextsolutions.mobileagent.link.DesktopLinkQrProvider
 import com.contextsolutions.mobileagent.preferences.DesktopLinkConfig
 import com.contextsolutions.mobileagent.preferences.DesktopLinkPreferences
@@ -107,6 +108,9 @@ class SettingsViewModel(
             .launchIn(viewModelScope)
         desktopLinkConnectionStatus.connectionKind
             .onEach { k -> _state.update { it.copy(mobileConnectionKind = k) } }
+            .launchIn(viewModelScope)
+        desktopLinkConnectionStatus.presence
+            .onEach { p -> _state.update { it.copy(mobilePresence = p) } }
             .launchIn(viewModelScope)
         // PR #74 — mirror the paid "anywhere access" subscription state so the
         // desktop "Mobile Agent Connection" section flips its copy + upgrade link
@@ -478,6 +482,7 @@ class SettingsViewModel(
             desktopLinkQrPayload = desktopLinkQrProvider.qrPayload.value,
             mobileConnected = desktopLinkConnectionStatus.mobileConnected.value,
             mobileConnectionKind = desktopLinkConnectionStatus.connectionKind.value,
+            mobilePresence = desktopLinkConnectionStatus.presence.value,
         ).also {
             // Load cache count off the main thread.
             viewModelScope.launch(Dispatchers.IO) {
@@ -525,6 +530,8 @@ data class SettingsUiState(
     val mobileConnected: Boolean = false,
     /** Desktop-only: which transport the connected phone is on (LAN vs gateway/relay). */
     val mobileConnectionKind: MobileLinkKind = MobileLinkKind.NONE,
+    /** Desktop-only: never paired / paired-but-offline / connected (PR #90). */
+    val mobilePresence: MobileLinkPresence = MobileLinkPresence.UNPAIRED,
     /** PR #74 — paid "anywhere access" subscription state (desktop; EMPTY on mobile). */
     val subscription: SubscriptionState = SubscriptionState.EMPTY,
 ) {

@@ -50,6 +50,27 @@ class DesktopRelayHost(
     private val _state = MutableStateFlow(LinkConnectionState.DISABLED)
     val state: StateFlow<LinkConnectionState> = _state.asStateFlow()
 
+    // Whether a mobile peer has paired (PR #90). Seeded from the persisted marker so it
+    // survives a desktop restart while the phone is offline — the Settings status then
+    // shows "Mobile agent offline" + Disconnect instead of "No Mobile Agent paired yet".
+    // Set on the first UP, cleared only on an unpair (peer REVOKED or our own Disconnect).
+    private val _peerPaired = MutableStateFlow(
+        secureStorage.get(SecureStorageKeys.RELAY_PEER_PAIRED) != null,
+    )
+    val peerPaired: StateFlow<Boolean> = _peerPaired.asStateFlow()
+
+    private fun markPeerPaired() {
+        if (!_peerPaired.value) {
+            secureStorage.put(SecureStorageKeys.RELAY_PEER_PAIRED, "1")
+            _peerPaired.value = true
+        }
+    }
+
+    private fun clearPeerPaired() {
+        secureStorage.remove(SecureStorageKeys.RELAY_PEER_PAIRED)
+        _peerPaired.value = false
+    }
+
     // Bumped by [disconnect] to re-arm the relay lifecycle (Main.kt re-mints a fresh QR +
     // awaits + serves when this changes, mirroring the LAN Disconnect's token rotation).
     private val _rearm = MutableStateFlow(0)
@@ -154,8 +175,13 @@ class DesktopRelayHost(
                 // not DISABLED, so a backgrounded phone doesn't trigger a re-mint.
                 if (st == LinkConnectionState.UP) {
                     wasUp = true
+                    // First successful connection — remember a phone has paired (PR #90).
+                    markPeerPaired()
                 } else if (st == LinkConnectionState.DISABLED && wasUp) {
                     wasUp = false
+                    // REVOKED — the phone unpaired. Forget the peer so the status drops to
+                    // "No Mobile Agent paired yet" (PR #90), then re-arm a fresh QR.
+                    clearPeerPaired()
                     logger("host: relay session revoked by peer; re-arming a fresh QR")
                     _rearm.value += 1
                 }
@@ -177,6 +203,9 @@ class DesktopRelayHost(
         // watcher fire a SECOND re-arm — churning the QR mint and racing the next pairing.
         stateJob?.cancel()
         stateJob = null
+        // Desktop-initiated unpair — forget the peer so the status drops to "No Mobile
+        // Agent paired yet" + hides Disconnect (PR #90).
+        clearPeerPaired()
         withContext(Dispatchers.IO) {
             runCatching { client?.unpair() }
                 .onFailure { logger("host: unpair failed: ${it.message}") }

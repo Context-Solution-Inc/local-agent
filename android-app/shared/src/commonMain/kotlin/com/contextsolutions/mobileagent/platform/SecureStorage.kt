@@ -86,4 +86,14 @@ object SecureStorageKeys {
      * migrated from the legacy file on first read (see `SecureStorageKeyStore`).
      */
     const val RELAY_IDENTITY_KEY = "relay_identity_key"
+
+    /**
+     * Desktop-only marker that a mobile peer has paired over the relay (PR #90). Set on the
+     * first time the relay session reaches `UP`, cleared on an unpair (the phone revokes →
+     * gateway REVOKED, or the desktop's own Disconnect). Lets the desktop Settings show
+     * "Mobile agent offline" + a Disconnect button while a paired phone is merely away —
+     * including across a desktop restart, before the phone reconnects. Not a secret
+     * (co-located with the other relay credential material for one store on that path).
+     */
+    const val RELAY_PEER_PAIRED = "relay_peer_paired"
 }

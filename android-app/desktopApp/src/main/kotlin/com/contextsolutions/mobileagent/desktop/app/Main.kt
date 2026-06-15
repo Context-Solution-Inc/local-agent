@@ -319,12 +319,16 @@ fun main() {
                 }
             }
     }
-    // Mirror the relay pipe state into the "Mobile Agent Connection" status so the
-    // Settings page shows "Phone connected" when a phone is attached over the relay. #55.
+    // Mirror the relay pipe state + persisted paired marker into the "Mobile Agent
+    // Connection" status so Settings shows "connected" when a phone is attached, and
+    // "Mobile agent offline" (with Disconnect) while a paired phone is merely away (#55,
+    // PR #90).
     appScope.launch {
-        relayHost.state.collect { st ->
-            koin.get<MutableDesktopLinkConnectionStatus>().setRelay(st == LinkConnectionState.UP)
-        }
+        combine(relayHost.state, relayHost.peerPaired) { st, paired -> st to paired }
+            .collect { (st, paired) ->
+                koin.get<MutableDesktopLinkConnectionStatus>()
+                    .update(connected = st == LinkConnectionState.UP, everPaired = paired)
+            }
     }
 
     val taskRunner = DesktopTaskRunner(
