@@ -66,9 +66,12 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import com.contextsolutions.localagent.i18n.StringKeys
+import com.contextsolutions.localagent.language.PreferredLanguage
 import com.contextsolutions.localagent.platform.AppBuildConfig
 import com.contextsolutions.localagent.preferences.OllamaConfig
 import com.contextsolutions.localagent.preferences.RemoteServerType
+import com.contextsolutions.localagent.ui.i18n.tr
 import com.contextsolutions.localagent.ui.platform.isDesktopPlatform
 import com.contextsolutions.localagent.ui.theme.AppFontFamily
 import com.contextsolutions.localagent.ui.theme.FontScale
@@ -140,10 +143,10 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Settings") },
+                title = { Text(tr(StringKeys.SETTINGS_TITLE)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr(StringKeys.COMMON_BACK))
                     }
                 },
             )
@@ -169,24 +172,23 @@ fun SettingsScreen(
             // PR#13 — conversation history list, accessible from Settings
             // (NOT the chat top bar) to keep the chat surface focused on
             // the active conversation.
-            SectionHeader("Conversations")
+            SectionHeader(tr(StringKeys.SETTINGS_CONVERSATIONS_HEADER))
             Text(
-                "Browse, resume, or delete prior chats. The most recent 50 are kept; " +
-                    "older conversations are removed automatically.",
+                tr(StringKeys.SETTINGS_CONVERSATIONS_DESC),
                 style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = onOpenConversationHistory) { Text("Manage conversations") }
+            OutlinedButton(onClick = onOpenConversationHistory) { Text(tr(StringKeys.SETTINGS_CONVERSATIONS_MANAGE)) }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
 
             SectionHeaderWithToggle(
-                title = "Web search",
+                title = tr(StringKeys.SETTINGS_WEB_SEARCH_HEADER),
                 checked = state.searchEnabled,
                 onCheckedChange = { viewModel.setSearchEnabled(it) },
             )
             Text(
-                "When off, the model answers from training data only.",
+                tr(StringKeys.SETTINGS_WEB_SEARCH_DESC),
                 style = MaterialTheme.typography.bodySmall,
             )
             // The toggle alone isn't enough — search needs a Brave API key too.
@@ -196,7 +198,7 @@ fun SettingsScreen(
             if (state.searchEnabled && !state.hasUserKey && !state.hasDevKey) {
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "No API key — search is disabled until you add a Brave Search API key below.",
+                    tr(StringKeys.SETTINGS_WEB_SEARCH_NO_KEY),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
@@ -204,26 +206,25 @@ fun SettingsScreen(
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
 
-            SectionHeader("Search cache")
+            SectionHeader(tr(StringKeys.SETTINGS_CACHE_HEADER))
             val countLabel = when {
-                state.cacheCount < 0 -> "…"
-                state.cacheCount == 0L -> "empty"
-                else -> "${state.cacheCount} entries"
+                state.cacheCount < 0 -> tr(StringKeys.SETTINGS_CACHE_LOADING)
+                state.cacheCount == 0L -> tr(StringKeys.SETTINGS_CACHE_EMPTY)
+                else -> tr(StringKeys.SETTINGS_CACHE_ENTRIES, state.cacheCount)
             }
             Text(
-                "Cached results: $countLabel. Time-sensitive queries expire after " +
-                    "5 minutes; general results after 1 hour.",
+                tr(StringKeys.SETTINGS_CACHE_DESC, countLabel),
                 style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = { viewModel.clearCache() }) { Text("Clear cache") }
+            OutlinedButton(onClick = { viewModel.clearCache() }) { Text(tr(StringKeys.SETTINGS_CACHE_CLEAR)) }
             if (state.cacheJustCleared) {
                 LaunchedEffect(Unit) {
                     viewModel.acknowledgeCacheCleared()
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "Cleared.",
+                    tr(StringKeys.SETTINGS_CACHE_CLEARED),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.outline,
                 )
@@ -236,30 +237,34 @@ fun SettingsScreen(
             // here. SearchSourcesScreen renders five sections with
             // add/remove affordances. Placed under Search cache (PR #44)
             // so the two search-config controls sit together.
-            SectionHeader("Search sources")
+            SectionHeader(tr(StringKeys.SETTINGS_SOURCES_HEADER))
             Text(
-                "Choose what websites to use for weather, news, sports and finance questions.",
+                tr(StringKeys.SETTINGS_SOURCES_DESC),
                 style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = onOpenSearchSources) { Text("Manage search sources") }
+            OutlinedButton(onClick = onOpenSearchSources) { Text(tr(StringKeys.SETTINGS_SOURCES_MANAGE)) }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
 
-            SectionHeader("Memory")
+            SectionHeader(tr(StringKeys.SETTINGS_MEMORY_HEADER))
             val memoryCountLabel = when (state.memoryCount) {
-                -1 -> "…"
-                0 -> "no memories saved"
-                1 -> "1 memory saved"
-                else -> "${state.memoryCount} memories saved"
+                -1 -> tr(StringKeys.SETTINGS_MEMORY_LOADING)
+                0 -> tr(StringKeys.SETTINGS_MEMORY_NONE)
+                1 -> tr(StringKeys.SETTINGS_MEMORY_ONE)
+                else -> tr(StringKeys.SETTINGS_MEMORY_MANY, state.memoryCount)
             }
-            val creationLabel = if (state.memoryCreationEnabled) "creation on" else "creation off"
+            val creationLabel = if (state.memoryCreationEnabled) {
+                tr(StringKeys.SETTINGS_MEMORY_CREATION_ON)
+            } else {
+                tr(StringKeys.SETTINGS_MEMORY_CREATION_OFF)
+            }
             Text(
-                "$memoryCountLabel · $creationLabel.",
+                tr(StringKeys.SETTINGS_MEMORY_SUMMARY, memoryCountLabel, creationLabel),
                 style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = onOpenMemoryManagement) { Text("Manage memories") }
+            OutlinedButton(onClick = onOpenMemoryManagement) { Text(tr(StringKeys.SETTINGS_MEMORY_MANAGE)) }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
 
@@ -267,16 +272,16 @@ fun SettingsScreen(
             // made a three-way segmented control. Drives ThemeModeViewModel.setMode,
             // which MainActivity (Android) and Main.kt (desktop) observe to flip the
             // MaterialTheme colorScheme. "Auto" follows the OS dark-mode setting.
-            SectionHeader("Appearance")
+            SectionHeader(tr(StringKeys.SETTINGS_APPEARANCE_HEADER))
             Text(
-                "Choose how the app looks. Auto follows your system's light/dark setting.",
+                tr(StringKeys.SETTINGS_APPEARANCE_DESC),
                 style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(8.dp))
             val themeOptions = listOf(
-                ThemeMode.Light to "Light",
-                ThemeMode.System to "Auto",
-                ThemeMode.Dark to "Dark",
+                ThemeMode.Light to tr(StringKeys.SETTINGS_APPEARANCE_LIGHT),
+                ThemeMode.System to tr(StringKeys.SETTINGS_APPEARANCE_AUTO),
+                ThemeMode.Dark to tr(StringKeys.SETTINGS_APPEARANCE_DARK),
             )
             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                 themeOptions.forEachIndexed { index, (mode, label) ->
@@ -288,6 +293,15 @@ fun SettingsScreen(
                 }
             }
 
+            // Response-language picker (re-added; was removed in PR #44). Drives
+            // SettingsViewModel.setPreferredLanguage, read by ChatViewModel on the
+            // next turn. Sits between the theme control and the font row.
+            Spacer(Modifier.height(12.dp))
+            LanguageDropdown(
+                selected = state.preferredLanguage,
+                onSelect = { viewModel.setPreferredLanguage(it) },
+            )
+
             // Font family + size (PR #60). Applied app-wide on BOTH platforms via
             // ThemeModeViewModel → AppThemeScaffold: a LocalDensity fontScale override
             // scales every sp text (incl. the Android markdown TextView), and the
@@ -298,16 +312,16 @@ fun SettingsScreen(
             val fontFamily by themeModeViewModel.fontFamily.collectAsState()
             val fontScale by themeModeViewModel.fontScale.collectAsState()
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Font: ", style = MaterialTheme.typography.bodyMedium)
+                Text(tr(StringKeys.SETTINGS_FONT_LABEL), style = MaterialTheme.typography.bodyMedium)
                 var fontMenuOpen by remember { mutableStateOf(false) }
                 AssistChip(
                     onClick = { fontMenuOpen = true },
-                    label = { Text(fontFamily.displayLabel()) },
+                    label = { Text(fontFamily.trLabel()) },
                 )
                 DropdownMenu(expanded = fontMenuOpen, onDismissRequest = { fontMenuOpen = false }) {
                     AppFontFamily.entries.forEach { family ->
                         DropdownMenuItem(
-                            text = { Text(family.displayLabel()) },
+                            text = { Text(family.trLabel()) },
                             onClick = { themeModeViewModel.setFontFamily(family); fontMenuOpen = false },
                         )
                     }
@@ -315,7 +329,7 @@ fun SettingsScreen(
             }
             Spacer(Modifier.height(12.dp))
             Text(
-                "Text size — ${(fontScale * 100).roundToInt()}%",
+                tr(StringKeys.SETTINGS_FONT_SIZE, (fontScale * 100).roundToInt()),
                 style = MaterialTheme.typography.bodyMedium,
             )
             Slider(
@@ -326,7 +340,7 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
             Text(
-                "The quick brown fox jumps over the lazy dog.",
+                tr(StringKeys.SETTINGS_FONT_PREVIEW),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.outline,
             )
@@ -346,24 +360,21 @@ fun SettingsScreen(
             // contract: default OFF, toggle is reachable from both first-run
             // onboarding (Phase E) and this Settings section.
             SectionHeaderWithToggle(
-                title = "Anonymous telemetry",
+                title = tr(StringKeys.SETTINGS_TELEMETRY_HEADER),
                 checked = state.telemetryEnabled,
                 onCheckedChange = { viewModel.setTelemetryEnabled(it) },
             )
             Text(
                 if (state.telemetryEnabled) {
-                    "Aggregate counters help us improve the assistant."
+                    tr(StringKeys.SETTINGS_TELEMETRY_ON)
                 } else {
-                    "Off. The app never sends usage data when this is off."
+                    tr(StringKeys.SETTINGS_TELEMETRY_OFF)
                 },
                 style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                "What we send: counts per day — queries, search invocations, " +
-                    "memory operations, latency percentiles. Plus redacted " +
-                    "crash reports so we can fix what breaks. What we don't: " +
-                    "your queries, your memories, conversation content, any identifier.",
+                tr(StringKeys.SETTINGS_TELEMETRY_DETAIL),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline,
             )
@@ -418,13 +429,13 @@ fun SettingsScreen(
 
             // BYOK credential sections moved to the bottom (PR #44) — set
             // once at setup, rarely touched afterwards.
-            SectionHeader("Brave Search API")
+            SectionHeader(tr(StringKeys.SETTINGS_BRAVE_HEADER))
             val braveUrl = "https://brave.com/search/api/"
             Text(
                 buildAnnotatedString {
-                    append("The assistant searches the web through Brave Search. Get a key at ")
+                    append(tr(StringKeys.SETTINGS_BRAVE_DESC_PRE))
                     withLink(LinkAnnotation.Url(braveUrl, linkStyles)) { append(braveUrl) }
-                    append(" — the free tier is enough for personal use.")
+                    append(tr(StringKeys.SETTINGS_BRAVE_DESC_POST))
                 },
                 style = MaterialTheme.typography.bodySmall,
             )
@@ -435,14 +446,22 @@ fun SettingsScreen(
                 value = keyInput,
                 onValueChange = { keyInput = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Brave API key") },
-                placeholder = { Text(if (state.hasUserKey) "Replace existing key" else "Paste key") },
+                label = { Text(tr(StringKeys.SETTINGS_BRAVE_FIELD_LABEL)) },
+                placeholder = {
+                    Text(
+                        if (state.hasUserKey) {
+                            tr(StringKeys.SETTINGS_BRAVE_PLACEHOLDER_REPLACE)
+                        } else {
+                            tr(StringKeys.SETTINGS_BRAVE_PLACEHOLDER_PASTE)
+                        },
+                    )
+                },
                 singleLine = true,
                 visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 trailingIcon = {
                     Text(
-                        text = if (showKey) "Hide" else "Show",
+                        text = if (showKey) tr(StringKeys.COMMON_HIDE) else tr(StringKeys.COMMON_SHOW),
                         modifier = Modifier
                             .padding(horizontal = 8.dp)
                             .padding(vertical = 4.dp),
@@ -456,28 +475,27 @@ fun SettingsScreen(
                 Button(
                     onClick = { viewModel.saveBraveKey(keyInput) },
                     enabled = keyInput.isNotBlank(),
-                ) { Text("Save") }
+                ) { Text(tr(StringKeys.COMMON_SAVE)) }
                 if (state.hasUserKey) {
-                    OutlinedButton(onClick = { viewModel.clearBraveKey() }) { Text("Clear") }
+                    OutlinedButton(onClick = { viewModel.clearBraveKey() }) { Text(tr(StringKeys.COMMON_CLEAR)) }
                 }
                 OutlinedButton(onClick = { showKey = !showKey }) {
-                    Text(if (showKey) "Mask" else "Reveal")
+                    Text(if (showKey) tr(StringKeys.COMMON_MASK) else tr(StringKeys.COMMON_REVEAL))
                 }
             }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
 
-            SectionHeader("HuggingFace token")
+            SectionHeader(tr(StringKeys.SETTINGS_HF_HEADER))
             val hfTokensUrl = "https://huggingface.co/settings/tokens"
             val hfModelCardUrl = "https://huggingface.co/google/gemma-4-E2B-it"
             Text(
                 buildAnnotatedString {
-                    append("The AI model weights are located in a HuggingFace ")
-                    append("repository. Create a read-scoped access token from ")
+                    append(tr(StringKeys.SETTINGS_HF_DESC_PRE))
                     withLink(LinkAnnotation.Url(hfTokensUrl, linkStyles)) { append(hfTokensUrl) }
-                    append(" and accept the ")
+                    append(tr(StringKeys.SETTINGS_HF_DESC_MID))
                     withLink(LinkAnnotation.Url(hfModelCardUrl, linkStyles)) { append(hfModelCardUrl) }
-                    append(" license on the model card before downloading.")
+                    append(tr(StringKeys.SETTINGS_HF_DESC_POST))
                 },
                 style = MaterialTheme.typography.bodySmall,
             )
@@ -488,16 +506,22 @@ fun SettingsScreen(
                 value = hfTokenInput,
                 onValueChange = { hfTokenInput = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("HuggingFace access token") },
+                label = { Text(tr(StringKeys.SETTINGS_HF_FIELD_LABEL)) },
                 placeholder = {
-                    Text(if (state.hasUserHfToken) "Replace existing token" else "Paste token")
+                    Text(
+                        if (state.hasUserHfToken) {
+                            tr(StringKeys.SETTINGS_HF_PLACEHOLDER_REPLACE)
+                        } else {
+                            tr(StringKeys.SETTINGS_HF_PLACEHOLDER_PASTE)
+                        },
+                    )
                 },
                 singleLine = true,
                 visualTransformation = if (showHfToken) VisualTransformation.None else PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 trailingIcon = {
                     Text(
-                        text = if (showHfToken) "Hide" else "Show",
+                        text = if (showHfToken) tr(StringKeys.COMMON_HIDE) else tr(StringKeys.COMMON_SHOW),
                         modifier = Modifier
                             .padding(horizontal = 8.dp)
                             .padding(vertical = 4.dp),
@@ -511,12 +535,12 @@ fun SettingsScreen(
                 Button(
                     onClick = { viewModel.saveHfAuthToken(hfTokenInput) },
                     enabled = hfTokenInput.isNotBlank(),
-                ) { Text("Save") }
+                ) { Text(tr(StringKeys.COMMON_SAVE)) }
                 if (state.hasUserHfToken) {
-                    OutlinedButton(onClick = { viewModel.clearHfAuthToken() }) { Text("Clear") }
+                    OutlinedButton(onClick = { viewModel.clearHfAuthToken() }) { Text(tr(StringKeys.COMMON_CLEAR)) }
                 }
                 OutlinedButton(onClick = { showHfToken = !showHfToken }) {
-                    Text(if (showHfToken) "Mask" else "Reveal")
+                    Text(if (showHfToken) tr(StringKeys.COMMON_MASK) else tr(StringKeys.COMMON_REVEAL))
                 }
             }
 
@@ -592,16 +616,23 @@ fun SettingsScreen(
 @Composable
 private fun AboutSection() {
     val buildConfig = koinInject<AppBuildConfig>()
-    SectionHeader("About")
+    SectionHeader(tr(StringKeys.SETTINGS_ABOUT_HEADER))
     Text(
-        text = if (isDesktopPlatform) "Desktop Agent" else "Local Agent",
+        text = if (isDesktopPlatform) {
+            tr(StringKeys.SETTINGS_ABOUT_DESKTOP_AGENT)
+        } else {
+            tr(StringKeys.SETTINGS_ABOUT_LOCAL_AGENT)
+        },
         style = MaterialTheme.typography.bodyMedium,
     )
     Spacer(Modifier.height(4.dp))
     Text(
-        text = "Version ${buildConfig.versionName}\n" +
-            "Build ${buildConfig.versionCode}\n" +
-            "Git ${buildConfig.gitDescribe}",
+        text = tr(
+            StringKeys.SETTINGS_ABOUT_BUILD_INFO,
+            buildConfig.versionName,
+            buildConfig.versionCode,
+            buildConfig.gitDescribe,
+        ),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -628,15 +659,13 @@ private fun DesktopLinkSection(
     // phone JOINS it (toggle + pairing copy + scanner). PR #57.
     if (isDesktopPlatform) {
         val anywhere = state.subscription.isActive // PR #74 — paid relay active
-        SectionHeader("Local Agent Connection")
+        SectionHeader(tr(StringKeys.SETTINGS_LINK_DESKTOP_HEADER))
         Text(
             if (anywhere) {
-                "Let the Local Agent app on your phone connect to this desktop anywhere. " +
-                    "Scan the code below from the phone's Settings."
+                tr(StringKeys.SETTINGS_LINK_DESKTOP_DESC_ANYWHERE)
             } else {
                 // PR #80 — the LAN path is gone; pairing requires an active subscription.
-                "Connect the Local Agent app on your phone to this desktop from anywhere. " +
-                    "Subscribe to anywhere access to show a pairing code here."
+                tr(StringKeys.SETTINGS_LINK_DESKTOP_DESC_SUBSCRIBE)
             },
             style = MaterialTheme.typography.bodySmall,
         )
@@ -649,7 +678,13 @@ private fun DesktopLinkSection(
                 onClick = { if (anywhere) onManageSubscription() else onUpgrade() },
                 contentPadding = PaddingValues(0.dp),
             ) {
-                Text(if (anywhere) "Subscription Settings" else "Upgrade to anywhere connection")
+                Text(
+                    if (anywhere) {
+                        tr(StringKeys.SETTINGS_LINK_SUBSCRIPTION_SETTINGS)
+                    } else {
+                        tr(StringKeys.SETTINGS_LINK_UPGRADE)
+                    },
+                )
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -663,15 +698,12 @@ private fun DesktopLinkSection(
         )
     } else {
         SectionHeaderWithToggle(
-            title = "Desktop Agent Connection",
+            title = tr(StringKeys.SETTINGS_LINK_MOBILE_HEADER),
             checked = state.desktopLinkConfig.enabled,
             onCheckedChange = onToggle,
         )
         Text(
-            "Pair this phone with your desktop agent over its secure gateway subscription. " +
-                "While the link is on and reachable, chat runs on the desktop and your " +
-                "conversations + memories stay in sync. When it's on, the Ollama server " +
-                "below is disabled.",
+            tr(StringKeys.SETTINGS_LINK_MOBILE_DESC),
             style = MaterialTheme.typography.bodySmall,
         )
         Spacer(Modifier.height(8.dp))
@@ -698,11 +730,11 @@ private fun ConnectedMobileRow(state: SettingsUiState, onDisconnect: () -> Unit)
     // read as "No phone paired yet" with no Disconnect).
     val (label, color) = when (state.mobilePresence) {
         MobileLinkPresence.CONNECTED ->
-            "Local Agent connected via gateway" to Color(0xFF43A047)
+            tr(StringKeys.SETTINGS_LINK_MOBILE_CONNECTED) to Color(0xFF43A047)
         MobileLinkPresence.OFFLINE ->
-            "Mobile agent offline" to MaterialTheme.colorScheme.outline
+            tr(StringKeys.SETTINGS_LINK_MOBILE_OFFLINE) to MaterialTheme.colorScheme.outline
         MobileLinkPresence.UNPAIRED ->
-            "No Local Agent paired yet" to MaterialTheme.colorScheme.outline
+            tr(StringKeys.SETTINGS_LINK_MOBILE_UNPAIRED) to MaterialTheme.colorScheme.outline
     }
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -720,7 +752,7 @@ private fun ConnectedMobileRow(state: SettingsUiState, onDisconnect: () -> Unit)
             Text(label, style = MaterialTheme.typography.bodyMedium, color = color)
         }
         if (state.mobilePresence != MobileLinkPresence.UNPAIRED) {
-            OutlinedButton(onClick = onDisconnect) { Text("Disconnect") }
+            OutlinedButton(onClick = onDisconnect) { Text(tr(StringKeys.SETTINGS_LINK_DISCONNECT)) }
         }
     }
 }
@@ -729,12 +761,12 @@ private fun ConnectedMobileRow(state: SettingsUiState, onDisconnect: () -> Unit)
 private fun DesktopLinkStatusRow(state: SettingsUiState) {
     val cfg = state.desktopLinkConfig
     val (label, color) = when {
-        !cfg.enabled -> "Off" to MaterialTheme.colorScheme.outline
-        !cfg.isPaired -> "No desktop paired" to MaterialTheme.colorScheme.outline
+        !cfg.enabled -> tr(StringKeys.SETTINGS_LINK_STATUS_OFF) to MaterialTheme.colorScheme.outline
+        !cfg.isPaired -> tr(StringKeys.SETTINGS_LINK_STATUS_NO_DESKTOP) to MaterialTheme.colorScheme.outline
         state.desktopLinkStatus == DesktopLinkStatus.UP ->
-            "Connected to gateway" to Color(0xFF43A047)
+            tr(StringKeys.SETTINGS_LINK_STATUS_CONNECTED) to Color(0xFF43A047)
         else ->
-            "Gateway unreachable" to Color(0xFFE53935)
+            tr(StringKeys.SETTINGS_LINK_STATUS_UNREACHABLE) to Color(0xFFE53935)
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(
@@ -775,23 +807,21 @@ private fun OllamaServerSection(
     // PR #73 — explicit on/off inline with the header. Off keeps the saved server
     // details but routes chat back to the on-device model.
     SectionHeaderWithToggle(
-        title = "Remote LLM Connection",
+        title = tr(StringKeys.SETTINGS_OLLAMA_HEADER),
         checked = state.ollamaConfig.enabled,
         onCheckedChange = onToggleEnabled,
         toggleEnabled = enabled,
     )
     if (!enabled) {
         Text(
-            "Disabled while Desktop Agent Connection is active.",
+            tr(StringKeys.SETTINGS_OLLAMA_DISABLED_BY_LINK),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.outline,
         )
         Spacer(Modifier.height(4.dp))
     }
     Text(
-        "Run the chat model on a remote LLM server instead of this device. The " +
-            "classifier, search and memory always stay on-device. Leave blank to use " +
-            "the built-in model.",
+        tr(StringKeys.SETTINGS_OLLAMA_DESC),
         style = MaterialTheme.typography.bodySmall,
     )
     Spacer(Modifier.height(8.dp))
@@ -812,7 +842,7 @@ private fun OllamaServerSection(
             enabled = enabled && !sslLocked,
         )
         Text(
-            if (sslLocked) "Use SSL (https) — required for OpenAI-compatible" else "Use SSL (https)",
+            if (sslLocked) tr(StringKeys.SETTINGS_OLLAMA_SSL_LOCKED) else tr(StringKeys.SETTINGS_OLLAMA_SSL),
             style = MaterialTheme.typography.bodyMedium,
             color = if (enabled && !sslLocked) {
                 MaterialTheme.colorScheme.onSurface
@@ -831,7 +861,7 @@ private fun OllamaServerSection(
             modifier = Modifier.weight(2f),
             // OpenAI-compatible takes a full base URL (port lives in the URL);
             // Ollama takes a bare host/IP with a separate port.
-            label = { Text(if (isOpenAi) "Base URL" else "Host / IP") },
+            label = { Text(if (isOpenAi) tr(StringKeys.SETTINGS_OLLAMA_BASE_URL) else tr(StringKeys.SETTINGS_OLLAMA_HOST)) },
             placeholder = { Text(if (isOpenAi) "https://openrouter.ai/api/v1" else "192.168.1.50") },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
@@ -842,7 +872,7 @@ private fun OllamaServerSection(
                 onValueChange = onPortChange,
                 enabled = enabled,
                 modifier = Modifier.weight(1f),
-                label = { Text("Port") },
+                label = { Text(tr(StringKeys.SETTINGS_OLLAMA_PORT)) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
             )
@@ -851,9 +881,7 @@ private fun OllamaServerSection(
     if (isOpenAi) {
         Spacer(Modifier.height(4.dp))
         Text(
-            "Enter the full base URL ending in the API path, e.g. " +
-                "https://openrouter.ai/api/v1, https://api.openai.com/v1, or " +
-                "http://localhost:1234/v1 for a local server.",
+            tr(StringKeys.SETTINGS_OLLAMA_OPENAI_HINT),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.outline,
         )
@@ -870,7 +898,7 @@ private fun OllamaServerSection(
         OutlinedButton(
             onClick = onTest,
             enabled = enabled && host.isNotBlank() && portReady && state.ollamaTestStatus != OllamaTestStatus.Testing,
-        ) { Text("Test connection") }
+        ) { Text(tr(StringKeys.SETTINGS_OLLAMA_TEST)) }
         if (state.ollamaTestStatus == OllamaTestStatus.Testing) {
             CircularProgressIndicator(modifier = Modifier.height(20.dp).padding(start = 4.dp))
         }
@@ -881,14 +909,14 @@ private fun OllamaServerSection(
     if (state.ollamaModels.isNotEmpty()) {
         Spacer(Modifier.height(12.dp))
         ModelDropdown(
-            label = "Chat model",
+            label = tr(StringKeys.SETTINGS_OLLAMA_CHAT_MODEL),
             selected = chatModel,
             models = state.ollamaModels.map { it.name },
             onSelect = onChatModelChange,
         )
         Spacer(Modifier.height(8.dp))
         ModelDropdown(
-            label = "Vision model (optional)",
+            label = tr(StringKeys.SETTINGS_OLLAMA_VISION_MODEL),
             selected = visionModel,
             // Vision-capable models first; allow clearing the selection.
             models = listOf("") + state.ollamaModels.sortedByDescending { it.isVisionCapable }.map { it.name },
@@ -901,9 +929,9 @@ private fun OllamaServerSection(
         Button(
             onClick = onSave,
             enabled = enabled && host.isNotBlank() && portReady && chatModel.isNotBlank() && apiKeyReady,
-        ) { Text("Save") }
+        ) { Text(tr(StringKeys.COMMON_SAVE)) }
         if (state.ollamaConfig.isConfigured) {
-            OutlinedButton(onClick = onClear, enabled = enabled) { Text("Clear") }
+            OutlinedButton(onClick = onClear, enabled = enabled) { Text(tr(StringKeys.COMMON_CLEAR)) }
         }
     }
 
@@ -916,10 +944,9 @@ private fun OllamaServerSection(
     var showApiKey by remember { mutableStateOf(false) }
     Text(
         when {
-            state.hasOllamaApiKey -> "API key set — sent as a Bearer token on outbound requests."
-            isOpenAi -> "API key required — an OpenAI-compatible server authenticates every request."
-            else -> "No API key — requests use the server's default (no auth). Add one only " +
-                "if your server requires it."
+            state.hasOllamaApiKey -> tr(StringKeys.SETTINGS_OLLAMA_APIKEY_SET)
+            isOpenAi -> tr(StringKeys.SETTINGS_OLLAMA_APIKEY_REQUIRED)
+            else -> tr(StringKeys.SETTINGS_OLLAMA_APIKEY_NONE)
         },
         style = MaterialTheme.typography.bodySmall,
         color = when {
@@ -934,14 +961,22 @@ private fun OllamaServerSection(
         onValueChange = { apiKeyInput = it },
         enabled = enabled,
         modifier = Modifier.fillMaxWidth(),
-        label = { Text(if (isOpenAi) "API key" else "API key (optional)") },
-        placeholder = { Text(if (state.hasOllamaApiKey) "Replace existing key" else "Paste key") },
+        label = { Text(if (isOpenAi) tr(StringKeys.SETTINGS_OLLAMA_APIKEY_LABEL) else tr(StringKeys.SETTINGS_OLLAMA_APIKEY_LABEL_OPTIONAL)) },
+        placeholder = {
+            Text(
+                if (state.hasOllamaApiKey) {
+                    tr(StringKeys.SETTINGS_OLLAMA_APIKEY_PLACEHOLDER_REPLACE)
+                } else {
+                    tr(StringKeys.SETTINGS_OLLAMA_APIKEY_PLACEHOLDER_PASTE)
+                },
+            )
+        },
         singleLine = true,
         visualTransformation = if (showApiKey) VisualTransformation.None else PasswordVisualTransformation(),
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
         trailingIcon = {
             Text(
-                text = if (showApiKey) "Hide" else "Show",
+                text = if (showApiKey) tr(StringKeys.COMMON_HIDE) else tr(StringKeys.COMMON_SHOW),
                 modifier = Modifier
                     .padding(horizontal = 8.dp)
                     .padding(vertical = 4.dp),
@@ -955,9 +990,9 @@ private fun OllamaServerSection(
         Button(
             onClick = { onSaveApiKey(apiKeyInput); apiKeyInput = "" },
             enabled = enabled && apiKeyInput.isNotBlank(),
-        ) { Text("Save key") }
+        ) { Text(tr(StringKeys.SETTINGS_OLLAMA_SAVE_KEY)) }
         if (state.hasOllamaApiKey) {
-            OutlinedButton(onClick = onClearApiKey, enabled = enabled) { Text("Clear key") }
+            OutlinedButton(onClick = onClearApiKey, enabled = enabled) { Text(tr(StringKeys.SETTINGS_OLLAMA_CLEAR_KEY)) }
         }
     }
 }
@@ -966,27 +1001,29 @@ private fun OllamaServerSection(
 private fun OllamaStatusRow(state: SettingsUiState, serverType: RemoteServerType) {
     val cfg = state.ollamaConfig
     val (label, color) = when (state.ollamaTestStatus) {
-        OllamaTestStatus.Testing -> "Connecting…" to MaterialTheme.colorScheme.outline
+        OllamaTestStatus.Testing -> tr(StringKeys.SETTINGS_OLLAMA_STATUS_CONNECTING) to MaterialTheme.colorScheme.outline
         OllamaTestStatus.Connected ->
-            "Connected — ${state.ollamaModels.size} models found." to MaterialTheme.colorScheme.primary
+            tr(StringKeys.SETTINGS_OLLAMA_STATUS_CONNECTED, state.ollamaModels.size) to MaterialTheme.colorScheme.primary
         OllamaTestStatus.NoModels ->
             if (serverType == RemoteServerType.OPENAI) {
-                "Reached the server, but it returned no models. Check the Base URL includes the " +
-                    "full API path (e.g. it should end in /v1 or /api/v1)."
+                tr(StringKeys.SETTINGS_OLLAMA_STATUS_NO_MODELS_OPENAI)
             } else {
-                "Reached the server, but it has no models installed (try `ollama pull <model>`)."
+                tr(StringKeys.SETTINGS_OLLAMA_STATUS_NO_MODELS)
             } to MaterialTheme.colorScheme.error
         OllamaTestStatus.Failed ->
-            "Could not reach the server. Check the host, port, and that the server is running." to
+            tr(StringKeys.SETTINGS_OLLAMA_STATUS_FAILED) to
                 MaterialTheme.colorScheme.error
         OllamaTestStatus.Idle -> when {
             cfg.isConfigured && !cfg.enabled ->
-                "Switched off — chat uses the on-device model (server details kept)." to
+                tr(StringKeys.SETTINGS_OLLAMA_STATUS_OFF) to
                     MaterialTheme.colorScheme.outline
             cfg.isActive ->
-                "Using remote LLM at ${cfg.host}${cfg.port?.let { ":$it" } ?: ""} (${cfg.chatModel}) — " +
-                    "on-device model disabled." to MaterialTheme.colorScheme.primary
-            else -> "Not configured — chat uses the on-device model." to MaterialTheme.colorScheme.outline
+                tr(
+                    StringKeys.SETTINGS_OLLAMA_STATUS_ACTIVE,
+                    "${cfg.host}${cfg.port?.let { ":$it" } ?: ""}",
+                    cfg.chatModel,
+                ) to MaterialTheme.colorScheme.primary
+            else -> tr(StringKeys.SETTINGS_OLLAMA_STATUS_NOT_CONFIGURED) to MaterialTheme.colorScheme.outline
         }
     }
     Text(label, style = MaterialTheme.typography.bodySmall, color = color)
@@ -1001,17 +1038,48 @@ private fun ModelDropdown(
     onSelect: (String) -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
+    val noneLabel = tr(StringKeys.COMMON_NONE)
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text("$label: ", style = MaterialTheme.typography.bodyMedium)
         AssistChip(
             onClick = { open = true },
-            label = { Text(selected.ifBlank { "none" }) },
+            label = { Text(selected.ifBlank { noneLabel }) },
         )
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             models.forEach { name ->
                 DropdownMenuItem(
-                    text = { Text(name.ifBlank { "none" }) },
+                    text = { Text(name.ifBlank { noneLabel }) },
                     onClick = { onSelect(name); open = false },
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Response-language picker (re-added after PR #44). Mirrors [ServerTypeDropdown]:
+ * a leading label + an [AssistChip] that opens a [DropdownMenu] of every
+ * [PreferredLanguage]. The chip/menu text is a structural concat of the entry's
+ * native + English names (data fields, not localized copy).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LanguageDropdown(
+    selected: PreferredLanguage,
+    onSelect: (PreferredLanguage) -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(tr(StringKeys.SETTINGS_LANGUAGE_LABEL), style = MaterialTheme.typography.bodyMedium)
+        AssistChip(
+            onClick = { open = true },
+            label = { Text("${selected.nativeName} · ${selected.englishName}") },
+        )
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            PreferredLanguage.entries.forEach { lang ->
+                DropdownMenuItem(
+                    text = { Text("${lang.nativeName} · ${lang.englishName}") },
+                    onClick = { onSelect(lang); open = false },
                 )
             }
         }
@@ -1027,7 +1095,7 @@ private fun ServerTypeDropdown(
 ) {
     var open by remember { mutableStateOf(false) }
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("Server type: ", style = MaterialTheme.typography.bodyMedium)
+        Text(tr(StringKeys.SETTINGS_OLLAMA_SERVER_TYPE_LABEL), style = MaterialTheme.typography.bodyMedium)
         AssistChip(
             onClick = { open = true },
             enabled = enabled,
@@ -1049,11 +1117,12 @@ private fun RemoteServerType.displayLabel(): String = when (this) {
     RemoteServerType.OPENAI -> "OpenAI-compatible"
 }
 
-private fun AppFontFamily.displayLabel(): String = when (this) {
-    AppFontFamily.System -> "System default"
-    AppFontFamily.SansSerif -> "Sans-serif"
-    AppFontFamily.Serif -> "Serif"
-    AppFontFamily.Monospace -> "Monospace"
+@Composable
+private fun AppFontFamily.trLabel(): String = when (this) {
+    AppFontFamily.System -> tr(StringKeys.SETTINGS_FONT_SYSTEM)
+    AppFontFamily.SansSerif -> tr(StringKeys.SETTINGS_FONT_SANS)
+    AppFontFamily.Serif -> tr(StringKeys.SETTINGS_FONT_SERIF)
+    AppFontFamily.Monospace -> tr(StringKeys.SETTINGS_FONT_MONOSPACE)
 }
 
 @Composable
@@ -1091,9 +1160,9 @@ private fun SectionHeaderWithToggle(
 @Composable
 private fun KeyStatusRow(state: SettingsUiState) {
     val (label, color) = when {
-        state.hasUserKey -> "Your key is set." to MaterialTheme.colorScheme.primary
-        state.hasDevKey -> "No user key — using bundled dev key (debug build only)." to MaterialTheme.colorScheme.outline
-        else -> "No key configured. Web search will be disabled until you add one." to MaterialTheme.colorScheme.error
+        state.hasUserKey -> tr(StringKeys.SETTINGS_BRAVE_STATUS_USER) to MaterialTheme.colorScheme.primary
+        state.hasDevKey -> tr(StringKeys.SETTINGS_BRAVE_STATUS_DEV) to MaterialTheme.colorScheme.outline
+        else -> tr(StringKeys.SETTINGS_BRAVE_STATUS_NONE) to MaterialTheme.colorScheme.error
     }
     Text(label, style = MaterialTheme.typography.bodySmall, color = color)
 }
@@ -1101,9 +1170,9 @@ private fun KeyStatusRow(state: SettingsUiState) {
 @Composable
 private fun HfTokenStatusRow(state: SettingsUiState) {
     val (label, color) = when {
-        state.hasUserHfToken -> "Your token is set." to MaterialTheme.colorScheme.primary
-        state.hasDevHfToken -> "No user token — using bundled dev token (debug build only)." to MaterialTheme.colorScheme.outline
-        else -> "No token configured. The model download will fail until you add one." to MaterialTheme.colorScheme.error
+        state.hasUserHfToken -> tr(StringKeys.SETTINGS_HF_STATUS_USER) to MaterialTheme.colorScheme.primary
+        state.hasDevHfToken -> tr(StringKeys.SETTINGS_HF_STATUS_DEV) to MaterialTheme.colorScheme.outline
+        else -> tr(StringKeys.SETTINGS_HF_STATUS_NONE) to MaterialTheme.colorScheme.error
     }
     Text(label, style = MaterialTheme.typography.bodySmall, color = color)
 }

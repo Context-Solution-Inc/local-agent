@@ -27,7 +27,9 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.contextsolutions.localagent.i18n.StringKeys
 import com.contextsolutions.localagent.inference.ThermalStatus
+import com.contextsolutions.localagent.ui.i18n.tr
 
 /**
  * M6 Phase E — thermal warning banner above the chat input (PRD §4.3).
@@ -87,7 +89,7 @@ fun ThermalBanner(thermal: ThermalStatus) {
                 tint = onColor,
             )
             Text(
-                text = "Your device is running warm. Responses may be slower.",
+                text = tr(StringKeys.CHAT_THERMAL_WARM),
                 color = onColor,
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.weight(1f),
@@ -97,7 +99,7 @@ fun ThermalBanner(thermal: ThermalStatus) {
             ) {
                 Icon(
                     imageVector = Icons.Filled.Close,
-                    contentDescription = "Dismiss thermal warning",
+                    contentDescription = tr(StringKeys.CHAT_CD_DISMISS_THERMAL),
                     tint = onColor,
                 )
             }
@@ -128,14 +130,13 @@ private fun ThermalCriticalBlock() {
                     tint = MaterialTheme.colorScheme.onErrorContainer,
                 )
                 Text(
-                    text = "Device too hot for generation",
+                    text = tr(StringKeys.CHAT_THERMAL_BLOCK_TITLE),
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onErrorContainer,
                 )
             }
             Text(
-                text = "Wait a few minutes for the device to cool. Send is " +
-                    "disabled until the thermal state clears.",
+                text = tr(StringKeys.CHAT_THERMAL_BLOCK_BODY),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onErrorContainer,
             )

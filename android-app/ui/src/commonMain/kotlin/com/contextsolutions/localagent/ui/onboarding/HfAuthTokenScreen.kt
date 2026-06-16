@@ -26,7 +26,9 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.contextsolutions.localagent.i18n.StringKeys
 import com.contextsolutions.localagent.platform.UrlOpener
+import com.contextsolutions.localagent.ui.i18n.tr
 import org.koin.compose.koinInject
 
 /**
@@ -59,14 +61,12 @@ fun HfAuthTokenScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text(
-                text = "Add a HuggingFace token",
+                text = tr(StringKeys.ONBOARDING_HF_TITLE),
                 style = MaterialTheme.typography.headlineMedium,
                 modifier = Modifier.semantics { heading() },
             )
             Text(
-                text = "Local Agent downloads the Gemma 4 model weights from a " +
-                    "gated HuggingFace repository. A read-scoped token from your " +
-                    "HuggingFace account authenticates the one-time download.",
+                text = tr(StringKeys.ONBOARDING_HF_BODY),
                 style = MaterialTheme.typography.bodyLarge,
             )
 
@@ -75,7 +75,7 @@ fun HfAuthTokenScreen(
             OutlinedTextField(
                 value = tokenInput,
                 onValueChange = { tokenInput = it },
-                label = { Text("HuggingFace access token") },
+                label = { Text(tr(StringKeys.ONBOARDING_HF_FIELD_LABEL)) },
                 visualTransformation = PasswordVisualTransformation(),
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
@@ -84,12 +84,11 @@ fun HfAuthTokenScreen(
             TextButton(
                 onClick = { urlOpener.openUrl(HF_TOKENS_URL) },
             ) {
-                Text("Get a token at huggingface.co/settings/tokens")
+                Text(tr(StringKeys.ONBOARDING_HF_GET_TOKEN))
             }
 
             Text(
-                text = "You also need to accept the Gemma license on the model " +
-                    "card page before the download will succeed.",
+                text = tr(StringKeys.ONBOARDING_HF_LICENSE_NOTE),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline,
             )
@@ -101,19 +100,18 @@ fun HfAuthTokenScreen(
                 enabled = tokenInput.isNotBlank(),
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("Save and continue")
+                Text(tr(StringKeys.ONBOARDING_NAV_SAVE_CONTINUE))
             }
 
             OutlinedButton(
                 onClick = onSkip,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("Skip — I'll add it later in Settings")
+                Text(tr(StringKeys.ONBOARDING_NAV_SKIP_SETTINGS))
             }
 
             Text(
-                text = "Without a token, the model download will fail unless the " +
-                    "weights have been sideloaded.",
+                text = tr(StringKeys.ONBOARDING_HF_FOOTNOTE),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline,
             )

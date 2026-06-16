@@ -27,7 +27,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.contextsolutions.localagent.i18n.StringKeys
 import com.contextsolutions.localagent.platform.LocaleProvider
+import com.contextsolutions.localagent.ui.i18n.tr
 import com.contextsolutions.localagent.preferences.LocationCatalog
 import org.koin.compose.koinInject
 
@@ -71,22 +73,19 @@ fun LocationPickerScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text(
-                text = "Which country are you in?",
+                text = tr(StringKeys.ONBOARDING_LOCATION_TITLE),
                 style = MaterialTheme.typography.headlineMedium,
                 modifier = Modifier.semantics { heading() },
             )
             Text(
-                text = "Local Agent fetches weather, news, sports, and finance " +
-                    "from sources that make sense for your country. You can " +
-                    "change these later in Settings. For weather, just tell me " +
-                    "the city and state or province when you ask.",
+                text = tr(StringKeys.ONBOARDING_LOCATION_BODY),
                 style = MaterialTheme.typography.bodyLarge,
             )
 
             Spacer(Modifier.height(8.dp))
 
             LabelledDropdown(
-                label = "Country",
+                label = tr(StringKeys.ONBOARDING_LOCATION_COUNTRY_LABEL),
                 value = countries.firstOrNull { it.code == selectedCountryCode }?.name.orEmpty(),
                 options = countries.map { it.code to it.name },
                 onSelect = { selectedCountryCode = it },
@@ -99,14 +98,14 @@ fun LocationPickerScreen(
                 enabled = selectedCountryCode.isNotBlank(),
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("Save and continue")
+                Text(tr(StringKeys.ONBOARDING_NAV_SAVE_CONTINUE))
             }
 
             OutlinedButton(
                 onClick = onSkip,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("Use device default")
+                Text(tr(StringKeys.ONBOARDING_LOCATION_USE_DEVICE_DEFAULT))
             }
         }
     }
@@ -133,7 +132,10 @@ private fun LabelledDropdown(
             enabled = options.isNotEmpty(),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text(text = value.ifEmpty { "Select..." }, modifier = Modifier.fillMaxWidth())
+            Text(
+                text = value.ifEmpty { tr(StringKeys.ONBOARDING_LOCATION_SELECT_PLACEHOLDER) },
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
         DropdownMenu(
             expanded = expanded,

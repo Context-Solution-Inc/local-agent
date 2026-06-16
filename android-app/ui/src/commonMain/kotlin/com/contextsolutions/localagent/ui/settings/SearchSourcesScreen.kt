@@ -44,9 +44,11 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import org.koin.compose.viewmodel.koinViewModel
+import com.contextsolutions.localagent.i18n.StringKeys
 import com.contextsolutions.localagent.preferences.SiteConfig
 import com.contextsolutions.localagent.preferences.SourceKind
 import com.contextsolutions.localagent.search.SearchSubtype
+import com.contextsolutions.localagent.ui.i18n.tr
 
 /**
  * Settings → Search sources (PR #23).
@@ -71,10 +73,10 @@ fun SearchSourcesScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Search sources") },
+                title = { Text(tr(StringKeys.SEARCH_SOURCES_TITLE)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr(StringKeys.COMMON_BACK))
                     }
                 },
             )
@@ -93,20 +95,20 @@ fun SearchSourcesScreen(
             val locationLabel = state.location
                 ?.let { listOf(it.city, it.regionCode, it.country).filter(String::isNotBlank).joinToString(", ") }
                 ?.takeIf { it.isNotBlank() }
-                ?: "no location set"
+                ?: tr(StringKeys.SEARCH_SOURCES_NO_LOCATION)
             Text(
-                text = "Defaults seeded from: $locationLabel",
+                text = tr(StringKeys.SEARCH_SOURCES_DEFAULTS_FROM, locationLabel),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline,
             )
             Spacer(Modifier.height(8.dp))
 
             val sections = listOf(
-                "General search" to SearchSubtype.GENERAL,
-                "News" to SearchSubtype.NEWS,
-                "Weather" to SearchSubtype.WEATHER,
-                "Sports" to SearchSubtype.SPORTS,
-                "Finance" to SearchSubtype.FINANCE,
+                tr(StringKeys.SEARCH_SOURCES_GENERAL) to SearchSubtype.GENERAL,
+                tr(StringKeys.SEARCH_SOURCES_NEWS) to SearchSubtype.NEWS,
+                tr(StringKeys.SEARCH_SOURCES_WEATHER) to SearchSubtype.WEATHER,
+                tr(StringKeys.SEARCH_SOURCES_SPORTS) to SearchSubtype.SPORTS,
+                tr(StringKeys.SEARCH_SOURCES_FINANCE) to SearchSubtype.FINANCE,
             )
             sections.forEachIndexed { i, (title, subtype) ->
                 VerticalSection(
@@ -160,7 +162,7 @@ private fun VerticalSection(
     Spacer(Modifier.height(4.dp))
     if (sites.isEmpty()) {
         Text(
-            "No sources configured.",
+            tr(StringKeys.SEARCH_SOURCES_NONE_CONFIGURED),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.outline,
         )
@@ -179,10 +181,10 @@ private fun VerticalSection(
                     )
                 }
                 IconButton(onClick = { onEdit(site) }) {
-                    Icon(Icons.Default.Edit, contentDescription = "Edit ${site.domain}")
+                    Icon(Icons.Default.Edit, contentDescription = tr(StringKeys.SEARCH_SOURCES_CD_EDIT, site.domain))
                 }
                 IconButton(onClick = { onRemove(subtype, site.domain) }) {
-                    Icon(Icons.Default.Close, contentDescription = "Remove ${site.domain}")
+                    Icon(Icons.Default.Close, contentDescription = tr(StringKeys.SEARCH_SOURCES_CD_REMOVE, site.domain))
                 }
             }
         }
@@ -191,7 +193,7 @@ private fun VerticalSection(
     OutlinedButton(onClick = onAdd) {
         Icon(Icons.Default.Add, contentDescription = null)
         Spacer(Modifier.padding(end = 4.dp))
-        Text("Add source")
+        Text(tr(StringKeys.SEARCH_SOURCES_ADD))
     }
 }
 
@@ -220,8 +222,14 @@ private fun SiteDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            val verb = if (existing == null) "Add" else "Edit"
-            Text("$verb ${subtype.name.lowercase()} source")
+            val subtypeName = subtype.name.lowercase()
+            Text(
+                if (existing == null) {
+                    tr(StringKeys.SEARCH_SOURCES_DIALOG_TITLE_ADD, subtypeName)
+                } else {
+                    tr(StringKeys.SEARCH_SOURCES_DIALOG_TITLE_EDIT, subtypeName)
+                },
+            )
         },
         confirmButton = {
             TextButton(
@@ -233,17 +241,17 @@ private fun SiteDialog(
                     onConfirm(domain, displayName, kind, ep)
                 },
                 enabled = domain.isNotBlank(),
-            ) { Text(if (existing == null) "Add" else "Save") }
+            ) { Text(if (existing == null) tr(StringKeys.SEARCH_SOURCES_DIALOG_ADD) else tr(StringKeys.COMMON_SAVE)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(tr(StringKeys.SEARCH_SOURCES_DIALOG_CANCEL)) }
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
                     value = domain,
                     onValueChange = { domain = it },
-                    label = { Text("Domain (e.g. cbc.ca)") },
+                    label = { Text(tr(StringKeys.SEARCH_SOURCES_DIALOG_DOMAIN)) },
                     singleLine = true,
                     keyboardOptions = urlKeyboard,
                     modifier = Modifier.fillMaxWidth(),
@@ -251,14 +259,14 @@ private fun SiteDialog(
                 OutlinedTextField(
                     value = displayName,
                     onValueChange = { displayName = it },
-                    label = { Text("Display name (optional)") },
+                    label = { Text(tr(StringKeys.SEARCH_SOURCES_DIALOG_DISPLAY_NAME)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     AssistChip(
                         onClick = { kindMenuOpen = true },
-                        label = { Text("Kind: ${kind.name}") },
+                        label = { Text(tr(StringKeys.SEARCH_SOURCES_DIALOG_KIND, kind.name)) },
                         colors = AssistChipDefaults.assistChipColors(),
                     )
                     DropdownMenu(
@@ -277,13 +285,13 @@ private fun SiteDialog(
                     OutlinedTextField(
                         value = endpoint,
                         onValueChange = { endpoint = it },
-                        label = { Text("Endpoint URL or template") },
+                        label = { Text(tr(StringKeys.SEARCH_SOURCES_DIALOG_ENDPOINT)) },
                         singleLine = true,
                         keyboardOptions = urlKeyboard,
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Text(
-                        text = "Templates support {country}, {region}, {city}, {query}.",
+                        text = tr(StringKeys.SEARCH_SOURCES_DIALOG_TEMPLATE_HINT),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.outline,
                     )

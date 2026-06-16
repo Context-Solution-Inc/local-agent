@@ -16,10 +16,15 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 class DesktopOnboardingPreferences(private val store: DesktopJsonStore) : OnboardingPreferences {
 
+    private val languageState = MutableStateFlow(readBool(KEY_LANGUAGE_DECIDED))
     private val disclosureState = MutableStateFlow(readBool(KEY_DISCLOSURE_ACKED))
     private val braveKeyState = MutableStateFlow(readBool(KEY_BRAVE_KEY_DECIDED))
     private val hfAuthTokenState = MutableStateFlow(readBool(KEY_HF_AUTH_TOKEN_DECIDED))
     private val locationState = MutableStateFlow(readBool(KEY_LOCATION_DECIDED))
+
+    override fun languageDecided(): Boolean = languageState.value
+    override fun languageDecidedFlow(): Flow<Boolean> = languageState.asStateFlow()
+    override fun markLanguageDecided() = mark(languageState, KEY_LANGUAGE_DECIDED)
 
     override fun disclosureAcknowledged(): Boolean = disclosureState.value
     override fun disclosureAcknowledgedFlow(): Flow<Boolean> = disclosureState.asStateFlow()
@@ -47,6 +52,7 @@ class DesktopOnboardingPreferences(private val store: DesktopJsonStore) : Onboar
     }
 
     private companion object {
+        const val KEY_LANGUAGE_DECIDED = "language_decided"
         const val KEY_DISCLOSURE_ACKED = "disclosure_acknowledged"
         const val KEY_BRAVE_KEY_DECIDED = "brave_key_decided"
         const val KEY_HF_AUTH_TOKEN_DECIDED = "hf_auth_token_decided"

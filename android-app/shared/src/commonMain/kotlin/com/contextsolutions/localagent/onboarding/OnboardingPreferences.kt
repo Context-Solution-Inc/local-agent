@@ -5,8 +5,13 @@ import kotlinx.coroutines.flow.Flow
 /**
  * Persistent state for the M6 Phase E first-run onboarding flow.
  *
- * Five independent gates:
+ * Six independent gates:
  *
+ *  - [languageDecided] (PR #97) — user has picked the app/response language on
+ *    the very first onboarding screen (or kept the default). The language
+ *    itself is persisted by `LanguagePreferences`; this flag only tracks "user
+ *    was shown the picker", and it gates BEFORE every other step so the rest of
+ *    onboarding renders in the chosen language.
  *  - [disclosureAcknowledged] — user has read and accepted the on-device
  *    privacy disclosure (PRD §6.1).
  *  - [braveKeyDecided] — user has either entered a Brave Search API key
@@ -27,7 +32,7 @@ import kotlinx.coroutines.flow.Flow
  *    from Phase C. Kept here as a read-through cache so the host can
  *    compute "is onboarding complete?" from a single state object.
  *
- * Onboarding is complete when all five are true. The download screen +
+ * Onboarding is complete when all six are true. The download screen +
  * "ready" screen are sequenced after onboarding by `MainScreen`.
  *
  * Implementation lives in `:shared/androidMain` backed by a plain
@@ -35,6 +40,10 @@ import kotlinx.coroutines.flow.Flow
  * MemoryPreferences + SharedPreferencesTelemetryConsentManager).
  */
 interface OnboardingPreferences {
+
+    fun languageDecided(): Boolean
+    fun languageDecidedFlow(): Flow<Boolean>
+    fun markLanguageDecided()
 
     fun disclosureAcknowledged(): Boolean
     fun disclosureAcknowledgedFlow(): Flow<Boolean>

@@ -28,6 +28,14 @@ fun OnboardingHost(
     }
 
     when (step) {
+        OnboardingStep.Language -> {
+            val language by viewModel.language.collectAsState()
+            LanguagePickerScreen(
+                selected = language,
+                onSelect = viewModel::selectLanguage,
+                onContinue = viewModel::confirmLanguage,
+            )
+        }
         OnboardingStep.Disclosure -> DisclosureScreen(
             onContinue = viewModel::acknowledgeDisclosure,
         )

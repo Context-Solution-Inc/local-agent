@@ -20,7 +20,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.contextsolutions.localagent.i18n.StringKeys
 import com.contextsolutions.localagent.memory.MemoryCategory
+import com.contextsolutions.localagent.ui.i18n.tr
 
 /**
  * Inline Save / Dismiss card for middle-band memory candidates.
@@ -48,7 +50,7 @@ fun MemoryPromptCard(
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Text(
-                text = "Save this as a ${category.label()}?",
+                text = tr(StringKeys.CHAT_MEMORY_PROMPT_SAVE_AS, category.label()),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onTertiaryContainer,
             )
@@ -69,22 +71,23 @@ fun MemoryPromptCard(
                         containerColor = accent,
                         contentColor = MaterialTheme.colorScheme.tertiaryContainer,
                     ),
-                ) { Text("Save") }
+                ) { Text(tr(StringKeys.COMMON_SAVE)) }
                 OutlinedButton(
                     onClick = onDismiss,
                     border = BorderStroke(1.dp, accent),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = accent),
-                ) { Text("Dismiss") }
+                ) { Text(tr(StringKeys.CHAT_DISMISS)) }
             }
         }
     }
 }
 
+@Composable
 private fun MemoryCategory.label(): String = when (this) {
-    MemoryCategory.PERSONAL_IDENTITY -> "personal detail"
-    MemoryCategory.PREFERENCE -> "preference"
-    MemoryCategory.PROFESSIONAL -> "professional detail"
-    MemoryCategory.INTEREST -> "interest"
-    MemoryCategory.RELATIONSHIP -> "relationship"
-    MemoryCategory.TEMPORARY_CONTEXT -> "temporary note"
+    MemoryCategory.PERSONAL_IDENTITY -> tr(StringKeys.CHAT_CATEGORY_PERSONAL_IDENTITY)
+    MemoryCategory.PREFERENCE -> tr(StringKeys.CHAT_CATEGORY_PREFERENCE)
+    MemoryCategory.PROFESSIONAL -> tr(StringKeys.CHAT_CATEGORY_PROFESSIONAL)
+    MemoryCategory.INTEREST -> tr(StringKeys.CHAT_CATEGORY_INTEREST)
+    MemoryCategory.RELATIONSHIP -> tr(StringKeys.CHAT_CATEGORY_RELATIONSHIP)
+    MemoryCategory.TEMPORARY_CONTEXT -> tr(StringKeys.CHAT_CATEGORY_TEMPORARY_CONTEXT)
 }

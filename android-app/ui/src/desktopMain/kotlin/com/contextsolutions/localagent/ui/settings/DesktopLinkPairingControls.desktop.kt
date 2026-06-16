@@ -18,7 +18,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.unit.dp
+import com.contextsolutions.localagent.i18n.StringKeys
 import com.contextsolutions.localagent.link.MobileLinkPresence
+import com.contextsolutions.localagent.ui.i18n.tr
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import java.awt.image.BufferedImage
@@ -45,7 +47,7 @@ actual fun DesktopLinkPairingControls(
     Column {
         if (!state.subscription.isActive) {
             Text(
-                "Subscribe to anywhere access to show a pairing code for your phone.",
+                tr(StringKeys.DESKTOP_LINK_SUBSCRIBE_PROMPT),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline,
             )
@@ -58,14 +60,13 @@ actual fun DesktopLinkPairingControls(
                 if (bitmap != null) {
                     Image(
                         bitmap = bitmap,
-                        contentDescription = "Desktop pairing QR",
+                        contentDescription = tr(StringKeys.DESKTOP_LINK_QR_CD),
                         modifier = Modifier.size(220.dp),
                     )
                     Spacer(Modifier.height(8.dp))
                 }
                 Text(
-                    "Scan this with the Local Agent app on your phone " +
-                        "(Settings → Desktop Agent Connection → Scan desktop QR).",
+                    tr(StringKeys.DESKTOP_LINK_SCAN_INSTRUCTIONS),
                     style = MaterialTheme.typography.bodySmall,
                 )
                 PairingCountdown(expiresAtEpochMs = state.desktopLinkQrExpiresAtEpochMs)
@@ -73,7 +74,7 @@ actual fun DesktopLinkPairingControls(
             // No QR + no paired phone → offer to mint one on demand. CONNECTED/OFFLINE are
             // handled by the status row above (with Disconnect), so show nothing here.
             state.mobilePresence == MobileLinkPresence.UNPAIRED -> {
-                Button(onClick = onPairNow) { Text("Pair Now") }
+                Button(onClick = onPairNow) { Text(tr(StringKeys.DESKTOP_LINK_PAIR_NOW)) }
             }
         }
     }
@@ -98,7 +99,7 @@ private fun PairingCountdown(expiresAtEpochMs: Long?) {
     if (remainingSec > 0) {
         Spacer(Modifier.height(4.dp))
         Text(
-            "Pairing code expires in ${remainingSec}s.",
+            tr(StringKeys.DESKTOP_LINK_CODE_EXPIRES, remainingSec),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.outline,
         )

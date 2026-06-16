@@ -95,7 +95,9 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.contextsolutions.localagent.i18n.StringKeys
 import com.contextsolutions.localagent.inference.SessionState
+import com.contextsolutions.localagent.ui.i18n.tr
 import com.contextsolutions.localagent.ui.clock.ClockViewModel
 import com.contextsolutions.localagent.ui.icons.RuleSettingsIcon
 import com.contextsolutions.localagent.ui.platform.isDesktopPlatform
@@ -483,7 +485,7 @@ fun ChatScreen(
                     IconButton(onClick = { viewModel.newConversation() }) {
                         Icon(
                             imageVector = Icons.Filled.Add,
-                            contentDescription = "New chat",
+                            contentDescription = tr(StringKeys.CHAT_CD_NEW_CHAT),
                         )
                     }
                     // PR #15 — TODO entry point. Count is folded into the
@@ -494,19 +496,19 @@ fun ChatScreen(
                     if (!isDesktopPlatform) {
                         ClockIconButton(
                             icon = Icons.Filled.Checklist,
-                            contentDescription = "Todos ($activeTodoCount open)",
+                            contentDescription = tr(StringKeys.CHAT_CD_TODOS, activeTodoCount),
                             onClick = onOpenTodos,
                         )
                         // PR #11 — clock entry points. Always shown so the user
                         // can create the first timer/alarm.
                         ClockIconButton(
                             icon = Icons.Filled.Timer,
-                            contentDescription = "Timers (${timers.size} active)",
+                            contentDescription = tr(StringKeys.CHAT_CD_TIMERS, timers.size),
                             onClick = onOpenTimers,
                         )
                         ClockIconButton(
                             icon = Icons.Filled.AccessAlarm,
-                            contentDescription = "Alarms (${alarms.count { it.enabled }} active)",
+                            contentDescription = tr(StringKeys.CHAT_CD_ALARMS, alarms.count { it.enabled }),
                             onClick = onOpenAlarms,
                         )
                     }
@@ -536,17 +538,17 @@ fun ChatScreen(
                                         }
                                     },
                                 ) {
-                                    Icon(imageVector = RuleSettingsIcon, contentDescription = "Jobs")
+                                    Icon(imageVector = RuleSettingsIcon, contentDescription = tr(StringKeys.CHAT_CD_JOBS))
                                 }
                             } else {
-                                Icon(imageVector = RuleSettingsIcon, contentDescription = "Jobs")
+                                Icon(imageVector = RuleSettingsIcon, contentDescription = tr(StringKeys.CHAT_CD_JOBS))
                             }
                         }
                     }
                     IconButton(onClick = onOpenSettings) {
                         Icon(
                             imageVector = Icons.Filled.Settings,
-                            contentDescription = "Settings",
+                            contentDescription = tr(StringKeys.CHAT_CD_SETTINGS),
                         )
                     }
                 },
@@ -608,10 +610,9 @@ fun ChatScreen(
                                 .padding(vertical = 32.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            Text(text = "Hello.", style = MaterialTheme.typography.headlineSmall)
+                            Text(text = tr(StringKeys.CHAT_EMPTY_TITLE), style = MaterialTheme.typography.headlineSmall)
                             Text(
-                                text = "Ask anything. The assistant runs on your device — your messages stay here. " +
-                                    "It'll search the web automatically when it needs current info.",
+                                text = tr(StringKeys.CHAT_EMPTY_BODY),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -645,7 +646,7 @@ fun ChatScreen(
                     }
                     if (ui.error != null) {
                         Text(
-                            text = "Error: ${ui.error}",
+                            text = tr(StringKeys.CHAT_ERROR_PREFIX, ui.error),
                             color = MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.bodyMedium,
                         )
@@ -667,12 +668,11 @@ fun ChatScreen(
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Text(
-                                text = "Hello.",
+                                text = tr(StringKeys.CHAT_EMPTY_TITLE),
                                 style = MaterialTheme.typography.headlineSmall,
                             )
                             Text(
-                                text = "Ask anything. The assistant runs on your device — your messages stay here. " +
-                                    "It'll search the web automatically when it needs current info.",
+                                text = tr(StringKeys.CHAT_EMPTY_BODY),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -710,7 +710,7 @@ fun ChatScreen(
                 if (ui.error != null) {
                     item {
                         Text(
-                            text = "Error: ${ui.error}",
+                            text = tr(StringKeys.CHAT_ERROR_PREFIX, ui.error),
                             color = MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.bodyMedium,
                         )
@@ -745,7 +745,7 @@ fun ChatScreen(
                 ) {
                     Icon(
                         imageVector = Icons.Default.KeyboardArrowDown,
-                        contentDescription = "Jump to latest",
+                        contentDescription = tr(StringKeys.CHAT_CD_JUMP_TO_LATEST),
                     )
                 }
             }
@@ -791,7 +791,7 @@ fun ChatScreen(
                         // image at full bubble width, aspect-ratio preserved (Fit, not Crop).
                         Image(
                             bitmap = it,
-                            contentDescription = "Attached image",
+                            contentDescription = tr(StringKeys.CHAT_CD_ATTACHED_IMAGE),
                             contentScale = ContentScale.Fit,
                             modifier = Modifier
                                 .widthIn(max = 240.dp)
@@ -799,7 +799,7 @@ fun ChatScreen(
                         )
                     }
                     IconButton(onClick = { viewModel.clearPickedImage() }) {
-                        Icon(Icons.Default.Close, contentDescription = "Remove image")
+                        Icon(Icons.Default.Close, contentDescription = tr(StringKeys.CHAT_CD_REMOVE_IMAGE))
                     }
                 }
                 Spacer(Modifier.height(4.dp))
@@ -822,7 +822,7 @@ fun ChatScreen(
                             false // Shift+Enter (and everything else) falls through
                         }
                     },
-                placeholder = { Text("Ask anything…") },
+                placeholder = { Text(tr(StringKeys.CHAT_INPUT_HINT)) },
                 enabled = !ui.isGenerating && !thermal.isBlocking,
                 minLines = 1,
                 maxLines = 6,
@@ -851,7 +851,7 @@ fun ChatScreen(
                 ) {
                     Icon(
                         imageVector = if (micEnabled) Icons.Default.Mic else Icons.Default.MicOff,
-                        contentDescription = if (micEnabled) "Stop dictation" else "Start dictation",
+                        contentDescription = if (micEnabled) tr(StringKeys.CHAT_CD_MIC_STOP) else tr(StringKeys.CHAT_CD_MIC_START),
                         tint = if (micEnabled) {
                             MaterialTheme.colorScheme.primary
                         } else {
@@ -869,9 +869,9 @@ fun ChatScreen(
                             Icons.AutoMirrored.Filled.VolumeOff
                         },
                         contentDescription = if (ttsEnabled) {
-                            "Disable read-aloud"
+                            tr(StringKeys.CHAT_CD_TTS_DISABLE)
                         } else {
-                            "Enable read-aloud"
+                            tr(StringKeys.CHAT_CD_TTS_ENABLE)
                         },
                         tint = if (ttsEnabled) {
                             MaterialTheme.colorScheme.primary
@@ -889,7 +889,7 @@ fun ChatScreen(
                     },
                     enabled = !ui.isGenerating && !thermal.isBlocking,
                 ) {
-                    Icon(Icons.Default.Image, contentDescription = "Attach image")
+                    Icon(Icons.Default.Image, contentDescription = tr(StringKeys.CHAT_CD_ATTACH_IMAGE))
                 }
                 Spacer(Modifier.weight(1f))
                 Button(
@@ -897,7 +897,7 @@ fun ChatScreen(
                     // Allow an image-only send (no text) when a photo is staged.
                     enabled = canSend,
                 ) {
-                    Text("Send")
+                    Text(tr(StringKeys.CHAT_SEND))
                 }
                 if (ui.isGenerating) {
                     // PR #22 — two-stage feedback. The moment the user taps,
@@ -911,7 +911,7 @@ fun ChatScreen(
                         onClick = { viewModel.cancel() },
                         enabled = !ui.isCancelling,
                     ) {
-                        Text(if (ui.isCancelling) "Cancelling…" else "Cancel")
+                        Text(if (ui.isCancelling) tr(StringKeys.CHAT_CANCELLING) else tr(StringKeys.CHAT_CANCEL))
                     }
                 }
             }
@@ -928,23 +928,18 @@ fun ChatScreen(
         overflow?.let { decision ->
             AlertDialog(
                 onDismissRequest = { /* require explicit choice */ },
-                title = { Text("Conversation limit reached") },
+                title = { Text(tr(StringKeys.CHAT_OVERFLOW_TITLE)) },
                 text = {
-                    Text(
-                        "This conversation has reached the maximum context length. " +
-                            "Continue to send your message — the oldest message pair " +
-                            "will be permanently removed — or start a new conversation.\n\n" +
-                            "Your message:\n\"${decision.pendingPrompt}\"",
-                    )
+                    Text(tr(StringKeys.CHAT_OVERFLOW_BODY, decision.pendingPrompt))
                 },
                 confirmButton = {
                     TextButton(onClick = { viewModel.continueAfterOverflow() }) {
-                        Text("Continue")
+                        Text(tr(StringKeys.CHAT_OVERFLOW_CONTINUE))
                     }
                 },
                 dismissButton = {
                     TextButton(onClick = { viewModel.dismissOverflowStartNew() }) {
-                        Text("Start new conversation")
+                        Text(tr(StringKeys.CHAT_OVERFLOW_START_NEW))
                     }
                 },
             )
@@ -957,16 +952,13 @@ fun ChatScreen(
         memoryLimit?.let { limit ->
             AlertDialog(
                 onDismissRequest = { viewModel.dismissMemoryLimitDialog() },
-                title = { Text("Memory limit reached") },
+                title = { Text(tr(StringKeys.CHAT_MEMORY_LIMIT_TITLE)) },
                 text = {
-                    Text(
-                        "You've saved the maximum of $limit memories. " +
-                            "Delete some in Settings → Memory to save new ones.",
-                    )
+                    Text(tr(StringKeys.CHAT_MEMORY_LIMIT_BODY, limit))
                 },
                 confirmButton = {
                     TextButton(onClick = { viewModel.dismissMemoryLimitDialog() }) {
-                        Text("OK")
+                        Text(tr(StringKeys.CHAT_OK))
                     }
                 },
             )
@@ -1020,7 +1012,7 @@ private fun UserBubble(text: String, imageBytes: ByteArray? = null, maxWidth: Dp
                 decoded?.let { thumb ->
                     Image(
                         bitmap = thumb,
-                        contentDescription = "Attached image",
+                        contentDescription = tr(StringKeys.CHAT_CD_ATTACHED_IMAGE),
                         contentScale = ContentScale.Fit,
                         modifier = Modifier
                             .widthIn(max = 240.dp)
@@ -1072,7 +1064,7 @@ private fun AssistantBubble(
         }
         if (fromCache) {
             Text(
-                "From cache",
+                tr(StringKeys.CHAT_FROM_CACHE),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.outline,
                 modifier = Modifier.padding(start = 4.dp, top = 2.dp),
@@ -1106,7 +1098,7 @@ private fun StreamingAssistantBubble(
             Spacer(Modifier.height(4.dp))
         } else if (searchStatus is SearchStatus.Failed) {
             Text(
-                "Search ${searchStatus.kind.lowercase()}: ${searchStatus.message}",
+                tr(StringKeys.CHAT_SEARCH_FAILED, searchStatus.kind.lowercase(), searchStatus.message),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.error,
             )
@@ -1131,7 +1123,7 @@ private fun StreamingAssistantBubble(
             searchStatus !is SearchStatus.RunningJob
         ) {
             Text(
-                "Thinking…",
+                tr(StringKeys.CHAT_THINKING),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.outline,
             )
@@ -1144,7 +1136,7 @@ private fun SearchingChip(query: String) {
     AssistChip(
         onClick = {},
         enabled = false,
-        label = { Text("Searching: $query") },
+        label = { Text(tr(StringKeys.CHAT_SEARCHING, query)) },
         colors = AssistChipDefaults.assistChipColors(
             disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
         ),
@@ -1158,7 +1150,7 @@ private fun RunningJobChip(jobName: String) {
     AssistChip(
         onClick = {},
         enabled = false,
-        label = { Text("Running job: $jobName…") },
+        label = { Text(tr(StringKeys.CHAT_RUNNING_JOB, jobName)) },
         colors = AssistChipDefaults.assistChipColors(
             disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
         ),
@@ -1199,22 +1191,22 @@ private fun CitationChips(citations: List<SearchSource>) {
 private fun SessionBanner(state: SessionState) {
     val info: Pair<String, Boolean>? = when (state) {
         is SessionState.Unloaded ->
-            "Model unloaded — next prompt cold-loads in 4–8 s." to false
+            tr(StringKeys.CHAT_SESSION_UNLOADED) to false
         is SessionState.Downloading -> {
             val pct = state.fraction?.let { " ${(it * 100).toInt()}%" }.orEmpty()
-            "Downloading model files…$pct" to false
+            tr(StringKeys.CHAT_SESSION_DOWNLOADING, pct) to false
         }
         is SessionState.Loading ->
-            "Loading model…" to false
+            tr(StringKeys.CHAT_SESSION_LOADING) to false
         is SessionState.Loaded -> when (state.activeAccelerator) {
             // PR #56 — generation runs on a remote Ollama server; the on-device
             // accelerator banner ("Loaded on CPU/GPU…") doesn't apply, so omit it.
             Accelerator.REMOTE -> null
-            Accelerator.CPU -> "Loaded on CPU (degraded mode — generation will be slow)." to true
-            else -> "Loaded on ${state.activeAccelerator.name}." to false
+            Accelerator.CPU -> tr(StringKeys.CHAT_SESSION_LOADED_CPU) to true
+            else -> tr(StringKeys.CHAT_SESSION_LOADED, state.activeAccelerator.name) to false
         }
         is SessionState.Failed ->
-            "Model load failed: ${state.message}" to true
+            tr(StringKeys.CHAT_SESSION_FAILED, state.message) to true
     }
     if (info == null) return
     val (text, isWarning) = info
@@ -1236,9 +1228,9 @@ private fun SystemMemoryStatusIndicator(
     // to pink on dark surfaces. A status dot needs to stay semantically
     // red/yellow/green regardless of theme.
     val (color, desc) = when (status) {
-        MemoryStatus.Green -> Color(0xFF43A047) to "System memory: healthy"
-        MemoryStatus.Yellow -> Color(0xFFFFA000) to "System memory: caution"
-        MemoryStatus.Red -> Color(0xFFE53935) to "System memory: low"
+        MemoryStatus.Green -> Color(0xFF43A047) to tr(StringKeys.CHAT_CD_MEM_HEALTHY)
+        MemoryStatus.Yellow -> Color(0xFFFFA000) to tr(StringKeys.CHAT_CD_MEM_CAUTION)
+        MemoryStatus.Red -> Color(0xFFE53935) to tr(StringKeys.CHAT_CD_MEM_LOW)
     }
     Icon(
         imageVector = Icons.Filled.Circle,
@@ -1262,8 +1254,8 @@ private fun DesktopLinkStatusIndicator(
 ) {
     val status by provider.status.collectAsState()
     val (color, desc) = when (status) {
-        DesktopLinkStatus.UP -> Color(0xFF43A047) to "Desktop link: connected"
-        DesktopLinkStatus.DOWN -> Color(0xFFE53935) to "Desktop link: unreachable"
+        DesktopLinkStatus.UP -> Color(0xFF43A047) to tr(StringKeys.CHAT_CD_LINK_CONNECTED)
+        DesktopLinkStatus.DOWN -> Color(0xFFE53935) to tr(StringKeys.CHAT_CD_LINK_UNREACHABLE)
         DesktopLinkStatus.DISABLED -> return // render nothing when off/unpaired
     }
     Icon(

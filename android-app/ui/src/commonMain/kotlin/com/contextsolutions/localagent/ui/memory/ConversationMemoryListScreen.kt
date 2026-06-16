@@ -38,8 +38,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import org.koin.compose.viewmodel.koinViewModel
+import com.contextsolutions.localagent.i18n.StringKeys
 import com.contextsolutions.localagent.memory.Memory
 import com.contextsolutions.localagent.memory.MemoryCategory
+import com.contextsolutions.localagent.ui.i18n.tr
 import com.contextsolutions.localagent.ui.util.formatRelativeTime
 import kotlinx.datetime.Clock
 
@@ -69,10 +71,10 @@ fun ConversationMemoryListScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Memories from this chat") },
+                title = { Text(tr(StringKeys.MEMORY_CONVERSATION_TITLE)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr(StringKeys.COMMON_BACK))
                     }
                 },
             )
@@ -87,7 +89,7 @@ fun ConversationMemoryListScreen(
             if (memories.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
-                        "No memories from this conversation yet.",
+                        tr(StringKeys.MEMORY_CONVERSATION_EMPTY),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 32.dp),
@@ -114,16 +116,16 @@ fun ConversationMemoryListScreen(
     pendingDelete?.let { memory ->
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
-            title = { Text("Delete memory?") },
-            text = { Text("\"${memory.text}\"\n\nThis cannot be undone.") },
+            title = { Text(tr(StringKeys.MEMORY_DELETE_TITLE)) },
+            text = { Text(tr(StringKeys.MEMORY_DELETE_BODY, memory.text)) },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.onDelete(memory.id)
                     pendingDelete = null
-                }) { Text("Delete") }
+                }) { Text(tr(StringKeys.MEMORY_DELETE)) }
             },
             dismissButton = {
-                TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
+                TextButton(onClick = { pendingDelete = null }) { Text(tr(StringKeys.MEMORY_CANCEL)) }
             },
         )
     }
@@ -156,7 +158,7 @@ private fun ConversationMemoryRow(
         IconButton(onClick = onDelete) {
             Icon(
                 Icons.Default.Delete,
-                contentDescription = "Delete memory",
+                contentDescription = tr(StringKeys.MEMORY_CD_DELETE),
                 tint = MaterialTheme.colorScheme.outline,
             )
         }
@@ -184,14 +186,15 @@ private fun CategoryChip(category: MemoryCategory) {
 @Composable
 private fun relativeCreatedLabel(epochMs: Long): String {
     val now = remember(epochMs) { Clock.System.now().toEpochMilliseconds() }
-    return formatRelativeTime(epochMs, now)
+    return formatRelativeTime(epochMs, now, com.contextsolutions.localagent.ui.i18n.LocalStrings.current)
 }
 
+@Composable
 private fun humanLabelShort(category: MemoryCategory): String = when (category) {
-    MemoryCategory.PERSONAL_IDENTITY -> "identity"
-    MemoryCategory.PREFERENCE -> "preference"
-    MemoryCategory.PROFESSIONAL -> "professional"
-    MemoryCategory.INTEREST -> "interest"
-    MemoryCategory.RELATIONSHIP -> "relationship"
-    MemoryCategory.TEMPORARY_CONTEXT -> "temporary"
+    MemoryCategory.PERSONAL_IDENTITY -> tr(StringKeys.MEMORY_CATEGORY_SHORT_PERSONAL_IDENTITY)
+    MemoryCategory.PREFERENCE -> tr(StringKeys.MEMORY_CATEGORY_SHORT_PREFERENCE)
+    MemoryCategory.PROFESSIONAL -> tr(StringKeys.MEMORY_CATEGORY_SHORT_PROFESSIONAL)
+    MemoryCategory.INTEREST -> tr(StringKeys.MEMORY_CATEGORY_SHORT_INTEREST)
+    MemoryCategory.RELATIONSHIP -> tr(StringKeys.MEMORY_CATEGORY_SHORT_RELATIONSHIP)
+    MemoryCategory.TEMPORARY_CONTEXT -> tr(StringKeys.MEMORY_CATEGORY_SHORT_TEMPORARY_CONTEXT)
 }

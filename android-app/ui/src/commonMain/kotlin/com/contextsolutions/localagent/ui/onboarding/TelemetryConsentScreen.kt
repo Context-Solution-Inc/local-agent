@@ -18,6 +18,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.contextsolutions.localagent.i18n.StringKeys
+import com.contextsolutions.localagent.ui.i18n.tr
 
 /**
  * Onboarding screen 3 — anonymous telemetry consent (PRD §3.2.1, §4.4).
@@ -45,43 +47,35 @@ fun TelemetryConsentScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text(
-                text = "Help improve the assistant?",
+                text = tr(StringKeys.ONBOARDING_TELEMETRY_TITLE),
                 style = MaterialTheme.typography.headlineMedium,
                 modifier = Modifier.semantics { heading() },
             )
 
             Text(
-                text = "We can collect anonymous counters once a day to help us " +
-                    "spot what's broken and what's slow. It's entirely your " +
-                    "choice and you can change it anytime in Settings.",
+                text = tr(StringKeys.ONBOARDING_TELEMETRY_BODY),
                 style = MaterialTheme.typography.bodyLarge,
             )
 
             Spacer(Modifier.height(8.dp))
 
             Text(
-                text = "What we'd send:",
+                text = tr(StringKeys.ONBOARDING_TELEMETRY_SEND_HEADER),
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
-                text = "•  Counts per day — how many queries, how many web " +
-                    "searches, how many memories created.\n" +
-                    "•  Latency percentiles — how fast each step ran.\n" +
-                    "•  Redacted crash reports — so we can fix what broke.",
+                text = tr(StringKeys.ONBOARDING_TELEMETRY_SEND_BODY),
                 style = MaterialTheme.typography.bodyMedium,
             )
 
             Spacer(Modifier.height(8.dp))
 
             Text(
-                text = "What we'd never send:",
+                text = tr(StringKeys.ONBOARDING_TELEMETRY_NEVER_HEADER),
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
-                text = "•  Your queries.\n" +
-                    "•  Your memories.\n" +
-                    "•  Any conversation content.\n" +
-                    "•  Any personal identifier.",
+                text = tr(StringKeys.ONBOARDING_TELEMETRY_NEVER_BODY),
                 style = MaterialTheme.typography.bodyMedium,
             )
 
@@ -91,14 +85,14 @@ fun TelemetryConsentScreen(
                 onClick = onAccept,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("Help improve the assistant (anonymous)")
+                Text(tr(StringKeys.ONBOARDING_TELEMETRY_ACCEPT))
             }
 
             OutlinedButton(
                 onClick = onDecline,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("No thanks — keep everything on device")
+                Text(tr(StringKeys.ONBOARDING_TELEMETRY_DECLINE))
             }
         }
     }

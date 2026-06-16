@@ -46,8 +46,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import com.contextsolutions.localagent.i18n.StringKeys
+import com.contextsolutions.localagent.i18n.Strings
 import com.contextsolutions.localagent.todo.Todo
 import com.contextsolutions.localagent.todo.TodoPriority
+import com.contextsolutions.localagent.ui.i18n.LocalStrings
+import com.contextsolutions.localagent.ui.i18n.tr
 import kotlinx.datetime.Clock
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.Instant
@@ -81,16 +85,16 @@ fun TodoManagementScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Todos") },
+                title = { Text(tr(StringKeys.TODO_UI_TITLE)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr(StringKeys.COMMON_BACK))
                     }
                 },
                 actions = {
                     if (todos.any { it.completed }) {
                         TextButton(onClick = { viewModel.clearCompleted() }) {
-                            Text("Clear done")
+                            Text(tr(StringKeys.TODO_UI_CLEAR_DONE))
                         }
                     }
                 },
@@ -98,7 +102,7 @@ fun TodoManagementScreen(
         },
         floatingActionButton = {
             FloatingActionButton(onClick = { creating = true }) {
-                Icon(Icons.Filled.Add, contentDescription = "Add todo")
+                Icon(Icons.Filled.Add, contentDescription = tr(StringKeys.TODO_UI_CD_ADD))
             }
         },
     ) { padding ->
@@ -158,16 +162,16 @@ fun TodoManagementScreen(
     deleting?.let { current ->
         AlertDialog(
             onDismissRequest = { deleting = null },
-            title = { Text("Delete todo?") },
-            text = { Text("\"${current.title}\" will be permanently removed.") },
+            title = { Text(tr(StringKeys.TODO_UI_DELETE_TITLE)) },
+            text = { Text(tr(StringKeys.TODO_UI_DELETE_BODY, current.title)) },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.deleteTodo(current.id)
                     deleting = null
-                }) { Text("Delete") }
+                }) { Text(tr(StringKeys.TODO_UI_DELETE)) }
             },
             dismissButton = {
-                TextButton(onClick = { deleting = null }) { Text("Cancel") }
+                TextButton(onClick = { deleting = null }) { Text(tr(StringKeys.TODO_UI_CANCEL)) }
             },
         )
     }
@@ -178,12 +182,12 @@ private fun EmptyState() {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                "No todos yet.",
+                tr(StringKeys.TODO_UI_EMPTY),
                 style = MaterialTheme.typography.titleMedium,
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                "Tap + to add one, or ask in chat — try \"add buy milk to my todos\".",
+                tr(StringKeys.TODO_UI_EMPTY_HINT),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -198,6 +202,7 @@ private fun TodoRow(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
+    val strings = LocalStrings.current
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -215,8 +220,8 @@ private fun TodoRow(
                 textDecoration = if (todo.completed) TextDecoration.LineThrough else TextDecoration.None,
             )
             val tags = buildList {
-                if (todo.priority != TodoPriority.MEDIUM) add(todo.priority.label())
-                todo.dueDateEpochMs?.let { add("due ${relativeDateLabel(it)}") }
+                if (todo.priority != TodoPriority.MEDIUM) add(todo.priority.label(strings))
+                todo.dueDateEpochMs?.let { add(strings.get(StringKeys.TODO_DUE, relativeDateLabel(it, strings))) }
             }
             if (tags.isNotEmpty()) {
                 Text(
@@ -227,10 +232,10 @@ private fun TodoRow(
             }
         }
         IconButton(onClick = onEdit) {
-            Icon(Icons.Filled.Edit, contentDescription = "Edit")
+            Icon(Icons.Filled.Edit, contentDescription = tr(StringKeys.TODO_UI_CD_EDIT))
         }
         IconButton(onClick = onDelete) {
-            Icon(Icons.Filled.Delete, contentDescription = "Delete")
+            Icon(Icons.Filled.Delete, contentDescription = tr(StringKeys.TODO_UI_CD_DELETE))
         }
     }
 }
@@ -247,27 +252,28 @@ private fun TodoFormDialog(
     var dueDate by remember { mutableStateOf(initial?.dueDateEpochMs) }
     var notes by remember { mutableStateOf(initial?.notes.orEmpty()) }
     var pickingDate by remember { mutableStateOf(false) }
+    val strings = LocalStrings.current
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (initial == null) "New todo" else "Edit todo") },
+        title = { Text(if (initial == null) tr(StringKeys.TODO_UI_NEW_TODO) else tr(StringKeys.TODO_UI_EDIT_TODO)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
-                    label = { Text("Title") },
+                    label = { Text(tr(StringKeys.TODO_UI_TITLE_LABEL)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
 
-                Text("Priority", style = MaterialTheme.typography.labelMedium)
+                Text(tr(StringKeys.TODO_UI_PRIORITY), style = MaterialTheme.typography.labelMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     listOf(TodoPriority.LOW, TodoPriority.MEDIUM, TodoPriority.HIGH).forEach { p ->
                         FilterChip(
                             selected = priority == p,
                             onClick = { priority = p },
-                            label = { Text(p.label()) },
+                            label = { Text(p.label(strings)) },
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -275,21 +281,21 @@ private fun TodoFormDialog(
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "Due: " + (dueDate?.let { relativeDateLabel(it) } ?: "none"),
+                        text = tr(StringKeys.TODO_UI_DUE_PREFIX) + (dueDate?.let { relativeDateLabel(it, strings) } ?: tr(StringKeys.COMMON_NONE)),
                         modifier = Modifier.weight(1f),
                     )
                     TextButton(onClick = { pickingDate = true }) {
-                        Text(if (dueDate == null) "Set" else "Change")
+                        Text(if (dueDate == null) tr(StringKeys.TODO_UI_SET) else tr(StringKeys.TODO_UI_CHANGE))
                     }
                     if (dueDate != null) {
-                        TextButton(onClick = { dueDate = null }) { Text("Clear") }
+                        TextButton(onClick = { dueDate = null }) { Text(tr(StringKeys.COMMON_CLEAR)) }
                     }
                 }
 
                 OutlinedTextField(
                     value = notes,
                     onValueChange = { notes = it },
-                    label = { Text("Notes (optional)") },
+                    label = { Text(tr(StringKeys.TODO_UI_NOTES_OPTIONAL)) },
                     minLines = 2,
                     maxLines = 4,
                     modifier = Modifier.fillMaxWidth(),
@@ -301,11 +307,11 @@ private fun TodoFormDialog(
                 enabled = title.isNotBlank(),
                 onClick = { onSave(title, priority, dueDate, notes.ifBlank { null }) },
             ) {
-                Text(if (initial == null) "Add" else "Save")
+                Text(if (initial == null) tr(StringKeys.TODO_UI_ADD) else tr(StringKeys.COMMON_SAVE))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(tr(StringKeys.TODO_UI_CANCEL)) }
         },
     )
 
@@ -323,10 +329,10 @@ private fun TodoFormDialog(
                         dueDate = utcMidnightToLocalMidnight(selected)
                     }
                     pickingDate = false
-                }) { Text("OK") }
+                }) { Text(tr(StringKeys.TODO_UI_OK)) }
             },
             dismissButton = {
-                TextButton(onClick = { pickingDate = false }) { Text("Cancel") }
+                TextButton(onClick = { pickingDate = false }) { Text(tr(StringKeys.TODO_UI_CANCEL)) }
             },
         ) {
             DatePicker(state = pickerState)
@@ -334,20 +340,20 @@ private fun TodoFormDialog(
     }
 }
 
-private fun TodoPriority.label(): String = when (this) {
-    TodoPriority.LOW -> "Low"
-    TodoPriority.MEDIUM -> "Medium"
-    TodoPriority.HIGH -> "High"
+private fun TodoPriority.label(strings: Strings): String = when (this) {
+    TodoPriority.LOW -> strings.get(StringKeys.TODO_PRIORITY_LOW)
+    TodoPriority.MEDIUM -> strings.get(StringKeys.TODO_PRIORITY_MEDIUM)
+    TodoPriority.HIGH -> strings.get(StringKeys.TODO_PRIORITY_HIGH)
 }
 
-private fun relativeDateLabel(epochMs: Long): String {
+private fun relativeDateLabel(epochMs: Long, strings: Strings): String {
     val tz = TimeZone.currentSystemDefault()
     val today: LocalDate = Clock.System.now().toLocalDateTime(tz).date
     val target: LocalDate = Instant.fromEpochMilliseconds(epochMs).toLocalDateTime(tz).date
     return when (target) {
-        today -> "today"
-        today.plus(1, DateTimeUnit.DAY) -> "tomorrow"
-        today.plus(-1, DateTimeUnit.DAY) -> "yesterday"
+        today -> strings.get(StringKeys.TODO_DUE_TODAY)
+        today.plus(1, DateTimeUnit.DAY) -> strings.get(StringKeys.TODO_DUE_TOMORROW)
+        today.plus(-1, DateTimeUnit.DAY) -> strings.get(StringKeys.TODO_DUE_YESTERDAY)
         else -> target.toString()
     }
 }

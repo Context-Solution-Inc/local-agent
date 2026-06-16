@@ -24,6 +24,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.contextsolutions.localagent.i18n.StringKeys
+import com.contextsolutions.localagent.ui.i18n.LocalStrings
+import com.contextsolutions.localagent.ui.i18n.tr
 import com.contextsolutions.localagent.inference.GpuDevice
 import com.contextsolutions.localagent.inference.LlamaServerDevices
 import com.contextsolutions.localagent.preferences.DesktopGpuPreferences
@@ -39,6 +42,7 @@ import org.koin.compose.koinInject
  */
 @Composable
 actual fun DesktopGpuSection() {
+    val strings = LocalStrings.current
     val prefs = koinInject<DesktopGpuPreferences>()
     val devices = koinInject<LlamaServerDevices>()
     val scope = rememberCoroutineScope()
@@ -52,14 +56,12 @@ actual fun DesktopGpuSection() {
 
     HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
     Text(
-        text = "GPU device",
+        text = tr(StringKeys.DESKTOP_GPU_TITLE),
         style = MaterialTheme.typography.titleMedium,
         modifier = Modifier.padding(bottom = 4.dp),
     )
     Text(
-        "On a machine with more than one GPU, pin the local model to a single device so it " +
-            "doesn't fall back to a slower integrated GPU. Click “Detect devices” to see " +
-            "what's available (downloads the GPU runtime the first time).",
+        tr(StringKeys.DESKTOP_GPU_DESCRIPTION),
         style = MaterialTheme.typography.bodySmall,
     )
     Spacer(Modifier.height(12.dp))
@@ -69,19 +71,21 @@ actual fun DesktopGpuSection() {
     val options: List<GpuDevice?> = buildList {
         add(null) // Auto — all GPUs
         addAll(detected)
-        pin?.let { id -> if (detected.none { it.id == id }) add(GpuDevice(id, "pinned")) }
+        pin?.let { id ->
+            if (detected.none { it.id == id }) add(GpuDevice(id, strings.get(StringKeys.DESKTOP_GPU_PINNED)))
+        }
     }
     val selectedLabel = pin?.let { id -> deviceLabel(detected.firstOrNull { it.id == id } ?: GpuDevice(id, "")) }
-        ?: "Auto — all GPUs"
+        ?: strings.get(StringKeys.DESKTOP_GPU_AUTO_ALL)
 
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Device: ", style = MaterialTheme.typography.bodyMedium)
+        Text(tr(StringKeys.DESKTOP_GPU_DEVICE_PREFIX), style = MaterialTheme.typography.bodyMedium)
         var open by remember { mutableStateOf(false) }
         AssistChip(onClick = { open = true }, label = { Text(selectedLabel) })
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             options.forEach { device ->
                 DropdownMenuItem(
-                    text = { Text(device?.let { deviceLabel(it) } ?: "Auto — all GPUs") },
+                    text = { Text(device?.let { deviceLabel(it) } ?: strings.get(StringKeys.DESKTOP_GPU_AUTO_ALL)) },
                     onClick = { prefs.setDevicePin(device?.id); open = false },
                 )
             }
@@ -94,11 +98,11 @@ actual fun DesktopGpuSection() {
                 scope.launch {
                     runCatching { devices.list() }
                         .onSuccess { detected = it }
-                        .onFailure { error = it.message ?: "Detection failed" }
+                        .onFailure { error = it.message ?: strings.get(StringKeys.DESKTOP_GPU_DETECTION_FAILED) }
                     detecting = false
                 }
             },
-        ) { Text("Detect devices") }
+        ) { Text(tr(StringKeys.DESKTOP_GPU_DETECT_DEVICES)) }
         if (detecting) {
             CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
         }
@@ -112,7 +116,7 @@ actual fun DesktopGpuSection() {
             modifier = Modifier.padding(top = 4.dp),
         )
         detected.isEmpty() && !detecting -> Text(
-            "No devices detected yet.",
+            tr(StringKeys.DESKTOP_GPU_NO_DEVICES),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.outline,
             modifier = Modifier.padding(top = 4.dp),

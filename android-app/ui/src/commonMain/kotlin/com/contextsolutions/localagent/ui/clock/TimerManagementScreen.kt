@@ -40,6 +40,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import org.koin.compose.viewmodel.koinViewModel
 import com.contextsolutions.localagent.clock.TimerEntry
+import com.contextsolutions.localagent.i18n.StringKeys
+import com.contextsolutions.localagent.ui.i18n.tr
 import kotlinx.coroutines.delay
 
 /**
@@ -75,17 +77,17 @@ fun TimerManagementScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Timers") },
+                title = { Text(tr(StringKeys.CLOCK_UI_TIMERS_TITLE)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr(StringKeys.COMMON_BACK))
                     }
                 },
             )
         },
         floatingActionButton = {
             FloatingActionButton(onClick = { creating = true }) {
-                Icon(Icons.Filled.Add, contentDescription = "New timer")
+                Icon(Icons.Filled.Add, contentDescription = tr(StringKeys.CLOCK_UI_CD_NEW_TIMER))
             }
         },
     ) { padding ->
@@ -129,12 +131,12 @@ private fun EmptyTimers() {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                "No active timers.",
+                tr(StringKeys.CLOCK_UI_TIMERS_EMPTY),
                 style = MaterialTheme.typography.titleMedium,
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                "Tap + to start one, or ask in chat — try \"set a timer for 5 minutes\".",
+                tr(StringKeys.CLOCK_UI_TIMERS_EMPTY_HINT),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -154,7 +156,7 @@ private fun TimerRow(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = timer.label?.takeIf { it.isNotBlank() } ?: "Timer",
+                    text = timer.label?.takeIf { it.isNotBlank() } ?: tr(StringKeys.CLOCK_UI_TIMER_DEFAULT_NAME),
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Text(
@@ -162,11 +164,11 @@ private fun TimerRow(
                     style = MaterialTheme.typography.titleMedium,
                 )
             }
-            TextButton(onClick = onCancel) { Text("Cancel") }
+            TextButton(onClick = onCancel) { Text(tr(StringKeys.CLOCK_UI_CANCEL)) }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { onExtend(60_000L) }) { Text("+1 min") }
-            OutlinedButton(onClick = { onExtend(5 * 60_000L) }) { Text("+5 min") }
+            OutlinedButton(onClick = { onExtend(60_000L) }) { Text(tr(StringKeys.CLOCK_UI_EXTEND_1MIN)) }
+            OutlinedButton(onClick = { onExtend(5 * 60_000L) }) { Text(tr(StringKeys.CLOCK_UI_EXTEND_5MIN)) }
         }
     }
 }
@@ -186,18 +188,18 @@ private fun NewTimerDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("New timer") },
+        title = { Text(tr(StringKeys.CLOCK_UI_NEW_TIMER)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    DurationField(value = hours, onValueChange = { hours = it }, label = "h", modifier = Modifier.weight(1f))
-                    DurationField(value = minutes, onValueChange = { minutes = it }, label = "m", modifier = Modifier.weight(1f))
-                    DurationField(value = seconds, onValueChange = { seconds = it }, label = "s", modifier = Modifier.weight(1f))
+                    DurationField(value = hours, onValueChange = { hours = it }, label = tr(StringKeys.CLOCK_UI_DURATION_H), modifier = Modifier.weight(1f))
+                    DurationField(value = minutes, onValueChange = { minutes = it }, label = tr(StringKeys.CLOCK_UI_DURATION_M), modifier = Modifier.weight(1f))
+                    DurationField(value = seconds, onValueChange = { seconds = it }, label = tr(StringKeys.CLOCK_UI_DURATION_S), modifier = Modifier.weight(1f))
                 }
                 OutlinedTextField(
                     value = label,
                     onValueChange = { label = it },
-                    label = { Text("Label (optional)") },
+                    label = { Text(tr(StringKeys.CLOCK_UI_LABEL_OPTIONAL)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -208,11 +210,11 @@ private fun NewTimerDialog(
                 enabled = totalMs > 0,
                 onClick = { onCreate(totalMs, label.takeIf { it.isNotBlank() }) },
             ) {
-                Text("Start")
+                Text(tr(StringKeys.CLOCK_UI_START))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(tr(StringKeys.CLOCK_UI_CANCEL)) }
         },
     )
 }

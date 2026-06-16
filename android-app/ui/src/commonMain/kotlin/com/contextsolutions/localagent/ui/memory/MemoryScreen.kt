@@ -46,9 +46,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
+import com.contextsolutions.localagent.i18n.StringKeys
 import com.contextsolutions.localagent.memory.Memory
 import com.contextsolutions.localagent.memory.MemoryCategory
 import com.contextsolutions.localagent.platform.Toaster
+import com.contextsolutions.localagent.ui.i18n.LocalStrings
+import com.contextsolutions.localagent.ui.i18n.tr
+import com.contextsolutions.localagent.ui.i18n.trPlural
 import com.contextsolutions.localagent.ui.util.formatRelativeTime
 import kotlinx.datetime.Clock
 import kotlinx.datetime.TimeZone
@@ -81,6 +85,7 @@ fun MemoryScreen(
     var importConfirm by remember { mutableStateOf(false) }
     val toaster = koinInject<Toaster>()
     val filePicker = rememberBackupFilePicker()
+    val strings = LocalStrings.current
 
     LaunchedEffect(Unit) { viewModel.refresh() }
 
@@ -88,12 +93,18 @@ fun MemoryScreen(
     LaunchedEffect(Unit) {
         viewModel.backupEvents.collect { event ->
             val message = when (event) {
-                is BackupEvent.Exported -> "Exported ${event.count} memor${if (event.count == 1) "y" else "ies"}."
+                is BackupEvent.Exported ->
+                    strings.plural(StringKeys.MEMORY_TOAST_EXPORTED, event.count, event.count)
                 is BackupEvent.Imported -> {
                     if (event.skipped == 0) {
-                        "Imported ${event.imported} memor${if (event.imported == 1) "y" else "ies"}."
+                        strings.plural(StringKeys.MEMORY_TOAST_IMPORTED, event.imported, event.imported)
                     } else {
-                        "Imported ${event.imported}; skipped ${event.skipped} invalid row${if (event.skipped == 1) "" else "s"}."
+                        strings.plural(
+                            StringKeys.MEMORY_TOAST_IMPORTED_SKIPPED,
+                            event.skipped,
+                            event.imported,
+                            event.skipped,
+                        )
                     }
                 }
                 is BackupEvent.Error -> event.message
@@ -105,23 +116,23 @@ fun MemoryScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Memory") },
+                title = { Text(tr(StringKeys.MEMORY_TITLE)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr(StringKeys.COMMON_BACK))
                     }
                 },
                 actions = {
                     Box {
                         IconButton(onClick = { showOverflow = true }) {
-                            Icon(Icons.Default.MoreVert, contentDescription = "More")
+                            Icon(Icons.Default.MoreVert, contentDescription = tr(StringKeys.MEMORY_CD_MORE))
                         }
                         DropdownMenu(
                             expanded = showOverflow,
                             onDismissRequest = { showOverflow = false },
                         ) {
                             DropdownMenuItem(
-                                text = { Text("Clear all") },
+                                text = { Text(tr(StringKeys.MEMORY_CLEAR_ALL)) },
                                 enabled = state.totalCount > 0 && !isBackupBusy,
                                 onClick = {
                                     showOverflow = false
@@ -129,12 +140,12 @@ fun MemoryScreen(
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text("Export…") },
+                                text = { Text(tr(StringKeys.MEMORY_EXPORT)) },
                                 enabled = !isBackupBusy,
                                 onClick = {
                                     showOverflow = false
                                     if (state.totalCount == 0) {
-                                        toaster.show("Nothing to export.")
+                                        toaster.show(strings.get(StringKeys.MEMORY_TOAST_NOTHING_EXPORT))
                                     } else {
                                         filePicker.launchExport(defaultExportFilename()) { writer ->
                                             if (writer != null) viewModel.onExport(writer)
@@ -143,7 +154,7 @@ fun MemoryScreen(
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text("Import…") },
+                                text = { Text(tr(StringKeys.MEMORY_IMPORT)) },
                                 enabled = !isBackupBusy,
                                 onClick = {
                                     showOverflow = false
@@ -170,7 +181,7 @@ fun MemoryScreen(
 
             if (state.isLoading) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Loading…", style = MaterialTheme.typography.bodyMedium)
+                    Text(tr(StringKeys.MEMORY_LOADING), style = MaterialTheme.typography.bodyMedium)
                 }
             } else if (state.totalCount == 0) {
                 EmptyState()
@@ -186,16 +197,16 @@ fun MemoryScreen(
     pendingDelete?.let { memory ->
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
-            title = { Text("Delete memory?") },
-            text = { Text("\"${memory.text}\"\n\nThis cannot be undone.") },
+            title = { Text(tr(StringKeys.MEMORY_DELETE_TITLE)) },
+            text = { Text(tr(StringKeys.MEMORY_DELETE_BODY, memory.text)) },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.onDelete(memory.id)
                     pendingDelete = null
-                }) { Text("Delete") }
+                }) { Text(tr(StringKeys.MEMORY_DELETE)) }
             },
             dismissButton = {
-                TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
+                TextButton(onClick = { pendingDelete = null }) { Text(tr(StringKeys.MEMORY_CANCEL)) }
             },
         )
     }
@@ -203,21 +214,18 @@ fun MemoryScreen(
     if (clearAllConfirm) {
         AlertDialog(
             onDismissRequest = { clearAllConfirm = false },
-            title = { Text("Clear all memories?") },
+            title = { Text(tr(StringKeys.MEMORY_CLEAR_ALL_TITLE)) },
             text = {
-                Text(
-                    "All ${state.totalCount} memories will be permanently deleted. " +
-                        "This cannot be undone.",
-                )
+                Text(tr(StringKeys.MEMORY_CLEAR_ALL_BODY, state.totalCount))
             },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.onClearAll()
                     clearAllConfirm = false
-                }) { Text("Clear all") }
+                }) { Text(tr(StringKeys.MEMORY_CLEAR_ALL)) }
             },
             dismissButton = {
-                TextButton(onClick = { clearAllConfirm = false }) { Text("Cancel") }
+                TextButton(onClick = { clearAllConfirm = false }) { Text(tr(StringKeys.MEMORY_CANCEL)) }
             },
         )
     }
@@ -225,13 +233,9 @@ fun MemoryScreen(
     if (importConfirm) {
         AlertDialog(
             onDismissRequest = { importConfirm = false },
-            title = { Text("Replace all memories?") },
+            title = { Text(tr(StringKeys.MEMORY_IMPORT_TITLE)) },
             text = {
-                Text(
-                    "Importing will erase your current ${state.totalCount} memor" +
-                        "${if (state.totalCount == 1) "y" else "ies"} and replace " +
-                        "them with the contents of the chosen file. This cannot be undone.",
-                )
+                Text(trPlural(StringKeys.MEMORY_IMPORT_BODY, state.totalCount, state.totalCount))
             },
             confirmButton = {
                 TextButton(onClick = {
@@ -239,10 +243,10 @@ fun MemoryScreen(
                     filePicker.launchImport { reader ->
                         if (reader != null) viewModel.onImport(reader)
                     }
-                }) { Text("Choose file") }
+                }) { Text(tr(StringKeys.MEMORY_CHOOSE_FILE)) }
             },
             dismissButton = {
-                TextButton(onClick = { importConfirm = false }) { Text("Cancel") }
+                TextButton(onClick = { importConfirm = false }) { Text(tr(StringKeys.MEMORY_CANCEL)) }
             },
         )
     }
@@ -253,16 +257,12 @@ fun MemoryScreen(
     importCap?.let { info ->
         AlertDialog(
             onDismissRequest = { viewModel.dismissImportCapDialog() },
-            title = { Text("Too many memories to import") },
+            title = { Text(tr(StringKeys.MEMORY_IMPORT_CAP_TITLE)) },
             text = {
-                Text(
-                    "This file has ${info.found} memories, more than the maximum of " +
-                        "${info.limit}. Nothing was imported and your current memories were " +
-                        "kept. Reduce the file to ${info.limit} or fewer memories and try again.",
-                )
+                Text(tr(StringKeys.MEMORY_IMPORT_CAP_BODY, info.found, info.limit))
             },
             confirmButton = {
-                TextButton(onClick = { viewModel.dismissImportCapDialog() }) { Text("OK") }
+                TextButton(onClick = { viewModel.dismissImportCapDialog() }) { Text(tr(StringKeys.MEMORY_OK)) }
             },
         )
     }
@@ -309,7 +309,7 @@ private fun CreationToggleRow(
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                "Remember things from our conversations",
+                tr(StringKeys.MEMORY_CREATION_TOGGLE),
                 style = MaterialTheme.typography.bodyLarge,
             )
         }
@@ -322,7 +322,7 @@ private fun CreationToggleRow(
 private fun EmptyState() {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Text(
-            "No memories saved yet. They'll appear here as the assistant learns about you.",
+            tr(StringKeys.MEMORY_EMPTY),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 32.dp),
@@ -398,7 +398,7 @@ private fun MemoryRow(memory: Memory, onDelete: () -> Unit) {
         IconButton(onClick = onDelete) {
             Icon(
                 Icons.Default.Delete,
-                contentDescription = "Delete memory",
+                contentDescription = tr(StringKeys.MEMORY_CD_DELETE),
                 tint = MaterialTheme.colorScheme.outline,
             )
         }
@@ -408,18 +408,20 @@ private fun MemoryRow(memory: Memory, onDelete: () -> Unit) {
 @Composable
 private fun createdLabel(memory: Memory): String {
     val now = remember(memory.createdAtEpochMs) { Clock.System.now().toEpochMilliseconds() }
-    val rel = formatRelativeTime(memory.createdAtEpochMs, now)
+    val strings = com.contextsolutions.localagent.ui.i18n.LocalStrings.current
+    val rel = formatRelativeTime(memory.createdAtEpochMs, now, strings)
     val expiry = memory.expiresAtEpochMs?.let { exp ->
-        " · expires ${formatRelativeTime(exp, now)}"
+        tr(StringKeys.MEMORY_CREATED_EXPIRES, formatRelativeTime(exp, now, strings))
     }.orEmpty()
-    return "Created $rel$expiry"
+    return tr(StringKeys.MEMORY_CREATED, rel, expiry)
 }
 
+@Composable
 private fun humanLabel(category: MemoryCategory): String = when (category) {
-    MemoryCategory.PERSONAL_IDENTITY -> "Personal identity"
-    MemoryCategory.PREFERENCE -> "Preferences"
-    MemoryCategory.PROFESSIONAL -> "Professional"
-    MemoryCategory.INTEREST -> "Interests"
-    MemoryCategory.RELATIONSHIP -> "Relationships"
-    MemoryCategory.TEMPORARY_CONTEXT -> "Temporary"
+    MemoryCategory.PERSONAL_IDENTITY -> tr(StringKeys.MEMORY_CATEGORY_PERSONAL_IDENTITY)
+    MemoryCategory.PREFERENCE -> tr(StringKeys.MEMORY_CATEGORY_PREFERENCE)
+    MemoryCategory.PROFESSIONAL -> tr(StringKeys.MEMORY_CATEGORY_PROFESSIONAL)
+    MemoryCategory.INTEREST -> tr(StringKeys.MEMORY_CATEGORY_INTEREST)
+    MemoryCategory.RELATIONSHIP -> tr(StringKeys.MEMORY_CATEGORY_RELATIONSHIP)
+    MemoryCategory.TEMPORARY_CONTEXT -> tr(StringKeys.MEMORY_CATEGORY_TEMPORARY_CONTEXT)
 }

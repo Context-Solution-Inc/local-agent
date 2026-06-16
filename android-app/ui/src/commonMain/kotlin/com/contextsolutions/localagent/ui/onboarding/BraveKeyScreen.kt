@@ -26,7 +26,9 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.contextsolutions.localagent.i18n.StringKeys
 import com.contextsolutions.localagent.platform.UrlOpener
+import com.contextsolutions.localagent.ui.i18n.tr
 import org.koin.compose.koinInject
 
 /**
@@ -59,14 +61,12 @@ fun BraveKeyScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text(
-                text = "Add a Brave Search key",
+                text = tr(StringKeys.ONBOARDING_BRAVE_TITLE),
                 style = MaterialTheme.typography.headlineMedium,
                 modifier = Modifier.semantics { heading() },
             )
             Text(
-                text = "Local Agent uses Brave Search for questions about " +
-                    "current events, scores, prices, and other time-sensitive " +
-                    "things. The free tier is enough for personal use.",
+                text = tr(StringKeys.ONBOARDING_BRAVE_BODY),
                 style = MaterialTheme.typography.bodyLarge,
             )
 
@@ -75,7 +75,7 @@ fun BraveKeyScreen(
             OutlinedTextField(
                 value = keyInput,
                 onValueChange = { keyInput = it },
-                label = { Text("Brave Search API key") },
+                label = { Text(tr(StringKeys.ONBOARDING_BRAVE_FIELD_LABEL)) },
                 visualTransformation = PasswordVisualTransformation(),
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
@@ -84,7 +84,7 @@ fun BraveKeyScreen(
             TextButton(
                 onClick = { urlOpener.openUrl(BRAVE_API_URL) },
             ) {
-                Text("Get a key at api.search.brave.com")
+                Text(tr(StringKeys.ONBOARDING_BRAVE_GET_KEY))
             }
 
             Spacer(Modifier.height(8.dp))
@@ -94,19 +94,18 @@ fun BraveKeyScreen(
                 enabled = keyInput.isNotBlank(),
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("Save and continue")
+                Text(tr(StringKeys.ONBOARDING_NAV_SAVE_CONTINUE))
             }
 
             OutlinedButton(
                 onClick = onSkip,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("Skip — I'll add it later in Settings")
+                Text(tr(StringKeys.ONBOARDING_NAV_SKIP_SETTINGS))
             }
 
             Text(
-                text = "Without a key, the assistant works offline using only " +
-                    "its on-device knowledge.",
+                text = tr(StringKeys.ONBOARDING_BRAVE_FOOTNOTE),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline,
             )

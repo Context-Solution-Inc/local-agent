@@ -26,6 +26,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.contextsolutions.localagent.i18n.StringKeys
+import com.contextsolutions.localagent.i18n.Strings
+import com.contextsolutions.localagent.ui.i18n.LocalStrings
+import com.contextsolutions.localagent.ui.i18n.tr
 import com.contextsolutions.localagent.voice.ChatSpeaker
 import com.contextsolutions.localagent.voice.DesktopTtsPreferences
 import com.contextsolutions.localagent.voice.DesktopTtsVoices
@@ -49,6 +53,7 @@ import org.koin.compose.koinInject
  */
 @Composable
 actual fun DesktopVoiceSection() {
+    val strings = LocalStrings.current
     val prefs = koinInject<DesktopTtsPreferences>()
     val enumerator = koinInject<DesktopTtsVoices>()
     val speaker = koinInject<ChatSpeaker>()
@@ -67,11 +72,9 @@ actual fun DesktopVoiceSection() {
     val piperSelected = config.engine == DesktopVoiceConfig.PIPER_ENGINE
 
     HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
-    SectionHeaderText("Read-aloud voice")
+    SectionHeaderText(tr(StringKeys.DESKTOP_VOICE_SECTION_HEADER))
     Text(
-        "Pick the voice used when read-aloud is on. Piper is a high-quality neural voice " +
-            "downloaded the first time you use it (~90 MB) and runs fully offline. The other " +
-            "options come from your system's speech engine.",
+        tr(StringKeys.DESKTOP_VOICE_DESCRIPTION),
         style = MaterialTheme.typography.bodySmall,
     )
     Spacer(Modifier.height(12.dp))
@@ -80,20 +83,20 @@ actual fun DesktopVoiceSection() {
     // the OS speech-dispatcher output modules.
     val engineOptions: List<DesktopVoiceEngine?> = buildList {
         if (piper.isAvailable()) {
-            add(DesktopVoiceEngine(DesktopVoiceConfig.PIPER_ENGINE, "Piper — neural (recommended)"))
+            add(DesktopVoiceEngine(DesktopVoiceConfig.PIPER_ENGINE, strings.get(StringKeys.DESKTOP_VOICE_ENGINE_PIPER)))
         }
         add(null) // System default
         addAll(engines)
     }
     LabeledDropdown(
-        label = "Engine",
+        label = tr(StringKeys.DESKTOP_VOICE_ENGINE_LABEL),
         selectedLabel = when {
-            piperSelected -> "Piper — neural (recommended)"
-            config.engine.isBlank() -> "System default"
+            piperSelected -> strings.get(StringKeys.DESKTOP_VOICE_ENGINE_PIPER)
+            config.engine.isBlank() -> strings.get(StringKeys.DESKTOP_VOICE_SYSTEM_DEFAULT)
             else -> engines.firstOrNull { it.id == config.engine }?.label ?: config.engine
         },
         options = engineOptions,
-        optionLabel = { it?.label ?: "System default" },
+        optionLabel = { it?.label ?: strings.get(StringKeys.DESKTOP_VOICE_SYSTEM_DEFAULT) },
         onSelect = { engine ->
             val newEngine = engine?.id.orEmpty()
             val newVoice = if (newEngine == DesktopVoiceConfig.PIPER_ENGINE) PiperVoices.DEFAULT.id else ""
@@ -118,7 +121,10 @@ actual fun DesktopVoiceSection() {
     }
 
     Spacer(Modifier.height(16.dp))
-    Text("Speech rate — ${rateLabel(config.rate)}", style = MaterialTheme.typography.bodyMedium)
+    Text(
+        tr(StringKeys.DESKTOP_VOICE_SPEECH_RATE, rateLabel(config.rate, strings)),
+        style = MaterialTheme.typography.bodyMedium,
+    )
     Slider(
         value = config.rate.toFloat(),
         onValueChange = { prefs.setVoiceConfig(config.copy(rate = it.roundToInt())) },
@@ -128,8 +134,8 @@ actual fun DesktopVoiceSection() {
     )
 
     Spacer(Modifier.height(8.dp))
-    OutlinedButton(onClick = { speaker.speak("This is the read-aloud voice.") }) {
-        Text("Test voice")
+    OutlinedButton(onClick = { speaker.speak(strings.get(StringKeys.DESKTOP_VOICE_TEST_UTTERANCE)) }) {
+        Text(tr(StringKeys.DESKTOP_VOICE_TEST_VOICE))
     }
 }
 
@@ -140,7 +146,7 @@ private fun PiperVoiceControls(
     state: PiperState,
 ) {
     LabeledDropdown(
-        label = "Voice",
+        label = tr(StringKeys.DESKTOP_VOICE_VOICE_LABEL),
         selectedLabel = PiperVoices.byId(selectedId).label,
         options = PiperVoices.ALL,
         optionLabel = { it.label },
@@ -150,39 +156,39 @@ private fun PiperVoiceControls(
     when (state) {
         is PiperState.Downloading -> {
             Text(
-                "Downloading neural voice… ${(state.fraction * 100).roundToInt()}%",
+                tr(StringKeys.DESKTOP_VOICE_DOWNLOADING, (state.fraction * 100).roundToInt()),
                 style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(4.dp))
             LinearProgressIndicator(progress = { state.fraction }, modifier = Modifier.fillMaxWidth())
         }
         is PiperState.Ready -> Text(
-            "Neural voice ready.",
+            tr(StringKeys.DESKTOP_VOICE_READY),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.primary,
         )
         is PiperState.Failed -> Text(
-            "${state.message} It will retry on the next read-aloud.",
+            tr(StringKeys.DESKTOP_VOICE_FAILED, state.message),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.error,
         )
         is PiperState.Unavailable -> Text(
-            "Not available on this platform.",
+            tr(StringKeys.DESKTOP_VOICE_UNAVAILABLE),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.outline,
         )
         is PiperState.Idle -> Text(
-            "Downloads ~90 MB the first time it speaks.",
+            tr(StringKeys.DESKTOP_VOICE_IDLE),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.outline,
         )
     }
 }
 
-private fun rateLabel(rate: Int): String = when {
-    rate == 0 -> "normal"
-    rate < 0 -> "slower ($rate)"
-    else -> "faster (+$rate)"
+private fun rateLabel(rate: Int, strings: Strings): String = when {
+    rate == 0 -> strings.get(StringKeys.DESKTOP_VOICE_RATE_NORMAL)
+    rate < 0 -> strings.get(StringKeys.DESKTOP_VOICE_RATE_SLOWER, rate)
+    else -> strings.get(StringKeys.DESKTOP_VOICE_RATE_FASTER, rate)
 }
 
 @Composable
@@ -223,13 +229,14 @@ private fun VoiceDropdown(
     selectedId: String,
     onSelect: (String) -> Unit,
 ) {
+    val strings = LocalStrings.current
     var open by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     val selectedLabel = voices.firstOrNull { it.id == selectedId }?.label
-        ?: selectedId.ifBlank { "System default" }
+        ?: selectedId.ifBlank { strings.get(StringKeys.DESKTOP_VOICE_SYSTEM_DEFAULT) }
 
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("Voice: ", style = MaterialTheme.typography.bodyMedium)
+        Text("${tr(StringKeys.DESKTOP_VOICE_VOICE_LABEL)}: ", style = MaterialTheme.typography.bodyMedium)
         AssistChip(onClick = { open = true }, label = { Text(selectedLabel) })
         DropdownMenu(
             expanded = open,
@@ -240,12 +247,15 @@ private fun VoiceDropdown(
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
-                    label = { Text("Filter") },
+                    label = { Text(tr(StringKeys.DESKTOP_VOICE_FILTER)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
                 )
             }
-            DropdownMenuItem(text = { Text("System default") }, onClick = { onSelect(""); open = false })
+            DropdownMenuItem(
+                text = { Text(tr(StringKeys.DESKTOP_VOICE_SYSTEM_DEFAULT)) },
+                onClick = { onSelect(""); open = false },
+            )
             val filtered = voices
                 .filter { query.isBlank() || it.label.contains(query, ignoreCase = true) }
                 .take(MAX_VISIBLE)
@@ -254,7 +264,7 @@ private fun VoiceDropdown(
             }
             if (voices.size > filtered.size) {
                 Text(
-                    "Showing ${filtered.size} of ${voices.size} — type to filter.",
+                    tr(StringKeys.DESKTOP_VOICE_SHOWING, filtered.size, voices.size),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.outline,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),

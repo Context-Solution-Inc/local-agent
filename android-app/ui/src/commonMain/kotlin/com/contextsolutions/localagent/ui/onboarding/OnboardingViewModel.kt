@@ -2,6 +2,8 @@ package com.contextsolutions.localagent.ui.onboarding
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.contextsolutions.localagent.language.LanguagePreferences
+import com.contextsolutions.localagent.language.PreferredLanguage
 import com.contextsolutions.localagent.onboarding.OnboardingPreferences
 import com.contextsolutions.localagent.platform.SecureStorage
 import com.contextsolutions.localagent.platform.SecureStorageKeys
@@ -12,16 +14,20 @@ import com.contextsolutions.localagent.telemetry.TelemetryConsentManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /**
  * Drives the first-run onboarding flow (M6 Phase E, PRD §6.1; PR #23 adds
  * the Location step).
  *
- * Step state is derived from five persisted booleans:
+ * Step state is derived from six persisted booleans (the language gate is
+ * first so the rest of onboarding renders in the chosen language):
+ *  - [OnboardingPreferences.languageDecided]
  *  - [OnboardingPreferences.disclosureAcknowledged]
  *  - [OnboardingPreferences.braveKeyDecided]
  *  - [OnboardingPreferences.hfAuthTokenDecided]
@@ -29,7 +35,7 @@ import kotlinx.coroutines.launch
  *  - [TelemetryConsentManager.firstRunDecided]
  *
  * The first one that isn't true determines the active step. When all
- * five are true, the host emits [OnboardingStep.Complete] and
+ * six are true, the host emits [OnboardingStep.Complete] and
  * `MainScreen` routes away from `OnboardingHost`.
  *
  * Brave key + HF token entries are wired straight to [SecureStorage] (same
@@ -42,25 +48,51 @@ class OnboardingViewModel(
     private val telemetryConsent: TelemetryConsentManager,
     private val secureStorage: SecureStorage,
     private val searchPreferences: SearchPreferencesRepository,
+    private val languagePreferences: LanguagePreferences,
     val locationCatalog: LocationCatalog,
 ) : ViewModel() {
 
     private val _step = MutableStateFlow(currentStep())
     val step: StateFlow<OnboardingStep> = _step.asStateFlow()
 
+    /**
+     * The live language selection on the first onboarding screen. Reading it as
+     * a flow lets the picker highlight the choice; writes go through
+     * [selectLanguage], which updates `LanguagePreferences` immediately so the
+     * whole onboarding tree re-renders in the chosen language as a live preview.
+     */
+    val language: StateFlow<PreferredLanguage> = languagePreferences.preferredLanguageFlow()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, languagePreferences.preferredLanguage())
+
     init {
         // Re-derive the step whenever any underlying flag changes — covers
         // the case where the consent screen advances the telemetry flag,
-        // for instance.
+        // for instance. All six gates are `Flow<Boolean>`, so this resolves to
+        // the vararg `combine` (the typed overloads stop at five).
         combine(
+            onboardingPreferences.languageDecidedFlow(),
             onboardingPreferences.disclosureAcknowledgedFlow(),
             onboardingPreferences.braveKeyDecidedFlow(),
             onboardingPreferences.hfAuthTokenDecidedFlow(),
             onboardingPreferences.locationDecidedFlow(),
             telemetryConsent.firstRunDecidedFlow(),
-        ) { _, _, _, _, _ -> currentStep() }
+        ) { _ -> currentStep() }
             .onEach { _step.value = it }
             .launchIn(viewModelScope)
+    }
+
+    /**
+     * Live language preview — persists the choice through [LanguagePreferences]
+     * so the catalog (and thus every onboarding screen) switches immediately,
+     * WITHOUT advancing the step. The user confirms with [confirmLanguage].
+     */
+    fun selectLanguage(language: PreferredLanguage) {
+        languagePreferences.setPreferredLanguage(language)
+    }
+
+    /** Accept the (already-applied) language choice and advance onboarding. */
+    fun confirmLanguage() {
+        onboardingPreferences.markLanguageDecided()
     }
 
     fun acknowledgeDisclosure() {
@@ -134,6 +166,7 @@ class OnboardingViewModel(
     }
 
     private fun currentStep(): OnboardingStep = when {
+        !onboardingPreferences.languageDecided() -> OnboardingStep.Language
         !onboardingPreferences.disclosureAcknowledged() -> OnboardingStep.Disclosure
         !onboardingPreferences.braveKeyDecided() -> OnboardingStep.BraveKey
         !onboardingPreferences.hfAuthTokenDecided() -> OnboardingStep.HfAuthToken
@@ -145,6 +178,7 @@ class OnboardingViewModel(
 
 /** Current step in the onboarding flow. [Complete] is the terminal state. */
 sealed interface OnboardingStep {
+    data object Language : OnboardingStep
     data object Disclosure : OnboardingStep
     data object BraveKey : OnboardingStep
     data object HfAuthToken : OnboardingStep

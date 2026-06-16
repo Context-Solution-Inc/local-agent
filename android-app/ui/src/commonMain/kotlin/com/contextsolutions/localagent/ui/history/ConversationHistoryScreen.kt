@@ -39,6 +39,8 @@ import androidx.compose.ui.unit.dp
 import org.koin.compose.viewmodel.koinViewModel
 import com.contextsolutions.localagent.conversation.ConversationRepository
 import com.contextsolutions.localagent.conversation.ConversationSummary
+import com.contextsolutions.localagent.i18n.StringKeys
+import com.contextsolutions.localagent.ui.i18n.tr
 import com.contextsolutions.localagent.ui.util.formatRelativeTime
 import kotlinx.datetime.Clock
 
@@ -68,10 +70,10 @@ fun ConversationHistoryScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Conversation history") },
+                title = { Text(tr(StringKeys.HISTORY_TITLE)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr(StringKeys.COMMON_BACK))
                     }
                 },
             )
@@ -85,7 +87,7 @@ fun ConversationHistoryScreen(
             if (conversations.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
-                        "No conversations yet.",
+                        tr(StringKeys.HISTORY_EMPTY),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 32.dp),
@@ -108,8 +110,7 @@ fun ConversationHistoryScreen(
                     item {
                         Spacer(Modifier.height(16.dp))
                         Text(
-                            "Stores up to ${ConversationRepository.CONVERSATION_CAP} " +
-                                "conversations. Oldest are removed automatically.",
+                            tr(StringKeys.HISTORY_CAPACITY_FOOTNOTE, ConversationRepository.CONVERSATION_CAP),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.outline,
                             modifier = Modifier
@@ -125,23 +126,19 @@ fun ConversationHistoryScreen(
     pendingDelete?.let { convo ->
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
-            title = { Text("Delete conversation?") },
+            title = { Text(tr(StringKeys.HISTORY_DELETE_TITLE)) },
             text = {
-                Text(
-                    "\"${convo.title}\"\n\n" +
-                        "This deletes the conversation and its messages. Memories " +
-                        "saved from this chat are kept.",
-                )
+                Text(tr(StringKeys.HISTORY_DELETE_BODY, convo.title))
             },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.delete(convo.id)
                     onDeleted(convo.id)
                     pendingDelete = null
-                }) { Text("Delete") }
+                }) { Text(tr(StringKeys.HISTORY_DELETE)) }
             },
             dismissButton = {
-                TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
+                TextButton(onClick = { pendingDelete = null }) { Text(tr(StringKeys.HISTORY_CANCEL)) }
             },
         )
     }
@@ -188,7 +185,7 @@ private fun ConversationRow(
         IconButton(onClick = onDeleteRequest) {
             Icon(
                 Icons.Default.Delete,
-                contentDescription = "Delete conversation",
+                contentDescription = tr(StringKeys.HISTORY_CD_DELETE),
                 tint = MaterialTheme.colorScheme.outline,
             )
         }
@@ -198,5 +195,5 @@ private fun ConversationRow(
 @Composable
 private fun relativeUpdatedLabel(epochMs: Long): String {
     val now = remember(epochMs) { Clock.System.now().toEpochMilliseconds() }
-    return formatRelativeTime(epochMs, now)
+    return formatRelativeTime(epochMs, now, com.contextsolutions.localagent.ui.i18n.LocalStrings.current)
 }

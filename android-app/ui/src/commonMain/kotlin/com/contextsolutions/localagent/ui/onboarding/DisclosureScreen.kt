@@ -24,6 +24,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.contextsolutions.localagent.i18n.StringKeys
+import com.contextsolutions.localagent.ui.i18n.tr
 
 /**
  * Onboarding screen 1 — on-device disclosure (PRD §6.1).
@@ -47,26 +49,20 @@ fun DisclosureScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text(
-                text = "Your assistant. On your device.",
+                text = tr(StringKeys.ONBOARDING_DISCLOSURE_TITLE),
                 style = MaterialTheme.typography.headlineMedium,
                 modifier = Modifier.semantics { heading() },
             )
             Text(
-                text = "Local Agent runs the language model entirely on your phone. " +
-                    "Your conversations, the things it remembers about you, and the " +
-                    "memories it creates are stored locally and never leave the device.",
+                text = tr(StringKeys.ONBOARDING_DISCLOSURE_BODY),
                 style = MaterialTheme.typography.bodyLarge,
             )
             Text(
-                text = "What does leave the device:",
+                text = tr(StringKeys.ONBOARDING_DISCLOSURE_LEAVES_HEADER),
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
-                text = "•  Web search queries — sent to Brave Search API only when " +
-                    "the assistant decides a search is needed. Just the query, " +
-                    "never your other messages or memories.\n\n" +
-                    "•  Optional anonymous telemetry — off by default. You decide " +
-                    "on the next screen.",
+                text = tr(StringKeys.ONBOARDING_DISCLOSURE_LEAVES_BODY),
                 style = MaterialTheme.typography.bodyMedium,
             )
 
@@ -81,7 +77,7 @@ fun DisclosureScreen(
                     onCheckedChange = { acknowledged = it },
                 )
                 Text(
-                    text = "I understand.",
+                    text = tr(StringKeys.ONBOARDING_DISCLOSURE_ACKNOWLEDGE),
                     style = MaterialTheme.typography.bodyLarge,
                 )
             }
@@ -93,7 +89,7 @@ fun DisclosureScreen(
                 enabled = acknowledged,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("Continue")
+                Text(tr(StringKeys.ONBOARDING_NAV_CONTINUE))
             }
         }
     }

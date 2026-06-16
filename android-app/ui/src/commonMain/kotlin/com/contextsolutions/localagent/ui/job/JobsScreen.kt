@@ -62,10 +62,14 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import com.contextsolutions.localagent.clock.AlarmDay
+import com.contextsolutions.localagent.i18n.StringKeys
+import com.contextsolutions.localagent.i18n.Strings
 import com.contextsolutions.localagent.inference.DesktopLinkStatus
 import com.contextsolutions.localagent.job.Job
 import com.contextsolutions.localagent.job.JobRunStatus
 import com.contextsolutions.localagent.job.JobScheduleType
+import com.contextsolutions.localagent.ui.i18n.LocalStrings
+import com.contextsolutions.localagent.ui.i18n.tr
 import com.contextsolutions.localagent.ui.platform.isDesktopPlatform
 import com.contextsolutions.localagent.ui.util.formatRelativeTime
 import kotlinx.datetime.Clock
@@ -112,10 +116,10 @@ fun JobsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Jobs") },
+                title = { Text(tr(StringKeys.JOBS_TITLE)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr(StringKeys.COMMON_BACK))
                     }
                 },
             )
@@ -123,7 +127,7 @@ fun JobsScreen(
         floatingActionButton = {
             if (isAdmin) {
                 FloatingActionButton(onClick = { creating = true }) {
-                    Icon(Icons.Filled.Add, contentDescription = "Add job")
+                    Icon(Icons.Filled.Add, contentDescription = tr(StringKeys.JOBS_CD_ADD))
                 }
             }
         },
@@ -183,15 +187,15 @@ fun JobsScreen(
     deleting?.let { current ->
         AlertDialog(
             onDismissRequest = { deleting = null },
-            title = { Text("Delete job?") },
-            text = { Text("\"${current.name}\" will be removed and will no longer run.") },
+            title = { Text(tr(StringKeys.JOBS_DELETE_TITLE)) },
+            text = { Text(tr(StringKeys.JOBS_DELETE_BODY, current.name)) },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.delete(current.id)
                     deleting = null
-                }) { Text("Delete") }
+                }) { Text(tr(StringKeys.JOBS_DELETE)) }
             },
-            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text(tr(StringKeys.JOBS_CANCEL)) } },
         )
     }
 }
@@ -202,11 +206,13 @@ private fun SyncHeader(lastSyncedAtMs: Long?, linkStatus: DesktopLinkStatus, isA
     // not meaningful — only the mobile remote-view shows freshness.
     if (isAdmin) return
     val now = Clock.System.now().toEpochMilliseconds()
-    val synced = lastSyncedAtMs?.let { "Synced ${formatRelativeTime(it, now)}" } ?: "Never synced"
+    val synced = lastSyncedAtMs?.let {
+        tr(StringKeys.JOBS_SYNCED, formatRelativeTime(it, now, com.contextsolutions.localagent.ui.i18n.LocalStrings.current))
+    } ?: tr(StringKeys.JOBS_NEVER_SYNCED)
     val (dot, label) = when (linkStatus) {
-        DesktopLinkStatus.UP -> Color(0xFF43A047) to "Online"
-        DesktopLinkStatus.DOWN -> Color(0xFFE53935) to "Offline"
-        DesktopLinkStatus.DISABLED -> Color(0xFFFFA000) to "Not linked"
+        DesktopLinkStatus.UP -> Color(0xFF43A047) to tr(StringKeys.JOBS_STATUS_ONLINE)
+        DesktopLinkStatus.DOWN -> Color(0xFFE53935) to tr(StringKeys.JOBS_STATUS_OFFLINE)
+        DesktopLinkStatus.DISABLED -> Color(0xFFFFA000) to tr(StringKeys.JOBS_STATUS_NOT_LINKED)
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(synced, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -221,10 +227,10 @@ private fun SyncHeader(lastSyncedAtMs: Long?, linkStatus: DesktopLinkStatus, isA
 private fun EmptyState(isAdmin: Boolean) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("No jobs yet.", style = MaterialTheme.typography.titleMedium)
+            Text(tr(StringKeys.JOBS_EMPTY), style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(4.dp))
             Text(
-                if (isAdmin) "Tap + to schedule a command." else "Jobs are created on the desktop agent.",
+                if (isAdmin) tr(StringKeys.JOBS_EMPTY_HINT_ADMIN) else tr(StringKeys.JOBS_EMPTY_HINT_REMOTE),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -243,6 +249,7 @@ private fun JobRow(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
+    val strings = LocalStrings.current
     val now = Clock.System.now().toEpochMilliseconds()
     // A recurring job always has future runs; a one-shot is "pending" only while its
     // instant is still in the future. Keyed on fireAt (NOT lastRunStatus) so editing
@@ -258,7 +265,7 @@ private fun JobRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(job.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                text = scheduleLabel(job),
+                text = scheduleLabel(job, strings),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -274,7 +281,7 @@ private fun JobRow(
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        text = "Running…",
+                        text = tr(StringKeys.JOBS_RUNNING),
                         style = MaterialTheme.typography.bodySmall,
                         color = JobRunStatus.RUNNING.color(),
                     )
@@ -282,8 +289,8 @@ private fun JobRow(
             } else if (last != null) {
                 Text(
                     text = buildString {
-                        append(last.label())
-                        job.lastRunAtEpochMs?.let { append(" · ${formatRelativeTime(it, now)}") }
+                        append(last.label(strings))
+                        job.lastRunAtEpochMs?.let { append(" · ${formatRelativeTime(it, now, strings)}") }
                         job.lastRunSummary?.takeIf { it.isNotBlank() }?.let { append(" · ${it.replace('\n', ' ')}") }
                     },
                     style = MaterialTheme.typography.bodySmall,
@@ -294,7 +301,7 @@ private fun JobRow(
             }
             if (job.lastRunConversationId != null) {
                 TextButton(onClick = onOpenConversation, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
-                    Text("View conversation", style = MaterialTheme.typography.labelMedium)
+                    Text(tr(StringKeys.JOBS_VIEW_CONVERSATION), style = MaterialTheme.typography.labelMedium)
                 }
             }
         }
@@ -308,14 +315,14 @@ private fun JobRow(
                 onClick = onRunNow,
                 enabled = job.deletedAtEpochMs == null && job.lastRunStatus != JobRunStatus.RUNNING,
             ) {
-                Icon(Icons.Filled.PlayArrow, contentDescription = "Run now")
+                Icon(Icons.Filled.PlayArrow, contentDescription = tr(StringKeys.JOBS_CD_RUN_NOW))
             }
         }
         if (isAdmin) {
             IconButton(onClick = onEdit) {
-                Icon(Icons.Filled.Edit, contentDescription = "Edit")
+                Icon(Icons.Filled.Edit, contentDescription = tr(StringKeys.JOBS_CD_EDIT))
             }
-            IconButton(onClick = onDelete) { Icon(Icons.Filled.Delete, contentDescription = "Delete") }
+            IconButton(onClick = onDelete) { Icon(Icons.Filled.Delete, contentDescription = tr(StringKeys.JOBS_CD_DELETE)) }
         }
         // Pause toggle: enabled only while controllable AND there are future runs
         // (a completed one-shot has nothing to pause). Mobile also needs the link UP.
@@ -327,39 +334,50 @@ private fun JobRow(
     }
 }
 
-private fun scheduleLabel(job: Job): String = when (job.scheduleType) {
+private fun scheduleLabel(job: Job, strings: Strings): String = when (job.scheduleType) {
     JobScheduleType.CRON -> job.cronExpression?.let { expr ->
         parseJobCron(expr)?.let { (h, m, days) ->
             val time = "${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}"
-            if (days.isEmpty()) "Daily at $time" else daysShortLabel(days) + " at $time"
-        } ?: "cron: $expr"
-    } ?: "Repeat"
+            if (days.isEmpty()) {
+                strings.get(StringKeys.JOBS_SCHED_DAILY_AT, time)
+            } else {
+                strings.get(StringKeys.JOBS_SCHED_AT, daysShortLabel(days, strings), time)
+            }
+        } ?: strings.get(StringKeys.JOBS_SCHED_CRON_RAW, expr)
+    } ?: strings.get(StringKeys.JOBS_REPEAT)
     JobScheduleType.ONE_SHOT -> job.fireAtEpochMs?.let {
-        "Once on " + Instant.fromEpochMilliseconds(it).toLocalDateTime(TimeZone.currentSystemDefault()).let { dt ->
-            "${dt.date} ${dt.hour.toString().padStart(2, '0')}:${dt.minute.toString().padStart(2, '0')}"
-        }
-    } ?: "Once"
+        strings.get(
+            StringKeys.JOBS_SCHED_ONCE_ON,
+            Instant.fromEpochMilliseconds(it).toLocalDateTime(TimeZone.currentSystemDefault()).let { dt ->
+                "${dt.date} ${dt.hour.toString().padStart(2, '0')}:${dt.minute.toString().padStart(2, '0')}"
+            },
+        )
+    } ?: strings.get(StringKeys.JOBS_ONCE)
 }
 
-private fun daysShortLabel(days: Set<AlarmDay>): String {
+private fun daysShortLabel(days: Set<AlarmDay>, strings: Strings): String {
     val order = listOf(
         AlarmDay.SUNDAY, AlarmDay.MONDAY, AlarmDay.TUESDAY, AlarmDay.WEDNESDAY,
         AlarmDay.THURSDAY, AlarmDay.FRIDAY, AlarmDay.SATURDAY,
     )
     return order.filter { it in days }.joinToString(", ") {
         when (it) {
-            AlarmDay.SUNDAY -> "Sun"; AlarmDay.MONDAY -> "Mon"; AlarmDay.TUESDAY -> "Tue"
-            AlarmDay.WEDNESDAY -> "Wed"; AlarmDay.THURSDAY -> "Thu"; AlarmDay.FRIDAY -> "Fri"
-            AlarmDay.SATURDAY -> "Sat"
+            AlarmDay.SUNDAY -> strings.get(StringKeys.JOBS_DAY_SHORT_SUN)
+            AlarmDay.MONDAY -> strings.get(StringKeys.JOBS_DAY_SHORT_MON)
+            AlarmDay.TUESDAY -> strings.get(StringKeys.JOBS_DAY_SHORT_TUE)
+            AlarmDay.WEDNESDAY -> strings.get(StringKeys.JOBS_DAY_SHORT_WED)
+            AlarmDay.THURSDAY -> strings.get(StringKeys.JOBS_DAY_SHORT_THU)
+            AlarmDay.FRIDAY -> strings.get(StringKeys.JOBS_DAY_SHORT_FRI)
+            AlarmDay.SATURDAY -> strings.get(StringKeys.JOBS_DAY_SHORT_SAT)
         }
     }
 }
 
-private fun JobRunStatus.label(): String = when (this) {
-    JobRunStatus.RUNNING -> "Running"
-    JobRunStatus.SUCCEEDED -> "Succeeded"
-    JobRunStatus.FAILED -> "Failed"
-    JobRunStatus.CANCELLED -> "Cancelled"
+private fun JobRunStatus.label(strings: Strings): String = when (this) {
+    JobRunStatus.RUNNING -> strings.get(StringKeys.JOBS_STATUS_RUNNING)
+    JobRunStatus.SUCCEEDED -> strings.get(StringKeys.JOBS_STATUS_SUCCEEDED)
+    JobRunStatus.FAILED -> strings.get(StringKeys.JOBS_STATUS_FAILED)
+    JobRunStatus.CANCELLED -> strings.get(StringKeys.JOBS_STATUS_CANCELLED)
 }
 
 @Composable
@@ -393,6 +411,7 @@ private fun JobFormDialog(
         fireAtEpochMs: Long?,
     ) -> Unit,
 ) {
+    val strings = LocalStrings.current
     var name by remember { mutableStateOf(initial?.name.orEmpty()) }
     var command by remember { mutableStateOf(initial?.command.orEmpty()) }
     var prompt by remember { mutableStateOf(initial?.prompt.orEmpty()) }
@@ -455,7 +474,7 @@ private fun JobFormDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (initial == null) "New job" else "Edit job") },
+        title = { Text(if (initial == null) tr(StringKeys.JOBS_FORM_NEW) else tr(StringKeys.JOBS_FORM_EDIT)) },
         text = {
             // The form is taller than the AlertDialog's capped height (Material3 does
             // NOT scroll the text slot), so without this the schedule inputs below the
@@ -465,36 +484,36 @@ private fun JobFormDialog(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                OutlinedTextField(name, { name = it }, label = { Text("Job Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(name, { name = it }, label = { Text(tr(StringKeys.JOBS_FORM_NAME)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(command, { command = it }, label = { Text("Job Location") }, singleLine = true, modifier = Modifier.weight(1f))
+                    OutlinedTextField(command, { command = it }, label = { Text(tr(StringKeys.JOBS_FORM_LOCATION)) }, singleLine = true, modifier = Modifier.weight(1f))
                     if (isDesktopPlatform) {
                         // Tooltip states the requirement; the picker (Part B) then enforces it.
                         TooltipBox(
                             positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
-                            tooltip = { PlainTooltip { Text("Select a job directory that contains a job.settings.json file.") } },
+                            tooltip = { PlainTooltip { Text(tr(StringKeys.JOBS_FORM_CHOOSE_TOOLTIP)) } },
                             state = rememberTooltipState(),
                         ) {
                             OutlinedButton(onClick = {
                                 programPicker.launch { picked -> picked?.let { command = it.programPath; workingDir = it.workingDir } }
-                            }) { Text("Choose job…") }
+                            }) { Text(tr(StringKeys.JOBS_FORM_CHOOSE_JOB)) }
                         }
                     }
                 }
-                OutlinedTextField(prompt, { prompt = it }, label = { Text("Keyword(s)") }, minLines = 2, maxLines = 4, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(prompt, { prompt = it }, label = { Text(tr(StringKeys.JOBS_FORM_KEYWORDS)) }, minLines = 2, maxLines = 4, modifier = Modifier.fillMaxWidth())
 
-                Text("Schedule", style = MaterialTheme.typography.labelMedium)
+                Text(tr(StringKeys.JOBS_FORM_SCHEDULE), style = MaterialTheme.typography.labelMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     FilterChip(
                         selected = scheduleType == JobScheduleType.CRON,
                         onClick = { scheduleType = JobScheduleType.CRON },
-                        label = { Text("Repeat") },
+                        label = { Text(tr(StringKeys.JOBS_REPEAT)) },
                         colors = selectedChipColors(),
                     )
                     FilterChip(
                         selected = scheduleType == JobScheduleType.ONE_SHOT,
                         onClick = { scheduleType = JobScheduleType.ONE_SHOT },
-                        label = { Text("Once") },
+                        label = { Text(tr(StringKeys.JOBS_ONCE)) },
                         colors = selectedChipColors(),
                     )
                 }
@@ -510,19 +529,19 @@ private fun JobFormDialog(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                ClockField(hourText, { hourText = it }, "Hour", 1..12, Modifier.weight(1f))
+                                ClockField(hourText, { hourText = it }, tr(StringKeys.JOBS_FORM_HOUR), 1..12, Modifier.weight(1f))
                                 Text(":")
-                                ClockField(minuteText, { minuteText = it }, "Min", 0..59, Modifier.weight(1f))
+                                ClockField(minuteText, { minuteText = it }, tr(StringKeys.JOBS_FORM_MIN), 0..59, Modifier.weight(1f))
                                 FilterChip(
                                     selected = !isPm,
                                     onClick = { isPm = false },
-                                    label = { Text("AM") },
+                                    label = { Text(tr(StringKeys.JOBS_FORM_AM)) },
                                     colors = selectedChipColors(),
                                 )
                                 FilterChip(
                                     selected = isPm,
                                     onClick = { isPm = true },
-                                    label = { Text("PM") },
+                                    label = { Text(tr(StringKeys.JOBS_FORM_PM)) },
                                     colors = selectedChipColors(),
                                 )
                             }
@@ -534,17 +553,21 @@ private fun JobFormDialog(
                         // mistaken (e.g. 10:20 PM → 22:20), per issue #7.
                         val time24 = "${selHour.toString().padStart(2, '0')}:${selMinute.toString().padStart(2, '0')}"
                         Text(
-                            (if (days.isEmpty()) "Runs daily" else "Runs ${daysShortLabel(days)}") + " at $time24",
+                            if (days.isEmpty()) {
+                                tr(StringKeys.JOBS_FORM_RUNS_DAILY_AT, time24)
+                            } else {
+                                tr(StringKeys.JOBS_FORM_RUNS_DAYS_AT, daysShortLabel(days, strings), time24)
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     JobScheduleType.ONE_SHOT -> {
-                        Text("Run once after", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(tr(StringKeys.JOBS_FORM_RUN_ONCE_AFTER), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            DurationField(hours, { hours = it }, "h", Modifier.weight(1f))
-                            DurationField(minutes, { minutes = it }, "m", Modifier.weight(1f))
-                            DurationField(seconds, { seconds = it }, "s", Modifier.weight(1f))
+                            DurationField(hours, { hours = it }, tr(StringKeys.JOBS_FORM_DUR_H), Modifier.weight(1f))
+                            DurationField(minutes, { minutes = it }, tr(StringKeys.JOBS_FORM_DUR_M), Modifier.weight(1f))
+                            DurationField(seconds, { seconds = it }, tr(StringKeys.JOBS_FORM_DUR_S), Modifier.weight(1f))
                         }
                     }
                 }
@@ -566,9 +589,9 @@ private fun JobFormDialog(
                     println("[JobForm] save name='$name' command='$command' schedule=$scheduleType cron='$cronExpr' fireAt=$fireAt")
                     onSave(name, command, prompt, workingDir.ifBlank { null }, scheduleType, cronExpr, fireAt)
                 },
-            ) { Text(if (initial == null) "Create" else "Save") }
+            ) { Text(if (initial == null) tr(StringKeys.JOBS_FORM_CREATE) else tr(StringKeys.COMMON_SAVE)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(tr(StringKeys.JOBS_CANCEL)) } },
     )
 }
 
@@ -618,6 +641,7 @@ private fun DurationField(value: String, onValueChange: (String) -> Unit, label:
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun JobDaysChips(selected: Set<AlarmDay>, onChange: (Set<AlarmDay>) -> Unit) {
+    val strings = LocalStrings.current
     val order = listOf(
         AlarmDay.SUNDAY, AlarmDay.MONDAY, AlarmDay.TUESDAY, AlarmDay.WEDNESDAY,
         AlarmDay.THURSDAY, AlarmDay.FRIDAY, AlarmDay.SATURDAY,
@@ -628,7 +652,7 @@ private fun JobDaysChips(selected: Set<AlarmDay>, onChange: (Set<AlarmDay>) -> U
                 selected = day in selected,
                 onClick = { onChange(if (day in selected) selected - day else selected + day) },
                 label = {
-                    Text(day.singleLetter(), maxLines = 1, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                    Text(day.singleLetter(strings), maxLines = 1, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
                 },
                 colors = selectedChipColors(),
                 modifier = Modifier.weight(1f),
@@ -673,14 +697,14 @@ private fun jobTimePickerColors() = TimePickerDefaults.colors(
 
 private fun Long.nonZeroOrBlank(): String = if (this > 0) toString() else ""
 
-private fun AlarmDay.singleLetter(): String = when (this) {
-    AlarmDay.SUNDAY -> "S"
-    AlarmDay.MONDAY -> "M"
-    AlarmDay.TUESDAY -> "T"
-    AlarmDay.WEDNESDAY -> "W"
-    AlarmDay.THURSDAY -> "T"
-    AlarmDay.FRIDAY -> "F"
-    AlarmDay.SATURDAY -> "S"
+private fun AlarmDay.singleLetter(strings: Strings): String = when (this) {
+    AlarmDay.SUNDAY -> strings.get(StringKeys.JOBS_DAY_LETTER_SUN)
+    AlarmDay.MONDAY -> strings.get(StringKeys.JOBS_DAY_LETTER_MON)
+    AlarmDay.TUESDAY -> strings.get(StringKeys.JOBS_DAY_LETTER_TUE)
+    AlarmDay.WEDNESDAY -> strings.get(StringKeys.JOBS_DAY_LETTER_WED)
+    AlarmDay.THURSDAY -> strings.get(StringKeys.JOBS_DAY_LETTER_THU)
+    AlarmDay.FRIDAY -> strings.get(StringKeys.JOBS_DAY_LETTER_FRI)
+    AlarmDay.SATURDAY -> strings.get(StringKeys.JOBS_DAY_LETTER_SAT)
 }
 
 // ---- cron <-> alarm-style time+days (5-field UNIX, dow 0=Sun..6=Sat) --------

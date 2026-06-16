@@ -44,6 +44,10 @@ import androidx.compose.ui.window.DialogProperties
 import org.koin.compose.viewmodel.koinViewModel
 import com.contextsolutions.localagent.clock.AlarmDay
 import com.contextsolutions.localagent.clock.AlarmEntry
+import com.contextsolutions.localagent.i18n.StringKeys
+import com.contextsolutions.localagent.i18n.Strings
+import com.contextsolutions.localagent.ui.i18n.LocalStrings
+import com.contextsolutions.localagent.ui.i18n.tr
 import com.contextsolutions.localagent.ui.platform.rememberIsLandscape
 
 /**
@@ -71,17 +75,17 @@ fun AlarmManagementScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Alarms") },
+                title = { Text(tr(StringKeys.CLOCK_UI_ALARMS_TITLE)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr(StringKeys.COMMON_BACK))
                     }
                 },
             )
         },
         floatingActionButton = {
             FloatingActionButton(onClick = { creating = true }) {
-                Icon(Icons.Filled.Add, contentDescription = "New alarm")
+                Icon(Icons.Filled.Add, contentDescription = tr(StringKeys.CLOCK_UI_CD_NEW_ALARM))
             }
         },
     ) { padding ->
@@ -144,12 +148,12 @@ private fun EmptyAlarms() {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                "No alarms scheduled.",
+                tr(StringKeys.CLOCK_UI_ALARMS_EMPTY),
                 style = MaterialTheme.typography.titleMedium,
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                "Tap + to add one, or ask in chat — try \"set an alarm for 7am\".",
+                tr(StringKeys.CLOCK_UI_ALARMS_EMPTY_HINT),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -164,6 +168,7 @@ private fun AlarmRow(
     onEdit: () -> Unit,
     onCancel: () -> Unit,
 ) {
+    val strings = LocalStrings.current
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
@@ -178,9 +183,9 @@ private fun AlarmRow(
                     append(alarm.label); append(" · ")
                 }
                 append(
-                    if (alarm.isRecurring) alarm.recurringDays.toLabel() else "Once",
+                    if (alarm.isRecurring) alarm.recurringDays.toLabel(strings) else strings.get(StringKeys.CLOCK_UI_ONCE),
                 )
-                if (!alarm.enabled) append(" · off")
+                if (!alarm.enabled) append(strings.get(StringKeys.CLOCK_UI_OFF_SUFFIX))
             }
             Text(
                 text = subtitle,
@@ -189,8 +194,8 @@ private fun AlarmRow(
             )
         }
         Switch(checked = alarm.enabled, onCheckedChange = onToggleEnabled)
-        TextButton(onClick = onEdit) { Text("Edit") }
-        TextButton(onClick = onCancel) { Text("Cancel") }
+        TextButton(onClick = onEdit) { Text(tr(StringKeys.CLOCK_UI_EDIT)) }
+        TextButton(onClick = onCancel) { Text(tr(StringKeys.CLOCK_UI_CANCEL)) }
     }
 }
 
@@ -218,7 +223,7 @@ private fun AlarmFormDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = !landscape),
         modifier = if (landscape) Modifier.fillMaxWidth(0.92f) else Modifier,
-        title = { Text(if (initial == null) "New alarm" else "Edit alarm") },
+        title = { Text(if (initial == null) tr(StringKeys.CLOCK_UI_NEW_ALARM) else tr(StringKeys.CLOCK_UI_EDIT_ALARM)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 TimePicker(state = timeState)
@@ -226,7 +231,7 @@ private fun AlarmFormDialog(
                 OutlinedTextField(
                     value = label,
                     onValueChange = { label = it },
-                    label = { Text("Label (optional)") },
+                    label = { Text(tr(StringKeys.CLOCK_UI_LABEL_OPTIONAL)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -236,11 +241,11 @@ private fun AlarmFormDialog(
             TextButton(onClick = {
                 onSave(timeState.hour, timeState.minute, days, label.takeIf { it.isNotBlank() })
             }) {
-                Text(if (initial == null) "Add" else "Save")
+                Text(if (initial == null) tr(StringKeys.CLOCK_UI_ADD) else tr(StringKeys.COMMON_SAVE))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(tr(StringKeys.CLOCK_UI_CANCEL)) }
         },
     )
 }
@@ -252,6 +257,7 @@ private fun DaysChips(selected: Set<AlarmDay>, onChange: (Set<AlarmDay>) -> Unit
     // canonical S M T W T F S row layout. Tue/Thu and Sat/Sun share a
     // first letter; positional context disambiguates per the standard
     // alarm-clock UI pattern.
+    val strings = LocalStrings.current
     val order = listOf(
         AlarmDay.SUNDAY, AlarmDay.MONDAY, AlarmDay.TUESDAY, AlarmDay.WEDNESDAY,
         AlarmDay.THURSDAY, AlarmDay.FRIDAY, AlarmDay.SATURDAY,
@@ -281,7 +287,7 @@ private fun DaysChips(selected: Set<AlarmDay>, onChange: (Set<AlarmDay>) -> Unit
                 // visual middle of the chip's content area.
                 label = {
                     Text(
-                        text = day.singleLetter(),
+                        text = day.singleLetter(strings),
                         maxLines = 1,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth(),
@@ -299,32 +305,32 @@ private val WEEKDAYS: Set<AlarmDay> = setOf(
 private val WEEKENDS: Set<AlarmDay> = setOf(AlarmDay.SATURDAY, AlarmDay.SUNDAY)
 private val ALL_DAYS: Set<AlarmDay> = WEEKDAYS + WEEKENDS
 
-private fun AlarmDay.singleLetter(): String = when (this) {
-    AlarmDay.SUNDAY -> "S"
-    AlarmDay.MONDAY -> "M"
-    AlarmDay.TUESDAY -> "T"
-    AlarmDay.WEDNESDAY -> "W"
-    AlarmDay.THURSDAY -> "T"
-    AlarmDay.FRIDAY -> "F"
-    AlarmDay.SATURDAY -> "S"
+private fun AlarmDay.singleLetter(strings: Strings): String = when (this) {
+    AlarmDay.SUNDAY -> strings.get(StringKeys.CLOCK_UI_DAY_LETTER_SUN)
+    AlarmDay.MONDAY -> strings.get(StringKeys.CLOCK_UI_DAY_LETTER_MON)
+    AlarmDay.TUESDAY -> strings.get(StringKeys.CLOCK_UI_DAY_LETTER_TUE)
+    AlarmDay.WEDNESDAY -> strings.get(StringKeys.CLOCK_UI_DAY_LETTER_WED)
+    AlarmDay.THURSDAY -> strings.get(StringKeys.CLOCK_UI_DAY_LETTER_THU)
+    AlarmDay.FRIDAY -> strings.get(StringKeys.CLOCK_UI_DAY_LETTER_FRI)
+    AlarmDay.SATURDAY -> strings.get(StringKeys.CLOCK_UI_DAY_LETTER_SAT)
 }
 
-private fun AlarmDay.shortName(): String = when (this) {
-    AlarmDay.MONDAY -> "Mon"
-    AlarmDay.TUESDAY -> "Tue"
-    AlarmDay.WEDNESDAY -> "Wed"
-    AlarmDay.THURSDAY -> "Thu"
-    AlarmDay.FRIDAY -> "Fri"
-    AlarmDay.SATURDAY -> "Sat"
-    AlarmDay.SUNDAY -> "Sun"
+private fun AlarmDay.shortName(strings: Strings): String = when (this) {
+    AlarmDay.MONDAY -> strings.get(StringKeys.CLOCK_UI_DAY_SHORT_MON)
+    AlarmDay.TUESDAY -> strings.get(StringKeys.CLOCK_UI_DAY_SHORT_TUE)
+    AlarmDay.WEDNESDAY -> strings.get(StringKeys.CLOCK_UI_DAY_SHORT_WED)
+    AlarmDay.THURSDAY -> strings.get(StringKeys.CLOCK_UI_DAY_SHORT_THU)
+    AlarmDay.FRIDAY -> strings.get(StringKeys.CLOCK_UI_DAY_SHORT_FRI)
+    AlarmDay.SATURDAY -> strings.get(StringKeys.CLOCK_UI_DAY_SHORT_SAT)
+    AlarmDay.SUNDAY -> strings.get(StringKeys.CLOCK_UI_DAY_SHORT_SUN)
 }
 
-private fun Set<AlarmDay>.toLabel(): String {
-    if (isEmpty()) return "Once"
+private fun Set<AlarmDay>.toLabel(strings: Strings): String {
+    if (isEmpty()) return strings.get(StringKeys.CLOCK_UI_ONCE)
     return when (this) {
-        WEEKDAYS -> "Weekdays"
-        WEEKENDS -> "Weekends"
-        ALL_DAYS -> "Every day"
-        else -> joinToString(", ") { it.shortName() }
+        WEEKDAYS -> strings.get(StringKeys.CLOCK_UI_WEEKDAYS)
+        WEEKENDS -> strings.get(StringKeys.CLOCK_UI_WEEKENDS)
+        ALL_DAYS -> strings.get(StringKeys.CLOCK_UI_EVERY_DAY)
+        else -> joinToString(", ") { it.shortName(strings) }
     }
 }
