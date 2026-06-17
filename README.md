@@ -67,9 +67,9 @@ Privacy-first on-device assistant running Gemma 4 locally, with Brave Search as 
 
 **Desktop (Linux / macOS / Windows):**
 
-- **Inference runtime:** llama.cpp via JNI (`net.ladenthin:llama` 5.0.1, bundling llama.cpp b9151 — the `gemma4` GGUF architecture) + ONNX Runtime 1.20.0 (classifier + embedder). CPU by default; LLM GPU offload (CUDA/Metal/Vulkan) is **opt-in** with a BYO GPU native via `-PllamaLibPath` — see [docs/DESKTOP_PACKAGING.md](docs/DESKTOP_PACKAGING.md) → "Enabling LLM GPU offload".
+- **Inference runtime:** llama.cpp's `llama-server` as a localhost-HTTP subprocess (`LlamaServerInferenceEngine`; prebuilt binary pinned to `LlamaServerRelease.TAG`, downloaded first-run) + ONNX Runtime 1.20.0 (classifier + embedder). LLM GPU offload is **automatic** — a Vulkan (Linux/Windows) / Metal (macOS) server variant downloads by default and **falls back to CPU** if no driver is present (force it with `LOCALAGENT_LLAMA_SERVER_VARIANT`). See [docs/DESKTOP_PACKAGING.md](docs/DESKTOP_PACKAGING.md) → "LLM GPU offload".
 - **Models** (downloaded / operator-supplied into the app-data dir at first run, not bundled):
-  - Gemma 4 GGUF (Q4_K_M) — fetched via the tray (operator fills the verified URL + checksum, same BYO policy as Android)
+  - Gemma 4 GGUF (Q4_K_M) — fetched via the tray (sha256/size pinned in `DesktopModelStore`; public `unsloth/gemma-4-E2B-it-GGUF` repo)
   - ONNX classifier + embedder — exported by `ct-export-onnx` / `export_minilm_onnx.py`; auto-downloaded on first run once a hosting endpoint is set at build time (`-PauxModelBaseUrl`), else placed manually
   - Vosk acoustic model (optional, for dictation)
 - **Packaging:** jpackage installers (`.deb`/`.rpm`, `.dmg`/`.pkg`, `.msi`/`.exe`), one set per host OS via a CI matrix.
@@ -339,13 +339,15 @@ per OS):
 
 `createDistributable` needs no system packaging tool and is the local smoke test;
 the full installers need the host's packaging tools (`fakeroot`/`rpm` on Linux,
-etc.). The shipped build runs llama.cpp on **CPU** ("always works"); **LLM GPU
-offload is opt-in** — build a GPU-enabled `libjllama` and run with
-`-PllamaLibPath=/abs/path/to/libjllama-dir`, where that path is the **directory
-that contains `libjllama.so`** (not the `.so` file itself — the loader appends the
-filename). The engine already requests full offload, so no code change. Full
-native-runtime, GPU, and distribution details — including the build-the-native
-steps — are in [docs/DESKTOP_PACKAGING.md](docs/DESKTOP_PACKAGING.md).
+etc.). The LLM's `llama-server` always has a **CPU** variant ("always works") and
+**GPU offload is automatic** — a Vulkan (Linux/Windows) / Metal (macOS) server
+variant downloads by default and falls back to CPU when no driver is present; force
+it with `LOCALAGENT_LLAMA_SERVER_VARIANT=cpu|vulkan|auto`, or point
+`LOCALAGENT_LLAMA_SERVER` at your own build. Full native-runtime, GPU, and
+distribution details are in
+[docs/DESKTOP_PACKAGING.md](docs/DESKTOP_PACKAGING.md); the end-to-end production
+build + signing procedure is in
+[docs/PRODUCTION_DESKTOP_RUNBOOK.md](docs/PRODUCTION_DESKTOP_RUNBOOK.md).
 
 ## Configuring search sources
 

@@ -140,6 +140,28 @@ compose.desktop {
                 bundleID = "com.contextsolutions.localagent"
                 appCategory = "public.app-category.productivity"
                 // dmgPackageVersion/pkgPackageVersion default to packageVersion.
+
+                // Code signing + notarization (docs/PRODUCTION_DESKTOP_RUNBOOK.md).
+                // GATED on credentials so the unsigned local/CI build still works (the
+                // "CPU-default build that ALWAYS works" guarantee — Phase 8): signing
+                // engages ONLY when MAC_SIGN_IDENTITY is exported. With it set,
+                // `notarizeDmg`/`notarizePkg` sign with the Developer ID Application cert
+                // and notarize via notarytool using the three NOTARIZATION_* env vars.
+                //   MAC_SIGN_IDENTITY    = "Developer ID Application: Context Solutions (TEAMID)"
+                //   NOTARIZATION_APPLE_ID, NOTARIZATION_PASSWORD (app-specific or @keychain:NAME),
+                //   NOTARIZATION_TEAM_ID
+                val macSignIdentity = providers.environmentVariable("MAC_SIGN_IDENTITY").orNull
+                if (!macSignIdentity.isNullOrBlank()) {
+                    signing {
+                        sign.set(true)
+                        identity.set(macSignIdentity)
+                    }
+                    notarization {
+                        appleID.set(providers.environmentVariable("NOTARIZATION_APPLE_ID"))
+                        password.set(providers.environmentVariable("NOTARIZATION_PASSWORD"))
+                        teamID.set(providers.environmentVariable("NOTARIZATION_TEAM_ID"))
+                    }
+                }
             }
             windows {
                 iconFile.set(iconsDir.resolve("icon.ico"))

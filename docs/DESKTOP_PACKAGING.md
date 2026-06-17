@@ -9,12 +9,17 @@ machine must provide. Companion to `docs/DESKTOP_PORT_PLAN.md` Phase 8.
 - **One installer per OS, built on that OS.** jpackage cross-builds nothing —
   `.deb`/`.rpm` on Linux, `.dmg`/`.pkg` on macOS, `.msi`/`.exe` on Windows. The
   `.github/workflows/desktop-package.yml` matrix produces all three.
-- **CPU-default build that ALWAYS works.** The bundled llama.cpp + ONNX Runtime +
-  Vosk natives are CPU-only. No GPU, driver, or toolkit is required to run.
-- **GPU is opt-in and additive.** It needs the user's own vendor driver; we never
-  ship the CUDA toolkit. See [GPU acceleration](#gpu-acceleration).
-- **Models are NOT in the installer.** The multi-GB GGUF + the ONNX classifier/
-  embedder + the Vosk acoustic model download into the app-data dir at first run.
+- **CPU build that ALWAYS works.** The bundled ONNX Runtime + Vosk natives are
+  CPU-only, and the LLM's `llama-server` has a CPU variant that always runs. No GPU,
+  driver, or toolkit is required.
+- **GPU is automatic where a driver exists, never required.** The LLM downloads a
+  Vulkan (Linux/Windows) / Metal (macOS) `llama-server` by default and **falls back to
+  CPU** if no driver is present — no rebuild, no vendor toolkit shipped. The
+  classifier/embedder stay CPU unless you build with `-PonnxGpu=true`. See
+  [GPU acceleration](#gpu-acceleration).
+- **Models are NOT in the installer.** The multi-GB GGUF + the `llama-server` binary +
+  the ONNX classifier/embedder + the Vosk acoustic model download into the app-data dir
+  at first run.
 
 ## Build commands
 
@@ -70,25 +75,35 @@ The CI matrix installs the Linux tools; macOS/Windows runners ship theirs.
 
 ## Native-runtime strategy
 
-Three runtimes carry native code. All ship **CPU-only** natives bundled inside their
-JARs and extracted at first use — the always-works baseline.
+Two of the three runtimes (ONNX Runtime, Vosk) ship **CPU-only** natives bundled inside
+their JARs and extracted at first use. The LLM is different: it runs as a separate
+**`llama-server` subprocess** whose prebuilt binary downloads at first run (CPU + GPU
+variants), so it is not a bundled JNI native at all.
 
-### llama.cpp (LLM)
+### llama.cpp (LLM) — `llama-server` subprocess
 
-- Binding: `net.ladenthin:llama:5.0.1` (bernardladenthin fork, bundles llama.cpp
-  b9151 — needed for the `gemma4` GGUF architecture; `de.kherud:llama` was too old).
-- The published artifact's `libjllama` is **CPU-only**. `activeAccelerator` is
-  best-effort *intent* derived from `n_gpu_layers`; it cannot read actual offload
-  back from the JNI layer, so on the bundled natives it reports the intended backend,
-  not a probed one.
-- **GPU (CUDA/Metal/Vulkan) is opt-in via a BYO native** — see
-  [Enabling LLM GPU offload](#enabling-llm-gpu-offload). The default ships CPU-only;
-  the operator builds a GPU-enabled `libjllama` and points the loader at it with
-  `-PllamaLibPath`. The engine already requests full offload
-  (`InferenceConfig.accelerator` defaults to `AUTO` → `setGpuLayers(999)`), so no
-  code change is needed. The *real offload probe* (reading actual layer placement
-  back from JNI rather than inferring it) remains **deferred**
-  ([Deferred](#deferred-not-in-v010)).
+- **Not a JNI binding.** The LLM runs in a separate `llama-server` child process
+  (`LlamaServerInferenceEngine` + `LlamaServerProcess`), talking HTTP over localhost.
+  This replaced the earlier `net.ladenthin:llama` JNI binding — there is **no
+  `libjllama`, and no `-PllamaLibPath`** anymore. GPU is chosen by *which prebuilt
+  server archive is downloaded*, not by a JVM system property.
+- **Prebuilt server, pinned + verified.** `LlamaServerBinaryStore` downloads a
+  `llama-server` archive from the GitHub `ggml-org/llama.cpp` releases, pinned to
+  `LlamaServerRelease.TAG` (currently `b9478`). Each per-host asset's sha256 + size is
+  pinned in `LlamaServerRelease`; the archive is verified, then extracted (via system
+  `tar` to preserve `.so` version symlinks) into a per-variant cache dir under the
+  app-data `server/` folder.
+- **GPU is automatic, CPU is the fallback.** Two variants ship per host: a **CPU**
+  archive and a **Vulkan** archive (cross-vendor GPU — Intel/AMD/NVIDIA) on
+  Linux/Windows; macOS ships a **single Metal-capable** archive for both (GPU there is
+  just `-ngl`). The engine requests the GPU variant by default and **falls back to CPU**
+  if the GPU server can't start (no driver) — no operator build step, and we never ship
+  a vendor driver. See [GPU acceleration](#gpu-acceleration).
+- **Overrides (dev/testing):** `LOCALAGENT_LLAMA_SERVER` points at an existing
+  `llama-server` binary (skips the download); `LOCALAGENT_LLAMA_SERVER_VARIANT`
+  (`cpu`|`vulkan`|`auto`, default `auto`) forces the variant choice. `activeAccelerator`
+  remains best-effort *intent* — a real offload probe is still
+  [deferred](#deferred-not-in-v010).
 
 ### ONNX Runtime (classifier + embedder)
 
@@ -132,7 +147,8 @@ or operator-supplied):
 
 | Artifact | Source | Notes |
 |---|---|---|
-| GGUF Gemma (Q4_K_M) | `DesktopModelDownloader` → tray progress | Spec ships blank sha256/size (`isConfigured=false`); operator fills verified coordinates, same BYO policy as Android `secrets.properties`. **Use a standard instruction GGUF with the stock Gemma template (`<start_of_turn>`); avoid "thinking"/"reasoning" community conversions — they carry a `<\|think\|>` block in the chat template and reason out loud in the chat (Android's E2B doesn't). Quick check: `strings model.gguf \| grep -m1 '<\|think\|>'` should find nothing.** |
+| `llama-server` binary (CPU + Vulkan/Metal) | `LlamaServerBinaryStore` → GitHub `ggml-org/llama.cpp` release, pinned `LlamaServerRelease.TAG` (`b9478`) | sha256/size pinned per host asset in `LlamaServerRelease`; extracted via system `tar` (preserves `.so` symlinks) into app-data `server/<variant>/`. GPU variant attempted by default, CPU fallback. Override path with `LOCALAGENT_LLAMA_SERVER`, variant with `LOCALAGENT_LLAMA_SERVER_VARIANT` (`cpu`\|`vulkan`\|`auto`) |
+| GGUF Gemma (Q4_K_M, ≈3.1 GB) + mmproj-F16 | `DesktopModelDownloader` → tray progress | sha256/size **pinned** in `DesktopModelStore` (`unsloth/gemma-4-E2B-it-GGUF`, public repo — no token unless you point at a gated mirror via `HF_AUTH_TOKEN`). **Use a standard instruction GGUF with the stock Gemma template (`<start_of_turn>`); avoid "thinking"/"reasoning" community conversions — they carry a `<\|think\|>` block in the chat template and reason out loud in the chat (Android's E2B doesn't). Quick check: `strings model.gguf \| grep -m1 '<\|think\|>'` should find nothing.** |
 | ONNX classifier + embedder | `DesktopAuxModelStore` → app-data `models/` (auto-download), or `LOCALAGENT_{CLASSIFIER,EMBEDDER}_ONNX` env override | exported by `ct-export-onnx` / `export_minilm_onnx.py`; sha256/size pinned in `DesktopAuxModels`. **Hosting endpoint is compile-time:** `-PauxModelBaseUrl=https://host/path` (baked into `desktop_build_info.properties`); default is a placeholder ⇒ unconfigured ⇒ download is skipped and the operator places the `.onnx` manually. Absent ⇒ classifier no-ops (pre-flight under-fires; explicit `web search …` still works). PR #94 |
 | Vosk acoustic model | app-data `models/vosk` or `LOCALAGENT_VOSK_MODEL` | optional; STT no-ops without it |
 | Piper binary + voice (neural TTS) | `PiperBinaryStore` (`rhasspy/piper`, pinned `PiperRelease.TAG`) + `PiperVoiceStore` (HF `rhasspy/piper-voices`, `en_US-lessac-medium` ≈63 MB) → app-data `piper/` or `LOCALAGENT_PIPER_BINARY` | optional; only when the user picks the "piper" engine. Pinned sha256/size per OS/arch (Linux/macOS/Windows). Played in-JVM (Java Sound); falls back to OS shell-out if no prebuilt for the host (PR #66) |
@@ -149,53 +165,33 @@ updated independently of the app.
 
 | Backend | OS | User must provide | How to get it |
 |---|---|---|---|
-| CUDA (LLM) | Linux/Windows + NVIDIA | NVIDIA driver | BYO `libjllama` + `-PllamaLibPath` (below) |
-| Metal (LLM) | macOS (Apple Silicon) | nothing (OS-provided) | BYO `libjllama` + `-PllamaLibPath` (below) |
-| Vulkan (LLM) | Linux/Windows | Vulkan-capable driver | BYO `libjllama` + `-PllamaLibPath` (below) |
+| Vulkan (LLM) | Linux/Windows | Vulkan-capable driver (Intel/AMD/NVIDIA) | **automatic** — the Vulkan `llama-server` variant downloads by default; CPU fallback if no driver |
+| Metal (LLM) | macOS | nothing (OS-provided) | **automatic** — the macOS `llama-server` archive is Metal-capable; offload via `-ngl` |
 | CUDA EP (classifier/embedder) | Linux/Windows + NVIDIA | CUDA runtime + cuDNN (CUDA 12.x) | `-PonnxGpu=true` build |
 
-We never ship a vendor driver or the CUDA toolkit — only natives that load against a
+We never ship a vendor driver or the CUDA toolkit — only binaries that load against a
 driver the user already has. The CPU path is always present as the fallback.
 
-### Enabling LLM GPU offload
+### LLM GPU offload — nothing to build
 
-The published `net.ladenthin:llama:5.0.1` binding bundles a **CPU-only** `libjllama`,
-so out of the box llama.cpp logs `no usable GPU found, --gpu-layers option will be
-ignored`. The app's offload request is already wired (`InferenceConfig.accelerator`
-defaults to `AUTO`, so `LlamaCppInferenceEngine` calls `setGpuLayers(999)`) — only
-the native needs replacing. Two steps:
+Because the LLM runs as a downloaded `llama-server` subprocess (not a bundled JNI
+native), GPU offload is selected by **which prebuilt server archive is fetched**, and it
+happens **automatically**:
 
-**1. Build a GPU-enabled `libjllama` for your OS/arch.** Build the binding's JNI
-shared lib against llama.cpp **b9151** (the build 5.0.1 bundles — match it so the
-JNI ABI lines up) with the GPU backend on, e.g. CUDA:
+- On **Linux/Windows** the **Vulkan** archive (cross-vendor — Intel/AMD/NVIDIA) is
+  requested first; if no Vulkan driver is present the server fails to start and the
+  engine falls back to the **CPU** archive. No operator build, no `libjllama`, no
+  `-PllamaLibPath` (all retired with the JNI binding).
+- On **macOS** a single Metal-capable archive serves both; offload is just `-ngl`.
 
-```bash
-# in a checkout of the net.ladenthin/llama fork's JNI sources
-cmake -B build -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE=Release   # needs the CUDA toolkit
-cmake --build build --config Release -j                     # → a GPU-enabled libjllama.so
-```
+Force the choice with `LOCALAGENT_LLAMA_SERVER_VARIANT` (`cpu` | `vulkan` | `auto`,
+default `auto`), or point `LOCALAGENT_LLAMA_SERVER` at your own `llama-server` build
+(e.g. a CUDA-enabled one) to bypass the download entirely. `activeAccelerator` reports
+best-effort intent (a real offload probe is [deferred](#deferred-not-in-v010)).
 
-(Use `-DGGML_VULKAN=ON` for Vulkan, or build on macOS for Metal. The matching vendor
-driver — NVIDIA / Vulkan ICD — must already be installed; we don't ship it.)
-
-**2. Point the loader at it with `-PllamaLibPath`** — the path is the **directory
-that contains the native**, NOT the `.so`/`.dll`/`.dylib` file itself. The loader
-does `Paths.get(libPath, "libjllama.so")`, so pointing at the file makes it look
-for `…/libjllama.so/libjllama.so`, fail, and silently fall back to extracting the
-bundled CPU native (`Extracted 'libjllama.so' to '/tmp/libjllama.so'`). The lib
-name defaults to `jllama` → `libjllama.so`/`.dll`/`.dylib`:
-
-```bash
-# point at the FOLDER containing libjllama.so, e.g. the GPU build's resources dir:
-./gradlew :desktopApp:run \
-  -PllamaLibPath=/abs/path/to/java-llama.cpp/.../net/ladenthin/llama/Linux/x86_64
-```
-
-`-PllamaLibPath` injects `-Dnet.ladenthin.llama.lib.path=<dir>` (the binding's
-`LlamaLoader` system property) into both `:desktopApp:run` and the packaged app's
-`jvmArgs`. On the next model load you'll see `loadModel gpuLayers=999
-intendedBackend=CUDA …` and the warning is gone. `activeAccelerator` reports the
-intended backend (best-effort — the JNI probe is deferred below).
+> Bumping `LlamaServerRelease.TAG` to a newer llama.cpp release means refreshing every
+> per-host asset's sha256/size from the release's `digest` field (CPU + Vulkan, all
+> arches) in `LlamaServerRelease`.
 
 ## Headless / standalone deployment
 
@@ -309,15 +305,17 @@ shared across modes (the "One instance only" note above). Same env-gate conventi
 
 ## Deferred (not in v0.1.0)
 
-- **Shipping a prebuilt GPU `libjllama` + a real `activeAccelerator` probe.** LLM GPU
-  offload is now **opt-in** via `-PllamaLibPath` (see [Enabling LLM GPU
-  offload](#enabling-llm-gpu-offload)), but the operator still builds the per-OS
-  GPU-enabled native themselves — v0.1.0 doesn't ship one (and the installer stays
-  CPU-only, always-works). Also deferred: a JNI probe to *confirm* offload rather
-  than infer it from `n_gpu_layers`, so `activeAccelerator` stays best-effort intent.
-- **Code signing / notarisation.** macOS `.pkg`/`.dmg` and Windows `.msi` are
-  unsigned — users will see Gatekeeper / SmartScreen warnings. Signing certs +
-  notarisation are a release-hardening follow-up.
+- **A real `activeAccelerator` offload probe.** GPU offload is automatic via the
+  Vulkan/Metal `llama-server` variants (see [LLM GPU offload](#llm-gpu-offload--nothing-to-build)),
+  but `activeAccelerator` still reports best-effort *intent* — a probe to *confirm*
+  actual layer placement (rather than infer it) is deferred. A bundled CUDA
+  `llama-server` variant is also not shipped (Vulkan covers NVIDIA on Linux/Windows);
+  operators wanting CUDA point `LOCALAGENT_LLAMA_SERVER` at their own build.
+- **Code signing / notarisation.** Now **wired** (env-gated macOS signing +
+  notarization in `desktopApp/build.gradle.kts`; Windows `signtool` post-build) — see
+  `docs/PRODUCTION_DESKTOP_RUNBOOK.md`. The default local/CI build stays unsigned
+  (Gatekeeper / SmartScreen warnings) until credentials are supplied; Linux `.deb`/`.rpm`
+  remain unsigned (repo GPG signing is the follow-up).
 - **ProGuard/R8-minified release bundle.** The CI builds the non-minified
   distribution; minifying the reflection/JNI-heavy deps (Koin, sqlite-jdbc, llama/
   ONNX/Vosk bindings) needs a keep-rules pass and is deferred behind the
