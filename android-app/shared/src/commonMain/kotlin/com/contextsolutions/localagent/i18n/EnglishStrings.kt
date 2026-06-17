@@ -705,9 +705,9 @@ object EnglishStrings {
         StringKeys.JOBS_FORM_EDIT to Simple("Edit job"),
         StringKeys.JOBS_FORM_CREATE to Simple("Create"),
         StringKeys.JOBS_FORM_NAME to Simple("Job Name"),
-        StringKeys.JOBS_FORM_LOCATION to Simple("Job Location"),
+        StringKeys.JOBS_FORM_LOCATION to Simple("Job Command"),
         StringKeys.JOBS_FORM_CHOOSE_TOOLTIP to Simple(
-            "Select a job directory that contains a job.settings.json file.",
+            "Pick a ready-made job from the catalog.",
         ),
         StringKeys.JOBS_FORM_CHOOSE_JOB to Simple("Choose job…"),
         StringKeys.JOBS_FORM_KEYWORDS to Simple("Keyword(s)"),
@@ -722,6 +722,16 @@ object EnglishStrings {
         StringKeys.JOBS_FORM_DUR_H to Simple("h"),
         StringKeys.JOBS_FORM_DUR_M to Simple("m"),
         StringKeys.JOBS_FORM_DUR_S to Simple("s"),
+        StringKeys.JOBS_CHOOSE_TITLE to Simple("Choose a job"),
+        StringKeys.JOBS_CHOOSE_LOADING to Simple("Loading jobs…"),
+        StringKeys.JOBS_CHOOSE_EMPTY to Simple("No jobs available."),
+        StringKeys.JOBS_CHOOSE_UNAVAILABLE_OS to Simple("Not available on this computer"),
+        StringKeys.JOBS_INIT_SETTING_UP to Simple("Setting up…"),
+        StringKeys.JOBS_INIT_AWAIT_USER to Simple("Action needed"),
+        StringKeys.JOBS_INIT_FAILED_TITLE to Simple("Setup didn't finish"),
+        StringKeys.JOBS_INIT_INTRO to Simple("This job needs a one-time setup:"),
+        StringKeys.JOBS_INIT_NONE to Simple("No setup needed."),
+        StringKeys.JOBS_INIT_APPROVE to Simple("Approve"),
 
         // ── Search sources (UI) ──
         StringKeys.SEARCH_SOURCES_TITLE to Simple("Search sources"),

@@ -49,6 +49,37 @@ val generateDesktopBuildInfo by tasks.registering(WriteProperties::class) {
 sourceSets["main"].resources.srcDir(buildInfoDir)
 tasks.named("processResources") { dependsOn(generateDesktopBuildInfo) }
 
+// Bundle the `agent-jobs` git submodule (repo-root, alongside android-app/) into a
+// single `agent-jobs.zip` classpath resource (PR #100). The desktop app extracts it
+// to <app-data>/agent-jobs on first run / each new deployment (DesktopJobLibraryStore)
+// so the Choose Job catalog has jobs to offer without a network fetch. Excludes the
+// VCS dir and any user-generated state that may exist in a dev checkout (node_modules,
+// credentials, the per-job seen/init markers) so the bundle stays small and an overlay
+// extract never clobbers a user's runtime files.
+val agentJobsDir = rootProject.projectDir.parentFile.resolve("agent-jobs")
+val agentJobsResourcesDir = layout.buildDirectory.dir("generated/agentJobs")
+val bundleAgentJobs by tasks.registering(Zip::class) {
+    from(agentJobsDir) {
+        exclude(
+            "**/.git/**", ".git", ".git/**",
+            "**/.claude/**",
+            "**/node_modules/**",
+            "**/.env",
+            "**/seen.json",
+            "**/.localagent-init.json",
+        )
+    }
+    archiveFileName.set("agent-jobs.zip")
+    destinationDirectory.set(agentJobsResourcesDir)
+    // Deterministic archive (stable timestamps/order) so identical inputs hash the
+    // same — keeps build caching/up-to-date checks honest.
+    isReproducibleFileOrder = true
+    isPreserveFileTimestamps = false
+}
+
+sourceSets["main"].resources.srcDir(agentJobsResourcesDir)
+tasks.named("processResources") { dependsOn(bundleAgentJobs) }
+
 dependencies {
     implementation(project(":shared"))
     implementation(project(":ui"))

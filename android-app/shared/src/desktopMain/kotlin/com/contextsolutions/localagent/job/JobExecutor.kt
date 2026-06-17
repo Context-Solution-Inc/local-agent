@@ -188,6 +188,9 @@ class JobExecutor(
             .redirectErrorStream(true)
         // Convenience for commands that prefer the env var over the positional arg.
         pb.environment()["JOB_PROMPT"] = job.prompt
+        // Put any privately provisioned runtime (e.g. the Node installed during init when the
+        // system had none, PR #100) on PATH so the job finds `node`/`npm` at run time too.
+        DesktopJobRuntimeEnv.applyTo(pb.environment())
 
         val proc = pb.start()
         val buffer = StringBuilder()

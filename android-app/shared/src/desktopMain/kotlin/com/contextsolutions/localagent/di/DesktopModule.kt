@@ -47,12 +47,18 @@ import com.contextsolutions.localagent.sync.LocalChangeBus
 import com.contextsolutions.localagent.sync.MutableLastSyncStatus
 import com.contextsolutions.localagent.sync.SqlDelightLinkSyncService
 import com.contextsolutions.localagent.sync.SyncWatermarkStore
+import com.contextsolutions.localagent.job.DesktopJobCatalog
+import com.contextsolutions.localagent.job.DesktopJobInitializer
+import com.contextsolutions.localagent.job.DesktopJobLibraryStore
+import com.contextsolutions.localagent.job.DesktopNodeProvisioner
 import com.contextsolutions.localagent.job.DesktopJobNotificationPrefs
 import com.contextsolutions.localagent.job.DesktopJobScheduler
 import com.contextsolutions.localagent.job.InlineJobRunner
 import com.contextsolutions.localagent.job.JobAdmin
+import com.contextsolutions.localagent.job.JobCatalog
 import com.contextsolutions.localagent.job.JobCompletionNotifier
 import com.contextsolutions.localagent.job.JobExecutor
+import com.contextsolutions.localagent.job.JobInitializer
 import com.contextsolutions.localagent.job.JobNotificationPrefs
 import com.contextsolutions.localagent.job.JobRepository
 import com.contextsolutions.localagent.job.JobService
@@ -825,6 +831,22 @@ val desktopModule: Module = module {
     // The desktop is the authority: bind the admin seam so the shared Jobs UI can
     // create/edit/delete/run. Mobile leaves this unbound → the UI is read-only.
     single<JobAdmin> { get<JobService>() }
+    // PR #100 — the bundled `agent-jobs` library + Choose Job catalog + pre-save init.
+    // The library store copies agent-jobs.zip into <app-data>/agent-jobs on a new
+    // deployment (Main.kt calls ensure()); the catalog reads its job.list.json, and the
+    // initializer runs a chosen job's setup before it can be saved. JobCatalog/
+    // JobInitializer are unbound on mobile (getOrNull in JobsViewModel hides the button).
+    single {
+        DesktopJobLibraryStore(
+            deploymentId = get<AppBuildConfig>().let { "${it.versionCode}-${it.gitDescribe}" },
+            logger = { System.err.println("[JobLibrary] $it") },
+        )
+    }
+    single<JobCatalog> { DesktopJobCatalog(library = get(), logger = { System.err.println("[JobCatalog] $it") }) }
+    single { DesktopNodeProvisioner(logger = { System.err.println("[NodeProvision] $it") }) }
+    single<JobInitializer> {
+        DesktopJobInitializer(nodeProvisioner = get(), logger = { System.err.println("[JobInit] $it") })
+    }
     // PR #88 — the desktop runs a "run job …" chat command locally (subprocess);
     // mobile binds the relay variant. AgentCoreModule pulls this with getOrNull().
     single<InlineJobRunner> { LocalInlineJobRunner(jobs = get(), executor = get<JobExecutor>()) }

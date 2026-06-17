@@ -500,6 +500,17 @@ object StringKeys {
     const val JOBS_FORM_DUR_H = "jobs.form.dur_h"
     const val JOBS_FORM_DUR_M = "jobs.form.dur_m"
     const val JOBS_FORM_DUR_S = "jobs.form.dur_s"
+    // Choose Job catalog + pre-save init (PR #100, desktop-only).
+    const val JOBS_CHOOSE_TITLE = "jobs.choose.title"
+    const val JOBS_CHOOSE_LOADING = "jobs.choose.loading"
+    const val JOBS_CHOOSE_EMPTY = "jobs.choose.empty"
+    const val JOBS_CHOOSE_UNAVAILABLE_OS = "jobs.choose.unavailable_os"
+    const val JOBS_INIT_SETTING_UP = "jobs.init.setting_up"
+    const val JOBS_INIT_AWAIT_USER = "jobs.init.await_user"
+    const val JOBS_INIT_FAILED_TITLE = "jobs.init.failed_title"
+    const val JOBS_INIT_INTRO = "jobs.init.intro"
+    const val JOBS_INIT_NONE = "jobs.init.none"
+    const val JOBS_INIT_APPROVE = "jobs.init.approve"
 
     // ── Search sources (UI) ──────────────────────────────────────────────
     const val SEARCH_SOURCES_TITLE = "search_sources.title"
@@ -754,6 +765,9 @@ object StringKeys {
         JOBS_FORM_AM, JOBS_FORM_PM, JOBS_FORM_HOUR, JOBS_FORM_MIN,
         JOBS_FORM_RUNS_DAILY_AT, JOBS_FORM_RUNS_DAYS_AT, JOBS_FORM_RUN_ONCE_AFTER,
         JOBS_FORM_DUR_H, JOBS_FORM_DUR_M, JOBS_FORM_DUR_S,
+        JOBS_CHOOSE_TITLE, JOBS_CHOOSE_LOADING, JOBS_CHOOSE_EMPTY, JOBS_CHOOSE_UNAVAILABLE_OS,
+        JOBS_INIT_SETTING_UP, JOBS_INIT_AWAIT_USER, JOBS_INIT_FAILED_TITLE,
+        JOBS_INIT_INTRO, JOBS_INIT_NONE, JOBS_INIT_APPROVE,
         // ── Search sources (UI) ──
         SEARCH_SOURCES_TITLE, SEARCH_SOURCES_NO_LOCATION, SEARCH_SOURCES_DEFAULTS_FROM,
         SEARCH_SOURCES_GENERAL, SEARCH_SOURCES_NEWS, SEARCH_SOURCES_WEATHER,

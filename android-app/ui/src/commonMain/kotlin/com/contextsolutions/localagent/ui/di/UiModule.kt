@@ -81,6 +81,10 @@ val uiModule: Module = module {
             // Mobile-only (PR #85): clears the chat-header unseen-completions badge
             // when the Jobs screen is viewed. Null on desktop (no badge there).
             badge = getOrNull(),
+            // Desktop-only (PR #100): the Choose Job catalog + pre-save initializer.
+            // Null on mobile → the Choose Job button is hidden.
+            catalog = getOrNull(),
+            initializer = getOrNull(),
         )
     }
 }

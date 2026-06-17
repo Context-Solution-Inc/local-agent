@@ -7,6 +7,12 @@ import com.contextsolutions.localagent.inference.DesktopLinkStatusProvider
 import com.contextsolutions.localagent.job.Job
 import com.contextsolutions.localagent.job.JobAdmin
 import com.contextsolutions.localagent.job.JobBadge
+import com.contextsolutions.localagent.job.JobCatalog
+import com.contextsolutions.localagent.job.JobCatalogEntry
+import com.contextsolutions.localagent.job.JobInitProgress
+import com.contextsolutions.localagent.job.JobInitResult
+import com.contextsolutions.localagent.job.JobInitStepInfo
+import com.contextsolutions.localagent.job.JobInitializer
 import com.contextsolutions.localagent.job.JobRepository
 import com.contextsolutions.localagent.job.JobScheduleType
 import com.contextsolutions.localagent.job.RemoteJobRunner
@@ -44,6 +50,10 @@ class JobsViewModel(
     // Mobile-only (PR #85): the chat-header "unseen completed run" badge. Calling
     // [markSeen] when the screen is shown clears the dot. Null on desktop.
     private val badge: JobBadge? = null,
+    // Desktop-only (PR #100): the bundled Choose Job catalog + the pre-save
+    // initializer. Null on mobile → the Choose Job button is hidden.
+    private val catalog: JobCatalog? = null,
+    private val initializer: JobInitializer? = null,
 ) : ViewModel() {
 
     // Sorted by last-run time, most-recently-run first; jobs that have never run
@@ -68,6 +78,23 @@ class JobsViewModel(
 
     /** Desktop-only admin (create/edit/delete/run) is available iff [admin] is bound. */
     val isAdmin: Boolean get() = admin != null
+
+    /** Desktop-only: the Choose Job catalog is available iff [catalog] + [initializer] are bound. */
+    val canChooseJob: Boolean get() = catalog != null && initializer != null
+
+    /** Load the bundled job catalog (PR #100). Empty when no catalog is bound. */
+    suspend fun catalogEntries(): List<JobCatalogEntry> = catalog?.list().orEmpty()
+
+    /** The ordered initialization steps for [entry] (PR #100) — shown as a checklist before running. */
+    suspend fun planInit(entry: JobCatalogEntry): List<JobInitStepInfo> = initializer?.plan(entry).orEmpty()
+
+    /**
+     * Run [entry]'s pre-save initialization (PR #100), surfacing per-step progress via
+     * [onProgress]. Returns the terminal result; the dialog enables Approve only on success.
+     * Runs on the IO dispatcher inside the initializer; safe to call from the composition scope.
+     */
+    suspend fun initializeJob(entry: JobCatalogEntry, onProgress: (JobInitProgress) -> Unit): JobInitResult =
+        initializer?.initialize(entry, onProgress) ?: JobInitResult.AlreadyInitialized
 
     /**
      * The user is looking at the Jobs screen — clear the chat-header unseen-completions

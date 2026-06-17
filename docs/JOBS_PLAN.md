@@ -139,6 +139,46 @@ Tracking: see `PHASE1_PLAN.md` / CLAUDE.md for where this slots in. Numbered
   desktop cancels `runCapture`). An in-progress "Running job: <name>…" chip
   (`AgentEvent.JobStarted` → `SearchStatus.RunningJob`) shows until the output renders or
   errors. Full as-built rationale: CLAUDE.md invariant #59.
+- **Choose Job catalog + bundled `agent-jobs` library + pre-save init (PR #100,
+  desktop-only).** The desktop build zips the `agent-jobs` git submodule into the
+  classpath resource `/agent-jobs.zip` (`desktopApp/build.gradle.kts` `bundleAgentJobs`,
+  excluding `.git`/`.claude`/`node_modules`/`.env`/`seen.json`/the init marker).
+  `DesktopJobLibraryStore.ensure()` (called from `Main.kt` on startup) **overlay**-extracts
+  it to `<app-data>/agent-jobs`, gated by a `.deployment` stamp (`versionCode-gitDescribe`):
+  a new deployment overwrites the bundled files but never deletes the dir, so user files
+  inside a job folder (`node_modules`, `.env`, `seen.json`, `.localagent-init.json`)
+  survive. The New/Edit Job form's **Choose Job** button (was a Swing `JobProgramPicker`
+  file chooser — **deleted**) now opens a Compose `ChooseJobDialog` listing each job in
+  `<library>/job.list.json` by its manifest **name + description** (`DesktopJobCatalog`
+  joins the list with each `job.settings.json`; jobs with no `program` for the host OS show
+  disabled). Selecting a job opens a **two-phase** dialog: the picked job's description +
+  the ordered setup **checklist** (`JobInitializer.plan`) with a live per-step status
+  (pending → running / waiting-for-you → done / failed), an always-present **Cancel** that
+  aborts (cancels the coroutine → kills the subprocess), and — once every step succeeds —
+  an **Approve** button that fills the form and returns to the New Job page (name +
+  schedule). `DesktopJobInitializer` runs the manifest's optional `init`: `requires:
+  ["node"]` runtime checks (below), non-interactive `run` commands (e.g. `npm install`),
+  interactive `launch` steps (the dialog shows `instructions`, launches the command — e.g. a
+  real Chrome window to clear realtor.ca's Incapsula check — and waits for the user to close
+  it), plus an OS-keyed `verify`. Commands are full shell strings (`sh -c` / `powershell
+  -Command`) run in the job dir (manifest = trusted bundled content, so no injection-safe
+  positional binding). **On success** the form's Job Command (`command`) + hidden
+  `workingDir` are filled and a `.localagent-init.json` marker (manifest `version`) is
+  written so re-choosing / a new deployment skips setup; **on failure** the dialog shows the
+  failing step + captured output and leaves the form blank, so the job can't be saved.
+  `JobCatalog`/`JobInitializer` are commonMain seams, bound only on the desktop
+  (`getOrNull()` in `JobsViewModel` → the button is hidden on mobile). Known limits: an
+  overlay never prunes a job folder removed upstream; the `init` schema lands in the
+  separate `agent-jobs` repo (this PR also bumps the submodule pointer). Full as-built
+  rationale: CLAUDE.md invariant #67.
+- **Executable bit + local Node (PR #100).** `java.util.zip` drops the unix `+x` bit, so
+  `DesktopJobLibraryStore` re-`chmod +x`es each `program[os]` script (+ any `*.sh`) after
+  extracting — else a Linux/macOS job fails "permission denied". A job that needs Node opts
+  in via `init.requires: ["node"]`: `DesktopNodeProvisioner` uses the system `node`+`npm`
+  when both are on `PATH`, else downloads the pinned Node LTS for the host OS/arch into
+  `<app-data>/runtimes/node`. `DesktopJobRuntimeEnv` prepends that private bin dir to the
+  subprocess `PATH` for BOTH the init steps (`npm install`) and the job's later runs
+  (`JobExecutor`), so a scheduled run still finds `node`.
 
 The numbered design sections below remain accurate for the scheduler/executor
 mechanics, persistence conventions, sync envelope reuse, Koin wiring, and the

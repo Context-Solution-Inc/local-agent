@@ -1,5 +1,6 @@
 package com.contextsolutions.localagent.ui.job
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,8 +19,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
@@ -52,6 +55,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -66,6 +70,10 @@ import com.contextsolutions.localagent.i18n.StringKeys
 import com.contextsolutions.localagent.i18n.Strings
 import com.contextsolutions.localagent.inference.DesktopLinkStatus
 import com.contextsolutions.localagent.job.Job
+import com.contextsolutions.localagent.job.JobCatalogEntry
+import com.contextsolutions.localagent.job.JobInitResult
+import com.contextsolutions.localagent.job.JobInitStepInfo
+import com.contextsolutions.localagent.job.JobInitStepState
 import com.contextsolutions.localagent.job.JobRunStatus
 import com.contextsolutions.localagent.job.JobScheduleType
 import com.contextsolutions.localagent.ui.i18n.LocalStrings
@@ -75,6 +83,8 @@ import com.contextsolutions.localagent.ui.util.formatRelativeTime
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
+import kotlinx.coroutines.Job as CoJob
+import kotlinx.coroutines.launch
 import kotlinx.datetime.toLocalDateTime
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -165,6 +175,7 @@ fun JobsScreen(
     if (creating) {
         JobFormDialog(
             initial = null,
+            viewModel = viewModel,
             onDismiss = { creating = false },
             onSave = { name, command, prompt, workingDir, scheduleType, cron, fireAt ->
                 viewModel.create(name, command, prompt, workingDir, scheduleType, cron, fireAt)
@@ -176,6 +187,7 @@ fun JobsScreen(
     editing?.let { current ->
         JobFormDialog(
             initial = current,
+            viewModel = viewModel,
             onDismiss = { editing = null },
             onSave = { name, command, prompt, workingDir, scheduleType, cron, fireAt ->
                 viewModel.update(current.id, name, command, prompt, workingDir, scheduleType, cron, fireAt)
@@ -400,6 +412,7 @@ private fun JobRunStatus.color(): Color = when (this) {
 @Composable
 private fun JobFormDialog(
     initial: Job?,
+    viewModel: JobsViewModel,
     onDismiss: () -> Unit,
     onSave: (
         name: String,
@@ -415,11 +428,12 @@ private fun JobFormDialog(
     var name by remember { mutableStateOf(initial?.name.orEmpty()) }
     var command by remember { mutableStateOf(initial?.command.orEmpty()) }
     var prompt by remember { mutableStateOf(initial?.prompt.orEmpty()) }
-    // Hidden (no visible field) — set by the program picker to the job folder so the
+    // Hidden (no visible field) — set by the Choose Job catalog to the job folder so the
     // subprocess runs there and picks up `.env`/state. Null on manual entry; the
     // executor then derives it from the command path (PR #86).
     var workingDir by remember { mutableStateOf(initial?.workingDir.orEmpty()) }
-    val programPicker = rememberJobProgramPicker()
+    // PR #100 — the desktop Choose Job catalog dialog (replaces the Swing file picker).
+    var choosingJob by remember { mutableStateOf(false) }
     var scheduleType by remember { mutableStateOf(initial?.scheduleType ?: JobScheduleType.CRON) }
 
     // Repeat (alarm-style): time-of-day + day-of-week chips → cron `m h * * dows`.
@@ -487,16 +501,16 @@ private fun JobFormDialog(
                 OutlinedTextField(name, { name = it }, label = { Text(tr(StringKeys.JOBS_FORM_NAME)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(command, { command = it }, label = { Text(tr(StringKeys.JOBS_FORM_LOCATION)) }, singleLine = true, modifier = Modifier.weight(1f))
-                    if (isDesktopPlatform) {
-                        // Tooltip states the requirement; the picker (Part B) then enforces it.
+                    if (viewModel.canChooseJob) {
+                        // PR #100 — pick from the bundled agent-jobs catalog (name + description)
+                        // instead of navigating to a manifest file. Selecting a job runs its
+                        // one-time init and fills the location on success.
                         TooltipBox(
                             positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
                             tooltip = { PlainTooltip { Text(tr(StringKeys.JOBS_FORM_CHOOSE_TOOLTIP)) } },
                             state = rememberTooltipState(),
                         ) {
-                            OutlinedButton(onClick = {
-                                programPicker.launch { picked -> picked?.let { command = it.programPath; workingDir = it.workingDir } }
-                            }) { Text(tr(StringKeys.JOBS_FORM_CHOOSE_JOB)) }
+                            OutlinedButton(onClick = { choosingJob = true }) { Text(tr(StringKeys.JOBS_FORM_CHOOSE_JOB)) }
                         }
                     }
                 }
@@ -593,6 +607,192 @@ private fun JobFormDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text(tr(StringKeys.JOBS_CANCEL)) } },
     )
+
+    if (choosingJob) {
+        ChooseJobDialog(
+            viewModel = viewModel,
+            onDismiss = { choosingJob = false },
+            onPicked = { programPath, dir ->
+                command = programPath
+                workingDir = dir
+                choosingJob = false
+            },
+        )
+    }
+}
+
+/**
+ * Choose Job catalog dialog (PR #100, desktop-only). Two phases:
+ *
+ *  1. **Pick** — lists the bundled `agent-jobs` jobs by name + description (jobs with no
+ *     program for this OS are disabled).
+ *  2. **Initialize** — once a job is picked, shows its description + the ordered setup
+ *     checklist ([JobInitializer.plan]) and runs it, updating each step's status live
+ *     (pending → running / waiting-for-you → done / failed). A **Cancel** button is always
+ *     present to abort (cancels the coroutine → kills the subprocess). When every step
+ *     succeeds an **Approve** button fills the form's Job Command + working dir via
+ *     [onPicked] and returns to the New Job page; on failure the failing step + reason are
+ *     shown and the form stays blank, so the job can't be saved.
+ */
+@Composable
+private fun ChooseJobDialog(
+    viewModel: JobsViewModel,
+    onDismiss: () -> Unit,
+    onPicked: (programPath: String, workingDir: String) -> Unit,
+) {
+    var entries by remember { mutableStateOf<List<JobCatalogEntry>?>(null) }
+    var selected by remember { mutableStateOf<JobCatalogEntry?>(null) }
+    var steps by remember { mutableStateOf<List<JobInitStepInfo>>(emptyList()) }
+    var states by remember { mutableStateOf<List<JobInitStepState>>(emptyList()) }
+    var messages by remember { mutableStateOf<Map<Int, String>>(emptyMap()) }
+    var result by remember { mutableStateOf<JobInitResult?>(null) }
+    var runJob by remember { mutableStateOf<CoJob?>(null) }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) { entries = viewModel.catalogEntries() }
+
+    fun backToList() {
+        runJob?.cancel()
+        runJob = null
+        selected = null
+        steps = emptyList(); states = emptyList(); messages = emptyMap(); result = null
+    }
+
+    fun startInit(entry: JobCatalogEntry) {
+        selected = entry
+        steps = emptyList(); states = emptyList(); messages = emptyMap(); result = null
+        runJob = scope.launch {
+            val plan = viewModel.planInit(entry)
+            steps = plan
+            states = List(plan.size) { JobInitStepState.PENDING }
+            result = viewModel.initializeJob(entry) { p ->
+                states = states.toMutableList().also { if (p.index in it.indices) it[p.index] = p.state }
+                p.message?.let { m -> messages = messages + (p.index to m) }
+            }
+        }
+    }
+
+    val current = selected
+    val succeeded = result is JobInitResult.Succeeded || result is JobInitResult.AlreadyInitialized
+
+    AlertDialog(
+        onDismissRequest = { if (current == null) onDismiss() },
+        title = { Text(if (current == null) tr(StringKeys.JOBS_CHOOSE_TITLE) else current.displayName) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (current == null) {
+                    // Phase 1 — pick a job.
+                    when {
+                        entries == null -> Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(8.dp))
+                            Text(tr(StringKeys.JOBS_CHOOSE_LOADING))
+                        }
+                        entries!!.isEmpty() -> Text(tr(StringKeys.JOBS_CHOOSE_EMPTY))
+                        else -> for (entry in entries!!) {
+                            JobCatalogRow(entry = entry, onClick = { startInit(entry) })
+                            HorizontalDivider()
+                        }
+                    }
+                } else {
+                    // Phase 2 — initialize the picked job.
+                    if (current.description.isNotBlank()) {
+                        Text(current.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    val failure = result as? JobInitResult.Failed
+                    Text(
+                        when {
+                            failure != null -> tr(StringKeys.JOBS_INIT_FAILED_TITLE)
+                            steps.isEmpty() && result != null -> tr(StringKeys.JOBS_INIT_NONE)
+                            else -> tr(StringKeys.JOBS_INIT_INTRO)
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (failure != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                    )
+                    steps.forEachIndexed { i, info ->
+                        StepRow(
+                            info = info,
+                            state = states.getOrElse(i) { JobInitStepState.PENDING },
+                            message = messages[i],
+                        )
+                    }
+                    failure?.let { Text(it.reason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                }
+            }
+        },
+        confirmButton = {
+            // Approve appears once setup succeeds; it fills the form and returns to New Job.
+            if (current != null && succeeded) {
+                TextButton(onClick = { onPicked(current.programPath, current.workingDir) }) {
+                    Text(tr(StringKeys.JOBS_INIT_APPROVE))
+                }
+            }
+        },
+        dismissButton = {
+            // Always a way out: close the picker, or abort an in-flight / failed init.
+            TextButton(onClick = { if (current == null) onDismiss() else backToList() }) {
+                Text(tr(StringKeys.JOBS_CANCEL))
+            }
+        },
+    )
+}
+
+@Composable
+private fun JobCatalogRow(entry: JobCatalogEntry, onClick: () -> Unit) {
+    val enabled = entry.supportedOnThisOs
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .let { if (enabled) it.clickable(onClick = onClick) else it }
+            .padding(vertical = 8.dp),
+    ) {
+        Text(
+            entry.displayName,
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (entry.description.isNotBlank()) {
+            Text(entry.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (!enabled) {
+            Text(tr(StringKeys.JOBS_CHOOSE_UNAVAILABLE_OS), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+        }
+    }
+}
+
+/** One initialization step with a live status icon; shows the user instructions while awaiting them. */
+@Composable
+private fun StepRow(info: JobInitStepInfo, state: JobInitStepState, message: String?) {
+    Row(verticalAlignment = Alignment.Top) {
+        Box(modifier = Modifier.size(20.dp), contentAlignment = Alignment.Center) {
+            when (state) {
+                JobInitStepState.RUNNING, JobInitStepState.AWAITING_USER ->
+                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                JobInitStepState.DONE ->
+                    Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = Color(0xFF43A047), modifier = Modifier.size(16.dp))
+                JobInitStepState.FAILED ->
+                    Icon(Icons.Filled.Error, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                JobInitStepState.PENDING ->
+                    Icon(Icons.Filled.Circle, contentDescription = null, tint = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.size(12.dp))
+            }
+        }
+        Spacer(Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(info.title, style = MaterialTheme.typography.bodyMedium)
+            if (state == JobInitStepState.AWAITING_USER) {
+                Text(tr(StringKeys.JOBS_INIT_AWAIT_USER), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                if (info.instructions.isNotBlank()) {
+                    Text(info.instructions, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            message?.takeIf { it.isNotBlank() && state != JobInitStepState.AWAITING_USER }?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
 }
 
 /** 24-hour → 12-hour clock face (0→12, 13→1, …). */

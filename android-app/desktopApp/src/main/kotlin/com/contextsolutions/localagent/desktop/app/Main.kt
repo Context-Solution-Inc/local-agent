@@ -452,6 +452,10 @@ fun main() {
     koin.get<ClockService>().rearmAll()
     koin.get<DesktopTelemetryScheduler>().start()
     taskQueue.start()
+    // PR #100 — extract the bundled `agent-jobs` library into <app-data>/agent-jobs
+    // (overlay, gated by the deployment stamp) so the Choose Job catalog has jobs to
+    // offer. Best-effort; a missing resource (bare classpath) is a no-op.
+    appScope.launch { runCatching { koin.get<com.contextsolutions.localagent.job.DesktopJobLibraryStore>().ensure() } }
     // PR #70 — re-arm persisted jobs (cron + future one-shots). After taskQueue
     // so any immediately-firing job has a live runtime. rearmAll is suspend.
     appScope.launch { koin.get<com.contextsolutions.localagent.job.JobService>().rearmAll() }
