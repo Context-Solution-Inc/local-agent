@@ -382,6 +382,7 @@ fun main() {
         repository = koin.get(),
         runner = taskRunner,
         notifications = presenter,
+        stringCatalog = koin.get(),
         nowEpochMs = { clock.nowEpochMs() },
         scope = appScope,
     )
@@ -391,6 +392,7 @@ fun main() {
         inventory = modelInventory,
         downloader = koin.get<DesktopModelDownloader>(),
         notifications = presenter,
+        stringCatalog = koin.get(),
         scope = appScope,
         // PR #95 — suppress the per-model start/complete toast; a single aggregated
         // "Models ready" notification fires once all first-run models finish.
@@ -407,6 +409,7 @@ fun main() {
         inventory = mmprojInventory,
         downloader = koin.get<DesktopModelDownloader>(named("mmproj")),
         notifications = presenter,
+        stringCatalog = koin.get(),
         scope = appScope,
         logger = { System.err.println("[MmprojDownload] $it") },
         notifyMilestones = false, // PR #95 — see modelDownload above (single aggregate notice)
@@ -439,6 +442,7 @@ fun main() {
     notifyWhenAllModelsDownloaded(
         sources = listOf(modelDownload.status, mmprojDownload.status, serverStatus),
         notifications = presenter,
+        stringCatalog = koin.get(),
         scope = appScope,
     )
 

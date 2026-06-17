@@ -1,5 +1,6 @@
 package com.contextsolutions.localagent.task
 
+import com.contextsolutions.localagent.i18n.englishStringCatalog
 import com.contextsolutions.localagent.notification.AppNotification
 import com.contextsolutions.localagent.notification.NotificationPresenter
 import java.util.concurrent.atomic.AtomicInteger
@@ -39,7 +40,7 @@ class TaskQueueTest {
             "result:${task.prompt}"
         }
         var now = 1_000L
-        val queue = TaskQueue(repo, runner, NoopPresenter, nowEpochMs = { now++ })
+        val queue = TaskQueue(repo, runner, NoopPresenter, englishStringCatalog(), nowEpochMs = { now++ })
 
         queue.enqueue("a")
         queue.enqueue("b")
@@ -67,7 +68,7 @@ class TaskQueueTest {
             "ok:${task.prompt}"
         }
         var now = 1L
-        val queue = TaskQueue(repo, runner, NoopPresenter, nowEpochMs = { now++ })
+        val queue = TaskQueue(repo, runner, NoopPresenter, englishStringCatalog(), nowEpochMs = { now++ })
 
         queue.enqueue("boom")
         queue.enqueue("after")
@@ -100,7 +101,7 @@ class TaskQueueTest {
             }
         }
         var now = 1L
-        val queue = TaskQueue(repo, runner, NoopPresenter, nowEpochMs = { now++ })
+        val queue = TaskQueue(repo, runner, NoopPresenter, englishStringCatalog(), nowEpochMs = { now++ })
 
         val long = queue.enqueue("long")
         queue.enqueue("next")
@@ -129,7 +130,7 @@ class TaskQueueTest {
             "done:${task.prompt}"
         }
         var now = 1L
-        val queue = TaskQueue(repo, runner, NoopPresenter, nowEpochMs = { now++ })
+        val queue = TaskQueue(repo, runner, NoopPresenter, englishStringCatalog(), nowEpochMs = { now++ })
 
         queue.enqueue("first")
         val second = queue.enqueue("second")

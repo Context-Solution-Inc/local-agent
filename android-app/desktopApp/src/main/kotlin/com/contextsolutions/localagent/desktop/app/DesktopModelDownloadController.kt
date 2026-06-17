@@ -1,5 +1,7 @@
 package com.contextsolutions.localagent.desktop.app
 
+import com.contextsolutions.localagent.i18n.StringCatalog
+import com.contextsolutions.localagent.i18n.StringKeys
 import com.contextsolutions.localagent.inference.DesktopModelDownloader
 import com.contextsolutions.localagent.inference.DesktopModelInventory
 import com.contextsolutions.localagent.inference.ModelDownloadResult
@@ -50,6 +52,7 @@ class DesktopModelDownloadController(
     private val inventory: DesktopModelInventory,
     private val downloader: DesktopModelDownloader,
     private val notifications: NotificationPresenter,
+    private val stringCatalog: StringCatalog,
     private val scope: CoroutineScope,
     private val logger: (String) -> Unit = { System.err.println("[ModelDownload] $it") },
     /**
@@ -79,7 +82,7 @@ class DesktopModelDownloadController(
             return
         }
         job = scope.launch {
-            notify("Downloading model", "Starting…")
+            notify(str(StringKeys.NOTIF_MODEL_DOWNLOADING), str(StringKeys.NOTIF_MODEL_STARTING))
             // Throttle progress-driven StateFlow writes to whole-percent steps so
             // the UI doesn't churn on every 64 KB chunk.
             var lastPct = -1
@@ -94,11 +97,11 @@ class DesktopModelDownloadController(
             when (result) {
                 is ModelDownloadResult.Success -> {
                     _status.value = ModelDownloadStatus.Present
-                    notify("Model ready", "Download complete.")
+                    notify(str(StringKeys.NOTIF_MODEL_READY), str(StringKeys.NOTIF_MODEL_COMPLETE))
                 }
                 is ModelDownloadResult.Failure -> {
                     _status.value = ModelDownloadStatus.Failed(result.message, result.retryable)
-                    notify("Model download failed", result.message)
+                    notify(str(StringKeys.NOTIF_MODEL_FAILED), result.message)
                     logger("download failed (retryable=${result.retryable}): ${result.message}")
                 }
             }
@@ -107,6 +110,9 @@ class DesktopModelDownloadController(
 
     /** Retry after a failure (no-op while a download is in flight). */
     fun retry() = ensurePresent()
+
+    /** Resolve a notification string in the active language (the language picker drives it). */
+    private fun str(key: String): String = stringCatalog.active.value.get(key)
 
     private fun notify(title: String, body: String) {
         if (!notifyMilestones) return
@@ -139,6 +145,7 @@ private fun ModelDownloadStatus.isTerminal(): Boolean = when (this) {
 fun notifyWhenAllModelsDownloaded(
     sources: List<StateFlow<ModelDownloadStatus>>,
     notifications: NotificationPresenter,
+    stringCatalog: StringCatalog,
     scope: CoroutineScope,
 ) {
     if (sources.isEmpty()) return
@@ -150,18 +157,19 @@ fun notifyWhenAllModelsDownloaded(
         }
         if (!sawDownloading) return@launch // nothing downloaded this launch — stay silent
         val failures = terminal.count { it is ModelDownloadStatus.Failed }
+        val strings = stringCatalog.active.value
         val notice = if (failures == 0) {
             AppNotification(
                 id = "model-download",
-                title = "Models ready",
-                body = "All models downloaded.",
+                title = strings.get(StringKeys.NOTIF_MODELS_READY),
+                body = strings.get(StringKeys.NOTIF_MODELS_ALL_DONE),
                 kind = NotificationKind.INFO,
             )
         } else {
             AppNotification(
                 id = "model-download",
-                title = "Model download incomplete",
-                body = "$failures download${if (failures == 1) "" else "s"} failed.",
+                title = strings.get(StringKeys.NOTIF_MODELS_INCOMPLETE),
+                body = strings.plural(StringKeys.NOTIF_MODELS_FAILED_COUNT, failures, failures),
                 kind = NotificationKind.INFO,
             )
         }

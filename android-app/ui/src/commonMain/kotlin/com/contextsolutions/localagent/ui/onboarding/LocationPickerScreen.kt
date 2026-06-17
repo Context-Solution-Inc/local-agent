@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.contextsolutions.localagent.i18n.CountryDisplay
 import com.contextsolutions.localagent.i18n.StringKeys
 import com.contextsolutions.localagent.platform.LocaleProvider
 import com.contextsolutions.localagent.ui.i18n.tr
@@ -86,8 +87,10 @@ fun LocationPickerScreen(
 
             LabelledDropdown(
                 label = tr(StringKeys.ONBOARDING_LOCATION_COUNTRY_LABEL),
-                value = countries.firstOrNull { it.code == selectedCountryCode }?.name.orEmpty(),
-                options = countries.map { it.code to it.name },
+                value = countries.firstOrNull { it.code == selectedCountryCode }
+                    ?.let { c -> CountryDisplay.keyFor(c.code)?.let { tr(it) } ?: c.name }
+                    .orEmpty(),
+                options = countries.map { c -> c.code to (CountryDisplay.keyFor(c.code)?.let { tr(it) } ?: c.name) },
                 onSelect = { selectedCountryCode = it },
             )
 

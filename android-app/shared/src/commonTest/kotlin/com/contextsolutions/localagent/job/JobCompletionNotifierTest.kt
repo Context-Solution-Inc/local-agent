@@ -1,5 +1,6 @@
 package com.contextsolutions.localagent.job
 
+import com.contextsolutions.localagent.i18n.englishStringCatalog
 import com.contextsolutions.localagent.notification.AppNotification
 import com.contextsolutions.localagent.notification.NotificationKind
 import com.contextsolutions.localagent.notification.NotificationPresenter
@@ -25,7 +26,7 @@ class JobCompletionNotifierTest {
         val prefs = FakeJobNotificationPrefs()
         val presenter = RecordingPresenter()
         val scope = CoroutineScope(UnconfinedTestDispatcher(testScheduler))
-        JobCompletionNotifier(repo, presenter, prefs).start(scope)
+        JobCompletionNotifier(repo, presenter, prefs, englishStringCatalog()).start(scope)
 
         assertTrue(presenter.shown.isEmpty(), "initial backfill must not notify")
         assertEquals(100, prefs.notifiedWatermark(), "baseline advances the watermark")
@@ -38,7 +39,7 @@ class JobCompletionNotifierTest {
         val prefs = FakeJobNotificationPrefs()
         val presenter = RecordingPresenter()
         val scope = CoroutineScope(UnconfinedTestDispatcher(testScheduler))
-        JobCompletionNotifier(repo, presenter, prefs).start(scope) // baseline (empty)
+        JobCompletionNotifier(repo, presenter, prefs, englishStringCatalog()).start(scope) // baseline (empty)
 
         repo.emit(
             listOf(
@@ -66,7 +67,7 @@ class JobCompletionNotifierTest {
         val prefs = FakeJobNotificationPrefs()
         val presenter = RecordingPresenter()
         val scope = CoroutineScope(UnconfinedTestDispatcher(testScheduler))
-        JobCompletionNotifier(repo, presenter, prefs).start(scope)
+        JobCompletionNotifier(repo, presenter, prefs, englishStringCatalog()).start(scope)
 
         val rows = listOf(jobWithRun("a", JobRunStatus.SUCCEEDED, 100))
         repo.emit(rows)
@@ -88,7 +89,7 @@ class JobCompletionNotifierTest {
         val prefs = FakeJobNotificationPrefs(seedNotified = 200)
         val presenter = RecordingPresenter()
         val scope = CoroutineScope(UnconfinedTestDispatcher(testScheduler))
-        JobCompletionNotifier(repo, presenter, prefs).start(scope) // baseline — already-seen rows suppressed
+        JobCompletionNotifier(repo, presenter, prefs, englishStringCatalog()).start(scope) // baseline — already-seen rows suppressed
 
         repo.emit(
             listOf(

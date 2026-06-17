@@ -1,5 +1,7 @@
 package com.contextsolutions.localagent.task
 
+import com.contextsolutions.localagent.i18n.StringCatalog
+import com.contextsolutions.localagent.i18n.StringKeys
 import com.contextsolutions.localagent.notification.AppNotification
 import com.contextsolutions.localagent.notification.NotificationKind
 import com.contextsolutions.localagent.notification.NotificationPresenter
@@ -43,6 +45,7 @@ class TaskQueue(
     private val repository: TaskRepository,
     private val runner: TaskRunner,
     private val notifications: NotificationPresenter,
+    private val stringCatalog: StringCatalog,
     private val nowEpochMs: () -> Long,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     private val logger: (String) -> Unit = {},
@@ -129,20 +132,23 @@ class TaskQueue(
         try {
             val result = deferred.await()
             repository.finish(task.id, TaskStatus.SUCCEEDED, result = result, error = null, nowEpochMs = nowEpochMs())
-            notify(task, "Task complete", preview(task.prompt))
+            notify(task, title(StringKeys.NOTIF_TASK_COMPLETE), preview(task.prompt))
         } catch (ce: CancellationException) {
             running = null
             if (!scope.isActive) throw ce // app shutting down — not a user cancel
             repository.finish(task.id, TaskStatus.CANCELLED, result = null, error = "cancelled", nowEpochMs = nowEpochMs())
-            notify(task, "Task cancelled", preview(task.prompt))
+            notify(task, title(StringKeys.NOTIF_TASK_CANCELLED), preview(task.prompt))
             return
         } catch (t: Throwable) {
             repository.finish(task.id, TaskStatus.FAILED, result = null, error = t.message ?: "error", nowEpochMs = nowEpochMs())
-            notify(task, "Task failed", t.message ?: preview(task.prompt))
+            notify(task, title(StringKeys.NOTIF_TASK_FAILED), t.message ?: preview(task.prompt))
         } finally {
             running = null
         }
     }
+
+    /** Resolve a notification title in the active language (the language picker drives it). */
+    private fun title(key: String): String = stringCatalog.active.value.get(key)
 
     private fun notify(task: QueuedTask, title: String, body: String) {
         notifications.present(

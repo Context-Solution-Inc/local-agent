@@ -761,6 +761,30 @@ object EnglishStrings {
         StringKeys.FMT_DATE_SHORT to Simple("%1\$s %2\$d"),
         StringKeys.FMT_DATE_YEAR to Simple("%1\$s %2\$d, %3\$d"),
 
+        // ── Notifications (titles; bodies stay as data) ──
+        StringKeys.NOTIF_JOB_FINISHED to Simple("Job finished"),
+        StringKeys.NOTIF_JOB_FAILED to Simple("Job failed"),
+        StringKeys.NOTIF_TASK_COMPLETE to Simple("Task complete"),
+        StringKeys.NOTIF_TASK_CANCELLED to Simple("Task cancelled"),
+        StringKeys.NOTIF_TASK_FAILED to Simple("Task failed"),
+        StringKeys.NOTIF_MODEL_DOWNLOADING to Simple("Downloading model"),
+        StringKeys.NOTIF_MODEL_STARTING to Simple("Starting…"),
+        StringKeys.NOTIF_MODEL_READY to Simple("Model ready"),
+        StringKeys.NOTIF_MODEL_COMPLETE to Simple("Download complete."),
+        StringKeys.NOTIF_MODEL_FAILED to Simple("Model download failed"),
+        StringKeys.NOTIF_MODELS_READY to Simple("Models ready"),
+        StringKeys.NOTIF_MODELS_ALL_DONE to Simple("All models downloaded."),
+        StringKeys.NOTIF_MODELS_INCOMPLETE to Simple("Model download incomplete"),
+        StringKeys.NOTIF_MODELS_FAILED_COUNT to Plural(
+            mapOf("one" to "%1\$d download failed.", "other" to "%1\$d downloads failed."),
+        ),
+
+        // ── Data-display names (country names) ──
+        StringKeys.DATA_COUNTRY_CA to Simple("Canada"),
+        StringKeys.DATA_COUNTRY_US to Simple("United States"),
+        StringKeys.DATA_COUNTRY_GB to Simple("United Kingdom"),
+        StringKeys.DATA_COUNTRY_AU to Simple("Australia"),
+
         // ── Desktop sections (UI) ──
         StringKeys.DESKTOP_VOICE_SECTION_HEADER to Simple("Read-aloud voice"),
         StringKeys.DESKTOP_VOICE_DESCRIPTION to Simple(

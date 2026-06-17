@@ -532,6 +532,28 @@ object StringKeys {
     const val FMT_DATE_SHORT = "fmt.date_short"
     const val FMT_DATE_YEAR = "fmt.date_year"
 
+    // ── Notifications (titles; bodies stay as data) ──────────────────────
+    const val NOTIF_JOB_FINISHED = "notif.job.finished"
+    const val NOTIF_JOB_FAILED = "notif.job.failed"
+    const val NOTIF_TASK_COMPLETE = "notif.task.complete"
+    const val NOTIF_TASK_CANCELLED = "notif.task.cancelled"
+    const val NOTIF_TASK_FAILED = "notif.task.failed"
+    const val NOTIF_MODEL_DOWNLOADING = "notif.model.downloading"
+    const val NOTIF_MODEL_STARTING = "notif.model.starting"
+    const val NOTIF_MODEL_READY = "notif.model.ready"
+    const val NOTIF_MODEL_COMPLETE = "notif.model.complete"
+    const val NOTIF_MODEL_FAILED = "notif.model.failed"
+    const val NOTIF_MODELS_READY = "notif.models.ready"
+    const val NOTIF_MODELS_ALL_DONE = "notif.models.all_done"
+    const val NOTIF_MODELS_INCOMPLETE = "notif.models.incomplete"
+    const val NOTIF_MODELS_FAILED_COUNT = "notif.models.failed_count"
+
+    // ── Data-display names (locations.json country names) ────────────────
+    const val DATA_COUNTRY_CA = "data.country.ca"
+    const val DATA_COUNTRY_US = "data.country.us"
+    const val DATA_COUNTRY_GB = "data.country.gb"
+    const val DATA_COUNTRY_AU = "data.country.au"
+
     // ── Desktop sections (UI) ────────────────────────────────────────────
     const val DESKTOP_VOICE_SECTION_HEADER = "desktop.voice.section_header"
     const val DESKTOP_VOICE_DESCRIPTION = "desktop.voice.description"
@@ -745,6 +767,15 @@ object StringKeys {
         SEARCH_SOURCES_DIALOG_TEMPLATE_HINT,
         // ── Relative-time / date formatting (UI) ──
         FMT_NOW, FMT_AGO, FMT_IN, FMT_MONTHS, FMT_DATE_SHORT, FMT_DATE_YEAR,
+        // ── Notifications ──
+        NOTIF_JOB_FINISHED, NOTIF_JOB_FAILED,
+        NOTIF_TASK_COMPLETE, NOTIF_TASK_CANCELLED, NOTIF_TASK_FAILED,
+        NOTIF_MODEL_DOWNLOADING, NOTIF_MODEL_STARTING, NOTIF_MODEL_READY,
+        NOTIF_MODEL_COMPLETE, NOTIF_MODEL_FAILED,
+        NOTIF_MODELS_READY, NOTIF_MODELS_ALL_DONE, NOTIF_MODELS_INCOMPLETE,
+        NOTIF_MODELS_FAILED_COUNT,
+        // ── Data-display names ──
+        DATA_COUNTRY_CA, DATA_COUNTRY_US, DATA_COUNTRY_GB, DATA_COUNTRY_AU,
         // ── Desktop sections (UI) ──
         DESKTOP_VOICE_SECTION_HEADER, DESKTOP_VOICE_DESCRIPTION,
         DESKTOP_VOICE_ENGINE_PIPER, DESKTOP_VOICE_SYSTEM_DEFAULT,

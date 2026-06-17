@@ -842,6 +842,7 @@ val desktopModule: Module = module {
             repository = get(),
             presenter = get(),
             prefs = get(),
+            stringCatalog = get(),
             logger = { System.err.println("[JobNotifier] $it") },
         )
     }

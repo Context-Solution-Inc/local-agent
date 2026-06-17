@@ -8,6 +8,7 @@ import com.contextsolutions.localagent.inference.GenerationRequest
 import com.contextsolutions.localagent.inference.PendingToolCall
 import com.contextsolutions.localagent.inference.SamplingParams
 import com.contextsolutions.localagent.inference.ToolDispatcher
+import com.contextsolutions.localagent.i18n.CountryDisplay
 import com.contextsolutions.localagent.i18n.StringKeys
 import com.contextsolutions.localagent.i18n.Strings
 import com.contextsolutions.localagent.job.InlineJobResult
@@ -1305,7 +1306,8 @@ class AgentLoop(
     ): String {
         val opts = ambiguous.options.take(MAX_DISAMBIGUATION_OPTIONS)
         val label = { r: WeatherLocationResolver.Resolved ->
-            val countryName = locationCatalog?.country(r.country)?.name ?: r.country
+            val countryName = CountryDisplay.keyFor(r.country)?.let { strings.get(it) }
+                ?: locationCatalog?.country(r.country)?.name ?: r.country
             "${r.city}, ${r.regionName} ($countryName)"
         }
         val choices = when (opts.size) {

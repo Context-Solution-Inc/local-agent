@@ -247,6 +247,7 @@ val androidModule: Module = module {
             repository = get(),
             presenter = get(),
             prefs = get(),
+            stringCatalog = get(),
             logger = { Log.i("JobNotifier", it) },
         )
     }

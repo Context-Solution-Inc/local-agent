@@ -1,11 +1,19 @@
 # Multi-language support via a runtime string catalog
 
-> **Status:** PR #96 (draft) — **foundation + `:shared` consumers landed**, English-only,
-> no visible behaviour change. The runtime `StringCatalog`, both-platform pack loaders, Koin
-> wiring, the in-code English floor, and the Compose seam are in; the deterministic formatters
-> and `AgentLoop` user-facing replies now resolve through the catalog. The ~525 Compose UI
-> literals and the voice-command recognition phrases are a documented follow-up (see Deferred).
-> Do **not** merge until validated on a device (Pixel 7) — see Verification.
+> **Status (as-built across PR #96 → #98):**
+> - **PR #96 (merged)** — foundation + `:shared` consumers: the runtime `StringCatalog`,
+>   both-platform pack loaders, Koin wiring, the in-code English floor, the Compose seam, and
+>   the deterministic formatters + `AgentLoop` replies resolving through the catalog.
+> - **PR #97 (merged)** — the Compose UI migration: ~110 keys across every screen (`tr()`/
+>   `trPlural()`/`trList()`), the Settings **Language picker** re-added, a **language-first
+>   onboarding step**, and a partial `strings_es.json`.
+> - **PR #98 (this branch)** — notification titles localized via `StringCatalog`
+>   (`JobCompletionNotifier`/`TaskQueue`/desktop model-download), the 4 country display names
+>   keyed (`CountryDisplay`), and the **full Spanish pack** (~529 keys) + a `SpanishPackTest`
+>   guardrail.
+>
+> The catalog is now end-to-end for Spanish. Remaining gaps are in **Deferred** below.
+> Each PR is gated on a Pixel 7 + desktop smoke before merge — see Verification.
 
 ## Context
 
@@ -110,8 +118,29 @@ No pack ships today, so both loaders return null and the catalog stays English.
 @ReadOnlyComposable` `tr` / `trPlural` / `trList`. Seeded at both composition roots from
 `StringCatalog.active`: Android `MainActivity` (`koinInject<StringCatalog>().active`) and desktop
 `Main.kt` (`koin.get<StringCatalog>().active`), each wrapping the theme in
-`CompositionLocalProvider(LocalStrings provides strings)`. **No screen reads `tr(...)` yet** —
-that is the follow-up.
+`CompositionLocalProvider(LocalStrings provides strings)`. Every screen now reads `tr(...)`
+(migrated in PR #97).
+
+### Follow-up consumers (PR #97 — UI; PR #98 — notifications + data names)
+
+- **Compose UI (PR #97):** every screen's literals route through `tr`/`trPlural`/`trList`; the
+  Settings **Language picker** (`SettingsScreen`) and a **language-first onboarding step**
+  (`LanguagePickerScreen`, gated by a new `OnboardingPreferences.languageDecided`) write
+  `LanguagePreferences`, which the reactive `StringCatalog.active` turns into a live re-provide —
+  so flipping the language switches the whole tree (and previews onboarding) immediately.
+- **Notifications (PR #98):** off the Compose tree, consumers resolve `stringCatalog.active.value`
+  (the same instance the picker drives) and key the **titles** —
+  `JobCompletionNotifier`/`TaskQueue` (`:shared`) + `DesktopModelDownloadController` (`:desktopApp`).
+  Bodies stay as data. Injected via Koin (`get()`); tests use an english-pinned `StringCatalog`
+  double. Android framework-instantiated notifications are out of scope (see Deferred).
+- **Country names (PR #98):** `CountryDisplay.keyFor(code)` maps the 4 ISO codes (CA/US/GB/AU) to
+  `data.country.*`; the 3 callsites (`LocationPickerScreen`, `AgentLoop` weather disambiguation,
+  `SearchSourcesScreen`) resolve through the active `Strings` with the `locations.json` name as
+  fallback for any other code.
+- **Spanish pack (PR #98):** `strings_es.json` reaches **full coverage** (~529 keys) in both
+  byte-identical copies; `SpanishPackTest` (desktopTest) asserts no typo'd keys + placeholder
+  parity vs the English floor (it does *not* require full coverage, so new English keys don't
+  break it before translation).
 
 ## Files (as-built)
 
@@ -124,6 +153,18 @@ that is the follow-up.
 `DesktopModule` (`:shared/desktopMain`); `AndroidKoinModule` + `MainActivity` (`:androidApp`);
 `Main.kt` (`:desktopApp`).
 
+**Added in PR #97:** `ui/.../onboarding/LanguagePickerScreen.kt`; the `onboarding.language*`
+gate on `OnboardingPreferences` (+ Android/desktop impls) + `OnboardingViewModel`/`OnboardingHost`;
+the Settings Language picker in `SettingsScreen.kt`; `strings_es.json` (partial) in both asset
+roots. Plus the `tr(...)` migration across every `:ui` screen.
+
+**Added in PR #98:** `shared/.../i18n/CountryDisplay.kt`; `shared/src/commonTest/.../i18n/TestStringCatalog.kt`
++ `shared/src/desktopTest/.../i18n/SpanishPackTest.kt`. **Modified:** `StringKeys`/`EnglishStrings`
+(notif + country keys); `JobCompletionNotifier`, `TaskQueue`, `AgentLoop` (`:shared`);
+`DesktopModelDownloadController` + `Main.kt` (`:desktopApp`); `AndroidKoinModule` + `DesktopModule`
+(notifier bindings); `LocationPickerScreen` + `SearchSourcesScreen` (`:ui`); the now-**full**
+`strings_es.json` (both copies).
+
 ## Verification
 
 - **Unit tests (run on the desktop JVM, `:shared:desktopTest` — Android-free):**
@@ -133,6 +174,9 @@ that is the follow-up.
     `es`/`ru` pack (proves "new language = data file" without bundling one).
   - `FormatterI18nParityTest` — each formatter, with default `Strings.ENGLISH`, reproduces its
     pre-migration output **byte-for-byte** (golden stock bubble, clock plurals/durations, todo).
+  - `SpanishPackTest` (PR #98, desktopTest) — loads the bundled `strings_es.json` from the
+    classpath and asserts every key is a known `StringKey` (no typos) + placeholder parity vs the
+    English floor.
   - All pass; the full `:shared:desktopTest` suite is green.
 - **Compiles:** `:shared:compileKotlinDesktop`, `:ui:compileKotlinDesktop`,
   `:desktopApp:compileKotlin` all build clean.
@@ -147,21 +191,40 @@ that is the follow-up.
   `resources/i18n/strings_es.json`), flip Settings → language to Spanish, and confirm keyed
   strings switch while untranslated keys fall back to English.
 
-## Deferred (tracked, not in this PR)
+## Done in follow-ups (was deferred)
 
-- **The ~525 Compose UI literals** in `:ui` commonMain + desktopMain (Chat, Settings, the 5
-  onboarding screens, memory, history, clock, todo, download, search sources, **Jobs**, + the
-  desktop **GPU / Voice / Link-pairing** sections, relay/subscription + remote-LLM settings) →
-  `tr(...)` swap, one screen per change. The seam is ready.
+- ✅ **The Compose UI literals** (Chat, Settings, the onboarding screens, memory, history,
+  clock, todo, download, search sources, Jobs, + the desktop GPU/Voice/Link-pairing sections)
+  — migrated to `tr(...)` in **PR #97**, plus the Settings Language picker and a language-first
+  onboarding step.
+- ✅ **A real bundled `strings_es.json`** — partial in #97, **completed to full coverage in
+  PR #98** (~529 keys, both byte-identical copies), guarded by `SpanishPackTest`.
+- ✅ **Notification strings** — job/task/model-download titles localized via `StringCatalog`
+  in **PR #98** (`JobCompletionNotifier`, `TaskQueue`, `DesktopModelDownloadController`).
+- ✅ **`locations.json` country display names** — the 4 country names keyed via `CountryDisplay`
+  in **PR #98** (onboarding dropdown, weather disambiguation, Settings location line).
+
+## Still deferred (tracked, not yet done)
+
+- **Android framework-instantiated notifications** — alarm/timer-fired (`ClockNotifications`),
+  the WorkManager `ModelDownloadWorker`, and the inference foreground service still read
+  `res/values` strings.xml, which follows **device locale**, not the in-app `PreferredLanguage`.
+  Routing them through the catalog needs a global/lazy `StringCatalog` resolver (they're
+  framework-instantiated, not DI-constructed). PR #98 deliberately scoped to the catalog-reachable
+  notifiers only.
 - **Voice-command recognition phrases** (`VoiceCommand` match lists) — a *recognition* surface
-  that must be authored against what each STT engine emits (QA-heavy), and driving the TTS voice
+  that must be authored against what each STT engine emits (QA-heavy); plus driving the TTS voice
   from `PreferredLanguage` rather than `Locale.getDefault()`.
-- **A real bundled `strings_es.json`** to validate overlay/fallback/plurals on-device.
+- **Other-language packs** — only `strings_es.json` ships. The 8 other non-English
+  `PreferredLanguage` entries (fr/de/it/pt/zh/ja/ko/ru) have no pack and fall back fully to
+  English; each is a pure JSON data file (the `SpanishPackTest` pattern generalizes).
 - **System-prompt block localization** (intentionally English now).
 - **`JobExecutor` "(no output)"** (desktopMain subprocess placeholder) — left English; it has no
   `Strings` in scope and is a low-value edge.
-- Localizing `locations.json` / `search_defaults.json` display names; the `search_cache`
-  locale-keying bug (needs a `.sqm` migration, invariant #20).
+- **`search_defaults.json` source display names + region/city names** — left as data (proper
+  nouns / brands that shouldn't translate); only country names were keyed.
+- **`search_cache` locale-keying bug** — cached results aren't keyed by language (needs a `.sqm`
+  migration, invariant #20).
 - Android `app_name` + notification **channel** names stay in `res/values/strings.xml` (the
   framework reads them outside Compose). Coverage is intentionally not 100%.
 

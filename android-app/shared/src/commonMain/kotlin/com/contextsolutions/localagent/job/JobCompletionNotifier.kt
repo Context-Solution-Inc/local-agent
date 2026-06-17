@@ -1,5 +1,7 @@
 package com.contextsolutions.localagent.job
 
+import com.contextsolutions.localagent.i18n.StringCatalog
+import com.contextsolutions.localagent.i18n.StringKeys
 import com.contextsolutions.localagent.notification.AppNotification
 import com.contextsolutions.localagent.notification.NotificationKind
 import com.contextsolutions.localagent.notification.NotificationPresenter
@@ -27,6 +29,7 @@ class JobCompletionNotifier(
     private val repository: JobRepository,
     private val presenter: NotificationPresenter,
     private val prefs: JobNotificationPrefs,
+    private val stringCatalog: StringCatalog,
     private val logger: (String) -> Unit = {},
 ) {
     /** Launch the observer on [scope]; returns its [CoroutineJob] so the caller can cancel it. */
@@ -56,8 +59,11 @@ class JobCompletionNotifier(
     }
 
     private fun notify(job: Job) {
+        val strings = stringCatalog.active.value
         val succeeded = job.lastRunStatus == JobRunStatus.SUCCEEDED
-        val title = if (succeeded) "Job finished" else "Job failed"
+        val title = strings.get(
+            if (succeeded) StringKeys.NOTIF_JOB_FINISHED else StringKeys.NOTIF_JOB_FAILED,
+        )
         val body = buildString {
             append(job.name)
             val summary = job.lastRunSummary?.trim()?.takeIf { it.isNotEmpty() }

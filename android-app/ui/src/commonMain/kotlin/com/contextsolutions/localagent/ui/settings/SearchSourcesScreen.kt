@@ -44,6 +44,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import org.koin.compose.viewmodel.koinViewModel
+import com.contextsolutions.localagent.i18n.CountryDisplay
 import com.contextsolutions.localagent.i18n.StringKeys
 import com.contextsolutions.localagent.preferences.SiteConfig
 import com.contextsolutions.localagent.preferences.SourceKind
@@ -93,7 +94,10 @@ fun SearchSourcesScreen(
             // Onboarding captures country only (PR #37); region/city are empty
             // and resolved per-query for weather, so show whatever is present.
             val locationLabel = state.location
-                ?.let { listOf(it.city, it.regionCode, it.country).filter(String::isNotBlank).joinToString(", ") }
+                ?.let { loc ->
+                    val country = CountryDisplay.keyFor(loc.country)?.let { tr(it) } ?: loc.country
+                    listOf(loc.city, loc.regionCode, country).filter(String::isNotBlank).joinToString(", ")
+                }
                 ?.takeIf { it.isNotBlank() }
                 ?: tr(StringKeys.SEARCH_SOURCES_NO_LOCATION)
             Text(
