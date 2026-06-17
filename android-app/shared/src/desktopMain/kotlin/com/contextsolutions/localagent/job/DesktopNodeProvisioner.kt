@@ -62,6 +62,9 @@ class DesktopNodeProvisioner(
             download(url, archive)
 
             onProgress("Installing Node.js…")
+            if (DesktopToolPreflight.resolveExecutable("tar") == null) {
+                return@withContext NodeResult.Failed(DesktopToolPreflight.friendlyToolMessage("tar"))
+            }
             val extractDir = File(tmp, "extract").apply { deleteRecursively(); mkdirs() }
             extract(archive, extractDir)
             val versioned = extractDir.listFiles()?.firstOrNull { it.isDirectory && it.name.startsWith("node-") }
@@ -82,7 +85,7 @@ class DesktopNodeProvisioner(
             logger("provisioned private Node.js at ${binDir.path}")
             NodeResult.Available(NodeRuntime(binDir))
         } catch (t: Throwable) {
-            NodeResult.Failed("Couldn't install Node.js: ${t.message}")
+            NodeResult.Failed(friendlyDownloadError(t))
         } finally {
             tmp.deleteRecursively()
         }
@@ -126,6 +129,13 @@ class DesktopNodeProvisioner(
         val out = proc.inputStream.bufferedReader().readText()
         val code = proc.waitFor()
         check(code == 0) { "tar extract failed (exit=$code): ${out.take(500)}" }
+    }
+
+    /** Translate common network failures into actionable copy; fall back to the raw message. */
+    private fun friendlyDownloadError(t: Throwable): String = when (t) {
+        is java.net.UnknownHostException, is java.net.SocketTimeoutException, is java.net.ConnectException ->
+            "Couldn't download Node.js — check your internet connection and try again."
+        else -> "Couldn't install Node.js: ${t.message}"
     }
 
     private fun assetForHost(): String? {

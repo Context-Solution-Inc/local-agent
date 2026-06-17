@@ -21,7 +21,8 @@ class DesktopJobInitializerTest {
         workingDir = dir.absolutePath, supportedOnThisOs = true, requiresInit = true,
     )
 
-    private fun initializer() = DesktopJobInitializer(now = { 1_000L })
+    private fun initializer(browserDetector: () -> File? = { File("/bin/sh") }) =
+        DesktopJobInitializer(now = { 1_000L }, browserDetector = browserDetector)
 
     @Test
     fun succeedsAndWritesMarker() = runBlocking {
@@ -59,6 +60,78 @@ class DesktopJobInitializerTest {
             val plan = initializer().plan(entryFor(dir))
             // require-node + Install + Verify
             assertEquals(listOf("Set up Node.js", "Install", "Verify setup"), plan.map { it.title })
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun planListsBrowserCheck() = runBlocking {
+        val dir = jobDir(
+            """
+            { "version": 1, "init": {
+              "requires": ["node", "chrome"],
+              "steps": [ { "title": "Install", "run": { "linux": "true", "macos": "true", "windows": "exit 0" } } ]
+            } }
+            """.trimIndent(),
+        )
+        try {
+            val plan = initializer().plan(entryFor(dir))
+            assertEquals(listOf("Set up Node.js", "Check for Google Chrome", "Install"), plan.map { it.title })
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun browserCheckFailsWhenAbsent() = runBlocking {
+        val dir = jobDir(
+            """{ "version": 1, "init": { "requires": ["chrome"],
+              "steps": [ { "run": { "linux": "true", "macos": "true", "windows": "exit 0" } } ] } }""",
+        )
+        try {
+            val result = initializer(browserDetector = { null }).initialize(entryFor(dir)) {}
+            assertTrue(result is JobInitResult.Failed, "missing browser ⇒ Failed")
+            assertEquals("Check for Google Chrome", (result as JobInitResult.Failed).stepTitle)
+            assertTrue(result.reason.contains("Chrome"), "actionable message")
+            assertFalse(File(dir, DesktopJobInitializer.MARKER_NAME).isFile, "no marker on failure")
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun browserCheckPassesWhenPresent() = runBlocking {
+        val dir = jobDir(
+            """{ "version": 1, "init": { "requires": ["chrome"],
+              "steps": [ { "run": { "linux": "true", "macos": "true", "windows": "exit 0" } } ] } }""",
+        )
+        try {
+            val result = initializer(browserDetector = { File("/bin/sh") }).initialize(entryFor(dir)) {}
+            assertEquals(JobInitResult.Succeeded, result)
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun interactiveLaunchOfMissingProgramFails() = runBlocking {
+        val dir = jobDir(
+            """
+            { "version": 1, "init": { "steps": [
+              { "id": "warm", "title": "Open browser", "interactive": true,
+                "launch": {
+                  "linux": "localagent-no-such-binary-xyz123 --x",
+                  "macos": "localagent-no-such-binary-xyz123 --x",
+                  "windows": "localagent-no-such-binary-xyz123 --x"
+                } }
+            ] } }
+            """.trimIndent(),
+        )
+        try {
+            val result = initializer().initialize(entryFor(dir)) {}
+            assertTrue(result is JobInitResult.Failed, "missing launch program ⇒ Failed (not DONE)")
+            assertEquals("Open browser", (result as JobInitResult.Failed).stepTitle)
         } finally {
             dir.deleteRecursively()
         }

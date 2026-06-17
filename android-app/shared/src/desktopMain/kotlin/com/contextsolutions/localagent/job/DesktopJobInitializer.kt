@@ -47,6 +47,7 @@ class DesktopJobInitializer(
     private val now: () -> Long = { System.currentTimeMillis() },
     private val logger: (String) -> Unit = {},
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val browserDetector: () -> File? = { DesktopToolPreflight.detectBrowser() },
 ) : JobInitializer {
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true; prettyPrint = true }
@@ -100,17 +101,37 @@ class DesktopJobInitializer(
                 is NodeResult.Failed -> JobInitResult.Failed(unit.info.title, r.reason)
             }
         }
+        is InitUnit.Tool -> {
+            onProgress(JobInitProgress(index, JobInitStepState.RUNNING))
+            val found = when (unit.tool) {
+                "chrome" -> browserDetector()
+                else -> null
+            }
+            if (found == null) JobInitResult.Failed(unit.info.title, DesktopToolPreflight.friendlyToolMessage(unit.tool))
+            else null
+        }
         is InitUnit.Run -> {
             onProgress(JobInitProgress(index, JobInitStepState.RUNNING))
             val r = runCommand(unit.command, workingDir, nonInteractiveTimeoutSeconds)
             if (r.exitCode != 0 || r.startFailed) JobInitResult.Failed(unit.info.title, failureReason(r)) else null
         }
         is InitUnit.Launch -> {
-            onProgress(JobInitProgress(index, JobInitStepState.AWAITING_USER, unit.info.instructions))
-            val r = runCommand(unit.command, workingDir, interactiveTimeoutSeconds, failIfNonZero = false)
-            // Only a launch that never started is a failure; the exit code of an interactive
-            // program the user closes isn't meaningful.
-            if (r.startFailed) JobInitResult.Failed(unit.info.title, failureReason(r)) else null
+            // Pre-flight: a missing launch program exits 127 under `sh -c` (startFailed = false)
+            // and would otherwise be silently marked DONE. Catch it before launching.
+            val exe = DesktopToolPreflight.leadingExecutable(unit.command, isWindows)
+            if (exe != null && DesktopToolPreflight.resolveExecutable(
+                    exe,
+                    extraDirs = DesktopJobRuntimeEnv.extraPathEntries(baseDir).map(::File),
+                ) == null
+            ) {
+                JobInitResult.Failed(unit.info.title, DesktopToolPreflight.friendlyToolMessage(exe))
+            } else {
+                onProgress(JobInitProgress(index, JobInitStepState.AWAITING_USER, unit.info.instructions))
+                val r = runCommand(unit.command, workingDir, interactiveTimeoutSeconds, failIfNonZero = false)
+                // Only a launch that never started is a failure; the exit code of an interactive
+                // program the user closes isn't meaningful.
+                if (r.startFailed) JobInitResult.Failed(unit.info.title, failureReason(r)) else null
+            }
         }
         is InitUnit.Verify -> {
             onProgress(JobInitProgress(index, JobInitStepState.RUNNING))
@@ -130,6 +151,8 @@ class DesktopJobInitializer(
         spec.requires.forEach { req ->
             when (req.lowercase()) {
                 "node", "npm", "nodejs" -> units += InitUnit.Runtime("node", stepInfo("require-node", "Set up Node.js", false, ""))
+                "chrome", "google-chrome", "chromium", "browser" ->
+                    units += InitUnit.Tool("chrome", stepInfo("require-chrome", "Check for Google Chrome", false, ""))
                 else -> logger("unknown required runtime '$req' — ignored")
             }
         }
@@ -154,6 +177,7 @@ class DesktopJobInitializer(
     private sealed interface InitUnit {
         val info: JobInitStepInfo
         data class Runtime(val name: String, override val info: JobInitStepInfo) : InitUnit
+        data class Tool(val tool: String, override val info: JobInitStepInfo) : InitUnit
         data class Run(val command: String, override val info: JobInitStepInfo) : InitUnit
         data class Launch(val command: String, override val info: JobInitStepInfo) : InitUnit
         data class Verify(val command: String, override val info: JobInitStepInfo) : InitUnit
@@ -162,8 +186,13 @@ class DesktopJobInitializer(
     private fun failureReason(r: CommandResult): String {
         val out = r.output.trim()
         return when {
-            r.startFailed -> out.ifBlank { "Command failed to start." }
+            r.startFailed ->
+                DesktopToolPreflight.extractMissingProgram(out)?.let { DesktopToolPreflight.friendlyToolMessage(it, out) }
+                    ?: out.ifBlank { "Command failed to start." }
             r.timedOut -> (out + "\n(timed out)").trim()
+            r.exitCode == 127 ->
+                DesktopToolPreflight.extractMissingProgram(out)?.let { DesktopToolPreflight.friendlyToolMessage(it, out) }
+                    ?: (out.ifBlank { "(no output)" } + "\n(exit code 127)")
             else -> (out.ifBlank { "(no output)" } + "\n(exit code ${r.exitCode})")
         }
     }
