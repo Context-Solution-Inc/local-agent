@@ -131,6 +131,14 @@ Brave key + HF token; the device build fails fast without it). Use `adb` from th
 DI_CHECK=1 ./gradlew :desktopApp:run                  # headless: resolve the Koin graph and exit
 ```
 
+**Desktop with Secure Gateway** (no Android SDK required):
+
+```bash
+LOCALAGENT_GATEWAY_URL=http://192.168.1.103:8080 \
+LOCALAGENT_RELAY_WS_URL=ws://192.168.1.103:8443/v1/connect \
+./gradlew :desktopApp:run                           # opens the chat window + system tray
+```
+
 On first run the desktop fetches the Gemma GGUF and the `llama-server` binary; both platforms run
 fully offline once models are present (search just stays off until a Brave key is set). See
 [docs/BUILD.md](docs/BUILD.md) for sideloading models to skip downloads.
