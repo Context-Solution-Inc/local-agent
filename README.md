@@ -122,7 +122,7 @@ curl -LO --output-dir models --progress-bar https://pub-f6c21df457bd434ebe799585
 ```
 
 **Android** (needs `android-app/secrets.properties` — copy `secrets.properties.example` and fill in a
-Brave key + HF token; the device build fails fast without it). Use `adb` from the [Android SDK](https://developer.android.com/tools/releases/platform-tools) to connect to your device.
+[Brave key](https://brave.com/search/api/) + [HF token](https://huggingface.co/); the device build fails fast without it). Use `adb` from the [Android SDK](https://developer.android.com/tools/releases/platform-tools) to connect to your device.
 
 ```bash
 ./gradlew :androidApp:installDebug                   # build + install on a connected Pixel 7
