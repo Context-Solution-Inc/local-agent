@@ -67,7 +67,12 @@ class RelaySubscriptionService(
 
     /** Called by the `/subscribe/callback` route. Returns true once the claim lands. */
     suspend fun handleClaimCode(claimCode: String): Boolean =
-        applyClaim(client.claim(gatewayBaseUrl, claimCode = claimCode))
+        when (val r = client.claim(gatewayBaseUrl, claimCode = claimCode)) {
+            // The fallback nonce poll already redeemed this claim (no-Stripe flow);
+            // the credential is being stored by that path, so report success.
+            RelayGatewayClient.ClaimResult.AlreadyClaimed -> true
+            else -> applyClaim(r)
+        }
 
     /** Launch-time re-validation; no-op when no account is stored locally. */
     suspend fun refresh() {
@@ -113,6 +118,7 @@ class RelaySubscriptionService(
                 if (prefs.state().isActive) return@launch // callback path already won
                 when (val r = client.claim(gatewayBaseUrl, nonce = nonce)) {
                     is RelayGatewayClient.ClaimResult.Ok -> { applyClaim(r); return@launch }
+                    RelayGatewayClient.ClaimResult.AlreadyClaimed -> return@launch // the callback path won
                     RelayGatewayClient.ClaimResult.Pending -> Unit // keep waiting for the webhook
                     is RelayGatewayClient.ClaimResult.Error -> Unit // transient; retry
                 }

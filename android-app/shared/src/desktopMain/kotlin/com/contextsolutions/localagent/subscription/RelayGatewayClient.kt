@@ -81,6 +81,13 @@ class RelayGatewayClient internal constructor(
         ) : ClaimResult
         /** Webhook hasn't landed yet — caller should retry with backoff. */
         data object Pending : ClaimResult
+        /**
+         * The claim was already consumed (HTTP 409). With the no-Stripe gateway the
+         * claim is ready instantly, so the browser callback and the fallback nonce
+         * poll race for the same one-time credential; whichever loses sees this. It
+         * means the *other* path succeeded, so callers should treat it as success.
+         */
+        data object AlreadyClaimed : ClaimResult
         data class Error(val message: String) : ClaimResult
     }
 
@@ -107,6 +114,7 @@ class RelayGatewayClient internal constructor(
                 )
             }
             202 -> ClaimResult.Pending
+            409 -> ClaimResult.AlreadyClaimed
             else -> ClaimResult.Error("status ${resp.status.value}")
         }
     } catch (c: CancellationException) {
