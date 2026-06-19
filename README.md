@@ -127,9 +127,10 @@ cd android-app                      # the Gradle project lives here
 [Brave key](https://brave.com/search/api/) + [HF token](https://huggingface.co/); the device build fails fast without it). Use `adb` from the [Android SDK](https://developer.android.com/tools/releases/platform-tools) to connect to your device.
 
 ```bash
-$ adb devices
+adb devices
 List of devices attached
 192.168.1.93:38863	device
+
 ./gradlew :androidApp:installDebug                   # build + install on a connected Pixel 7
 ```
 
