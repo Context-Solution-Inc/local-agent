@@ -61,15 +61,18 @@ fun DownloadScreen(viewModel: DownloadViewModel = koinViewModel()) {
         ) {
             Text(
                 text = "Local Agent runs Gemma 4 entirely on your device. The first " +
-                    "step is a one-time download of the model weights.",
+                    "step is a one-time download of the model weights plus the " +
+                    "on-device search + memory models.",
                 style = MaterialTheme.typography.bodyMedium,
             )
             Spacer(Modifier.height(16.dp))
 
             Text("File: ${spec.filename}", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
-            if (spec.sizeBytes > 0L) {
+            val totalBytes = viewModel.totalDownloadBytes()
+            if (totalBytes > 0L) {
                 Text(
-                    "Size: ${Formatter.formatShortFileSize(context, spec.sizeBytes)}",
+                    "Total download: ${Formatter.formatShortFileSize(context, totalBytes)} " +
+                        "(model + search/memory)",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }

@@ -18,7 +18,11 @@ class DownloadViewModel(
 
     val state: StateFlow<DownloadState> = controller.state
 
+    /** The primary (Gemma LLM) spec — shown as the headline file in the UI. */
     fun spec(): ModelSpec = inventory.spec()
+
+    /** Total bytes the one-time download fetches: Gemma LLM + aux models (PR #3). */
+    fun totalDownloadBytes(): Long = inventory.requiredSpecs().sumOf { it.sizeBytes }
 
     fun start(allowMetered: Boolean) = controller.start(allowMetered)
     fun pause() = controller.pause()
