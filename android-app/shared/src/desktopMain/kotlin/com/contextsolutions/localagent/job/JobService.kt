@@ -2,8 +2,11 @@ package com.contextsolutions.localagent.job
 
 import com.contextsolutions.localagent.platform.AgentClock
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job as CoJob
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
@@ -31,6 +34,14 @@ class JobService(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     private val logger: (String) -> Unit = {},
 ) : JobAdmin {
+
+    /**
+     * In-flight executions keyed by job id, so [cancel] can interrupt a running
+     * job (PR — cancel running job). Each entry is the execution coroutine; the
+     * job runs in it, and cancelling it triggers [JobExecutor]'s cancellation path
+     * (kills the subprocess tree + records CANCELLED). Self-cleans on completion.
+     */
+    private val running = ConcurrentHashMap<String, CoJob>()
 
     // ---- Create / edit / delete (desktop-only) -----------------------------
 
@@ -118,14 +129,31 @@ class JobService(
         }
     }
 
-    // ---- Run now (desktop-only) --------------------------------------------
+    // ---- Run now / cancel (desktop-only) -----------------------------------
 
     override fun runNow(id: String) {
-        scope.launch {
+        // The whole get→execute coroutine is tracked + LAZY so cancel(id) can
+        // interrupt it even before the subprocess starts.
+        val coJob = scope.launch(start = CoroutineStart.LAZY) {
             val job = repository.get(id) ?: return@launch
             if (job.deletedAtEpochMs != null) return@launch
             executor.execute(job)
         }
+        track(id, coJob)
+        coJob.start()
+    }
+
+    override fun cancel(id: String): Boolean {
+        val coJob = running[id] ?: return false
+        logger("cancel requested id=$id")
+        coJob.cancel()
+        return true
+    }
+
+    /** Register an in-flight execution so [cancel] can find it; self-removes on completion. */
+    private fun track(id: String, coJob: CoJob) {
+        running[id] = coJob
+        coJob.invokeOnCompletion { running.remove(id, coJob) }
     }
 
     // ---- Scheduler fire path -----------------------------------------------
@@ -134,7 +162,13 @@ class JobService(
     suspend fun onJobFired(id: String) {
         val job = repository.get(id) ?: return
         if (job.deletedAtEpochMs != null || job.paused) return
-        executor.execute(job)
+        // Run the execution as a tracked child so a scheduled run is cancellable
+        // too; join it before re-arming so the next occurrence is computed after
+        // this run settles (cancel completes the join normally).
+        val coJob = scope.launch(start = CoroutineStart.LAZY) { executor.execute(job) }
+        track(id, coJob)
+        coJob.start()
+        coJob.join()
         // Re-arm recurring jobs for the next occurrence. One-shots simply don't
         // re-arm (their fireAt is now in the past), so they never fire again.
         if (job.scheduleType == JobScheduleType.CRON) {

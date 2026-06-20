@@ -52,6 +52,14 @@ enum class LinkMethod(val streaming: Boolean) {
     RUN_JOB(false),
 
     /**
+     * Mobile asks the desktop to cancel a job's in-flight run; job id in
+     * `query["id"]`. The desktop cancels the execution coroutine, which kills the
+     * subprocess AND its descendant process tree and records the run CANCELLED.
+     * 200 `{"ok":true}` if a running job was found, else 404.
+     */
+    CANCEL_JOB(false),
+
+    /**
      * Mobile asks the desktop to run a job inline and STREAM its output back for
      * the chat LLM (PR #88); `query["id"]` + `query["keywords"]`. Streaming (not
      * unary) so a long job tolerates the un-timed stream and a CANCEL frame

@@ -7,8 +7,11 @@ import java.io.File
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
+import kotlin.coroutines.coroutineContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
@@ -79,7 +82,17 @@ class JobExecutor(
             nowEpochMs = startedAt,
         )
 
-        val result = runCatching { runProcess(job) }.getOrElse { t ->
+        val result = try {
+            runProcess(job)
+        } catch (c: CancellationException) {
+            // The run was cancelled (cancel button / cancel-job relay). Record the
+            // terminal CANCELLED row OUTSIDE the cancelled scope, then honor the
+            // cancellation. runProcess's finally has already killed the process tree.
+            withContext(NonCancellable) {
+                recordCancellation(job, runId, convId)
+            }
+            throw c
+        } catch (t: Throwable) {
             ProcessResult(exitCode = null, output = t.message ?: "execution failed", failedToStart = true)
         }
         val finishedAt = clock.nowEpochMs()
@@ -118,6 +131,38 @@ class JobExecutor(
     }
 
     /**
+     * Write the terminal CANCELLED run for a job whose [execute] coroutine was
+     * cancelled. Must be called from a [NonCancellable] context (the surrounding
+     * coroutine is already cancelled, so plain suspend writes would abort).
+     */
+    private suspend fun recordCancellation(job: Job, runId: String, convId: String) {
+        val finishedAt = clock.nowEpochMs()
+        val note = "(cancelled)"
+        conversations.appendMessage(
+            convId,
+            ChatMessage.Assistant(text = note, renderMarkdown = false),
+            finishedAt,
+        )
+        jobs.finishRun(
+            id = runId,
+            status = JobRunStatus.CANCELLED,
+            finishedAtEpochMs = finishedAt,
+            exitCode = null,
+            response = note,
+            error = null,
+        )
+        jobs.recordLastRun(
+            id = job.id,
+            status = JobRunStatus.CANCELLED,
+            atEpochMs = finishedAt,
+            summary = note,
+            conversationId = convId,
+            nowEpochMs = finishedAt,
+        )
+        logger("job ${job.id} (${job.name}) cancelled")
+    }
+
+    /**
      * Run [job] inline for the chat agent (PR #88): spawn the subprocess with
      * [keywords] overriding the saved argument, capture its output, and return it
      * — writing NO conversation / run / last-run rows, so the inline run never
@@ -135,7 +180,7 @@ class JobExecutor(
                 ensureActive() // throws CancellationException → finally kills the process
                 if (rp.proc.waitFor(POLL_MS, TimeUnit.MILLISECONDS)) break
                 if (clock.nowEpochMs() >= deadline) {
-                    rp.proc.destroyForcibly()
+                    destroyTree(rp.proc)
                     rp.reader.join(1_000)
                     return@withContext InlineJobResult.Failure(
                         rp.output() + "\n(timed out after ${timeoutSeconds}s)",
@@ -147,24 +192,57 @@ class JobExecutor(
             val output = rp.output().ifBlank { "(no output)" }
             if (exit == 0) InlineJobResult.Output(output) else InlineJobResult.Failure(output)
         } finally {
-            // Cancellation or an unexpected throw must not orphan the subprocess.
+            // Cancellation or an unexpected throw must not orphan the subprocess (or its children).
             if (rp.proc.isAlive) {
-                rp.proc.destroyForcibly()
+                destroyTree(rp.proc)
                 rp.reader.join(1_000)
             }
         }
     }
 
-    private fun runProcess(job: Job): ProcessResult {
+    /**
+     * Cancellation-aware (invariant #29/#59), mirroring [runCapture]: the wait
+     * polls in short chunks and calls [ensureActive] between polls, so cancelling
+     * the calling coroutine (a cancel-job request) breaks out and the `finally`
+     * kills the subprocess tree promptly. A plain blocking `waitFor` would leave
+     * the process running after a cancel.
+     */
+    private suspend fun runProcess(job: Job): ProcessResult {
         val rp = startProcess(job)
-        val finished = rp.proc.waitFor(timeoutSeconds, TimeUnit.SECONDS)
-        if (!finished) {
-            rp.proc.destroyForcibly()
+        try {
+            val deadline = clock.nowEpochMs() + timeoutSeconds * 1_000
+            while (true) {
+                coroutineContext.ensureActive() // cancel → finally kills the process tree
+                if (rp.proc.waitFor(POLL_MS, TimeUnit.MILLISECONDS)) break
+                if (clock.nowEpochMs() >= deadline) {
+                    destroyTree(rp.proc)
+                    rp.reader.join(1_000)
+                    return ProcessResult(exitCode = null, output = rp.output() + "\n(timed out after ${timeoutSeconds}s)")
+                }
+            }
             rp.reader.join(1_000)
-            return ProcessResult(exitCode = null, output = rp.output() + "\n(timed out after ${timeoutSeconds}s)")
+            return ProcessResult(exitCode = rp.proc.exitValue(), output = rp.output())
+        } finally {
+            if (rp.proc.isAlive) {
+                destroyTree(rp.proc)
+                rp.reader.join(1_000)
+            }
         }
-        rp.reader.join(1_000)
-        return ProcessResult(exitCode = rp.proc.exitValue(), output = rp.output())
+    }
+
+    /**
+     * Kill the subprocess AND its descendant process tree. A bare
+     * `destroyForcibly` only kills the direct child, but jobs routinely spawn
+     * their own children (a shell that runs `node`, which spawns more), so without
+     * walking the tree those grandchildren survive a cancel/timeout. Snapshot the
+     * descendants while the parent is still alive (killing the parent first would
+     * reparent — orphan — them and lose the handles), kill them, then the parent.
+     */
+    private fun destroyTree(proc: Process) {
+        runCatching {
+            proc.toHandle().descendants().forEach { runCatching { it.destroyForcibly() } }
+        }
+        runCatching { proc.destroyForcibly() }
     }
 
     /**

@@ -140,8 +140,40 @@ class JobExecutorTest {
         )
     }
 
-    private fun oneShotEchoJob(command: String = "echo", prompt: String = "hello from job") = Job(
-        id = "job-echo",
+    @Test
+    fun executeCancellationRecordsCancelledAndUnwindsPromptly() = runBlocking {
+        if (isWindows) return@runBlocking // `sleep`/`sh` argv form is POSIX-only.
+
+        val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        LocalAgentDatabase.Schema.create(driver)
+        val db = LocalAgentDatabase(driver)
+        val jobs = SqlDelightJobRepository(db.jobsQueries, LocalChangeBus())
+        val conversations = SqlDelightConversationRepository(db.conversationsQueries, NoOpTelemetryCounters)
+
+        // A long-sleeping scheduled run; cancelling its coroutine must break the
+        // wait cooperatively, kill the process, AND record the run CANCELLED.
+        val job = oneShotEchoJob(id = "job-cancel", command = "sleep", prompt = "30")
+        jobs.create(job)
+        val executor = JobExecutor(jobs = jobs, conversations = conversations)
+
+        val runJob = launch(Dispatchers.IO) { executor.execute(job) }
+        delay(400) // let RUNNING get recorded + the subprocess start + the wait loop enter a poll
+        assertEquals(JobRunStatus.RUNNING, jobs.get("job-cancel")!!.lastRunStatus, "run should be RUNNING mid-flight")
+        val elapsed = kotlin.system.measureTimeMillis { runJob.cancelAndJoin() }
+
+        // Cooperative cancel: returns well within the 30s sleep (one poll interval).
+        assertTrue(elapsed < 2_000, "cancellation did not unwind promptly (${elapsed}ms)")
+        // The terminal row was rewritten CANCELLED (written under NonCancellable).
+        assertEquals(JobRunStatus.CANCELLED, jobs.get("job-cancel")!!.lastRunStatus, "run must be recorded CANCELLED")
+        assertEquals(JobRunStatus.CANCELLED, jobs.runsForJob("job-cancel").single().status)
+    }
+
+    private fun oneShotEchoJob(
+        id: String = "job-echo",
+        command: String = "echo",
+        prompt: String = "hello from job",
+    ) = Job(
+        id = id,
         name = "echo job",
         command = command,
         prompt = prompt,

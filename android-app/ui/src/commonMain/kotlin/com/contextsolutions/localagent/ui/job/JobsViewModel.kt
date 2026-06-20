@@ -178,4 +178,18 @@ class JobsViewModel(
         if (linkStatus.value != DesktopLinkStatus.UP) return
         viewModelScope.launch(Dispatchers.IO) { r.runNow(id) }
     }
+
+    fun cancel(id: String) {
+        val a = admin
+        if (a != null) {
+            // Desktop: cancel the local run directly (kills the process tree).
+            a.cancel(id)
+            return
+        }
+        // Mobile: ask the desktop over the link. Online-only (button is gated on
+        // canControl, but guard here too).
+        val r = remoteRunner ?: return
+        if (linkStatus.value != DesktopLinkStatus.UP) return
+        viewModelScope.launch(Dispatchers.IO) { r.cancel(id) }
+    }
 }

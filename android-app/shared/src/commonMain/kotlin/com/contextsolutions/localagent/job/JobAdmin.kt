@@ -40,4 +40,11 @@ interface JobAdmin {
 
     /** Run the job immediately, off-schedule. */
     fun runNow(id: String)
+
+    /**
+     * Cancel job [id]'s in-flight run: cancels the execution coroutine, which kills
+     * the subprocess AND its descendant process tree and records the run CANCELLED.
+     * Returns true if a running job was found and cancelled, false otherwise.
+     */
+    fun cancel(id: String): Boolean
 }

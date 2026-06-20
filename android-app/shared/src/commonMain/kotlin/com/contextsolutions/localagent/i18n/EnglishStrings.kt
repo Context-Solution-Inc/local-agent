@@ -685,6 +685,7 @@ object EnglishStrings {
         StringKeys.JOBS_STATUS_CANCELLED to Simple("Cancelled"),
         StringKeys.JOBS_VIEW_CONVERSATION to Simple("View conversation"),
         StringKeys.JOBS_CD_RUN_NOW to Simple("Run now"),
+        StringKeys.JOBS_CD_CANCEL_RUN to Simple("Cancel run"),
         StringKeys.JOBS_CD_EDIT to Simple("Edit"),
         StringKeys.JOBS_CD_DELETE to Simple("Delete"),
         StringKeys.JOBS_SCHED_DAILY_AT to Simple("Daily at %1\$s"),

@@ -427,6 +427,7 @@
   "jobs.status.cancelled": "Cancelado",
   "jobs.view_conversation": "Ver conversación",
   "jobs.cd.run_now": "Ejecutar ahora",
+  "jobs.cd.cancel_run": "Cancelar ejecución",
   "jobs.cd.edit": "Editar",
   "jobs.cd.delete": "Eliminar",
   "jobs.sched.daily_at": "Todos los días a las %1$s",
