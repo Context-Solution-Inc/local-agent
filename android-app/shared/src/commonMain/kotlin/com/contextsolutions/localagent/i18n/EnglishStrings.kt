@@ -407,6 +407,8 @@ object EnglishStrings {
         StringKeys.CHAT_CD_ATTACHED_IMAGE to Simple("Attached image"),
         StringKeys.CHAT_CD_ATTACH_IMAGE to Simple("Attach image"),
         StringKeys.CHAT_CD_REMOVE_IMAGE to Simple("Remove image"),
+        StringKeys.CHAT_CD_CLEAR_INPUT to Simple("Clear text"),
+        StringKeys.CHAT_CD_DELETE_MESSAGE to Simple("Delete message"),
         StringKeys.CHAT_CD_MIC_START to Simple("Start dictation"),
         StringKeys.CHAT_CD_MIC_STOP to Simple("Stop dictation"),
         StringKeys.CHAT_CD_TTS_ENABLE to Simple("Enable read-aloud"),

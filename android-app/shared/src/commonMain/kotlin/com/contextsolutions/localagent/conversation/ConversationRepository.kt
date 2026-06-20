@@ -1,6 +1,8 @@
 package com.contextsolutions.localagent.conversation
 
 import com.contextsolutions.localagent.agent.ChatMessage
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 
 /**
  * Persistence + lifecycle for chat conversations and their messages.
@@ -42,16 +44,31 @@ interface ConversationRepository {
     suspend fun loadMessages(conversationId: String): List<ChatMessage>
 
     /**
+     * Like [loadMessages] but pairs each message with its stable DB row id, so
+     * the UI can target a single message for deletion (PR #4). Ordered by
+     * sequence_index.
+     */
+    suspend fun loadMessagesWithIds(conversationId: String): List<StoredMessage>
+
+    /**
      * Append [message] at the next monotonically-increasing sequence_index
      * for [conversationId]. Also bumps `updated_at_epoch_ms` so this
      * conversation moves to the top of the history list. Returns the
      * sequence_index assigned to the row.
+     *
+     * [id] defaults to a fresh UUID; callers pass an explicit id (PR #4) when
+     * the on-screen bubble and the persisted row must share it so the bubble
+     * can later be deleted by id without a reload.
      */
     suspend fun appendMessage(
         conversationId: String,
         message: ChatMessage,
         nowEpochMs: Long,
+        id: String = newMessageId(),
     ): Long
+
+    /** Hard-delete a single message by id (PR #4 — the assistant-bubble "x"). */
+    suspend fun deleteMessage(conversationId: String, messageId: String)
 
     /**
      * Hard-delete the oldest user+assistant turn-pair (plus any tool messages
@@ -107,8 +124,18 @@ interface ConversationRepository {
         }
 
         private val WHITESPACE_RUN: Regex = Regex("\\s+")
+
+        /** Generate a stable message row id. Shared by callers and the default [appendMessage] id. */
+        @OptIn(ExperimentalUuidApi::class)
+        fun newMessageId(): String = "msg-${Uuid.random()}"
     }
 }
+
+/** A persisted chat message paired with its stable DB row id (PR #4). */
+data class StoredMessage(
+    val id: String,
+    val message: ChatMessage,
+)
 
 /**
  * Full conversation row. The `truncationAcknowledgedAtEpochMs` flag drives

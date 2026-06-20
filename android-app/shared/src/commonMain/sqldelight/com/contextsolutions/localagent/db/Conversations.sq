@@ -103,6 +103,10 @@ deleteMessagesBelowSequence:
 DELETE FROM messages
 WHERE conversation_id = :conversationId AND sequence_index < :cutoffSequenceIndex;
 
+-- PR #4: remove a single message from a thread (the assistant-bubble "x").
+deleteMessageById:
+DELETE FROM messages WHERE conversation_id = :conversationId AND id = :id;
+
 selectLastMessagePreview:
 SELECT content FROM messages
 WHERE conversation_id = :conversationId AND role IN ('user', 'assistant')

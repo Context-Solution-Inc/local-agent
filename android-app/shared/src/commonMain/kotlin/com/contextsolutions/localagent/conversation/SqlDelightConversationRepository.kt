@@ -7,8 +7,6 @@ import com.contextsolutions.localagent.search.SearchSource
 import com.contextsolutions.localagent.sync.LocalChangeBus
 import com.contextsolutions.localagent.telemetry.CounterNames
 import com.contextsolutions.localagent.telemetry.TelemetryCounters
-import kotlin.uuid.ExperimentalUuidApi
-import kotlin.uuid.Uuid
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -27,7 +25,6 @@ import kotlinx.serialization.json.Json
  * CLAUDE.md invariant #27 we DO NOT pass any message content into the
  * counter API — names + tags only.
  */
-@OptIn(ExperimentalUuidApi::class)
 class SqlDelightConversationRepository(
     private val queries: ConversationsQueries,
     private val counters: TelemetryCounters,
@@ -92,15 +89,24 @@ class SqlDelightConversationRepository(
     }
 
     override suspend fun loadMessages(conversationId: String): List<ChatMessage> =
+        loadMessagesWithIds(conversationId).map { it.message }
+
+    override suspend fun loadMessagesWithIds(conversationId: String): List<StoredMessage> =
         withContext(ioDispatcher) {
             queries.selectMessagesByConversation(conversationId).executeAsList()
-                .map { row -> rowToChatMessage(row.role, row.content, row.tool_call_json, row.tool_result_json, row.image_bytes, row.render_markdown) }
+                .map { row ->
+                    StoredMessage(
+                        id = row.id,
+                        message = rowToChatMessage(row.role, row.content, row.tool_call_json, row.tool_result_json, row.image_bytes, row.render_markdown),
+                    )
+                }
         }
 
     override suspend fun appendMessage(
         conversationId: String,
         message: ChatMessage,
         nowEpochMs: Long,
+        id: String,
     ): Long = withContext(ioDispatcher) {
         // Compute the next sequence index in the same transaction we write the
         // row, so two concurrent appends from the same conversation cannot
@@ -114,7 +120,7 @@ class SqlDelightConversationRepository(
                 ?: 0L
             val cols = chatMessageToColumns(message)
             queries.insertMessage(
-                id = newMessageId(),
+                id = id,
                 conversation_id = conversationId,
                 role = cols.role,
                 content = cols.content,
@@ -152,6 +158,14 @@ class SqlDelightConversationRepository(
         }
     }
 
+    override suspend fun deleteMessage(conversationId: String, messageId: String): Unit = withContext(ioDispatcher) {
+        // PR #4 — single-message delete (assistant-bubble "x"). Note: a peer's
+        // copy can re-sync in via upsertMessageFromPeer (INSERT OR IGNORE);
+        // cross-device delete propagation is a deliberate follow-up.
+        queries.deleteMessageById(conversationId = conversationId, id = messageId)
+        localChangeBus?.notifyChanged()
+    }
+
     override suspend fun acknowledgeTruncation(
         conversationId: String,
         nowEpochMs: Long,
@@ -184,8 +198,6 @@ class SqlDelightConversationRepository(
         }
         return victims.size
     }
-
-    private fun newMessageId(): String = "msg-${Uuid.random()}"
 
     private fun chatMessageToColumns(message: ChatMessage): MessageColumns = when (message) {
         is ChatMessage.User -> MessageColumns(ROLE_USER, message.text, null, null, message.imageBytes)

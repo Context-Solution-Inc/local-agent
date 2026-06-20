@@ -82,7 +82,7 @@ class ChatViewModelCancelTest {
         every { thermalProvider.statusFlow() } returns flowOf(ThermalStatus.NONE)
         every { thermalProvider.current() } returns ThermalStatus.NONE
         every { translationIntentDetector.isTranslationRequest(any(), any()) } returns false
-        coEvery { conversationRepository.appendMessage(any(), any(), any()) } returns 0L
+        coEvery { conversationRepository.appendMessage(any(), any(), any(), any()) } returns 0L
     }
 
     @After

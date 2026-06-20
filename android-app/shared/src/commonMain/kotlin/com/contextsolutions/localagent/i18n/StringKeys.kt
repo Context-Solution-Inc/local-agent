@@ -271,6 +271,8 @@ object StringKeys {
     const val CHAT_CD_ATTACHED_IMAGE = "chat.cd.attached_image"
     const val CHAT_CD_ATTACH_IMAGE = "chat.cd.attach_image"
     const val CHAT_CD_REMOVE_IMAGE = "chat.cd.remove_image"
+    const val CHAT_CD_CLEAR_INPUT = "chat.cd.clear_input"
+    const val CHAT_CD_DELETE_MESSAGE = "chat.cd.delete_message"
     const val CHAT_CD_MIC_START = "chat.cd.mic_start"
     const val CHAT_CD_MIC_STOP = "chat.cd.mic_stop"
     const val CHAT_CD_TTS_ENABLE = "chat.cd.tts_enable"
@@ -687,6 +689,7 @@ object StringKeys {
         CHAT_CD_NEW_CHAT, CHAT_CD_MYLIST, CHAT_CD_TIMERS, CHAT_CD_ALARMS,
         CHAT_CD_JOBS, CHAT_CD_SETTINGS, CHAT_CD_JUMP_TO_LATEST,
         CHAT_CD_ATTACHED_IMAGE, CHAT_CD_ATTACH_IMAGE, CHAT_CD_REMOVE_IMAGE,
+        CHAT_CD_CLEAR_INPUT, CHAT_CD_DELETE_MESSAGE,
         CHAT_CD_MIC_START, CHAT_CD_MIC_STOP, CHAT_CD_TTS_ENABLE, CHAT_CD_TTS_DISABLE,
         CHAT_CD_DISMISS_THERMAL,
         CHAT_CD_MEM_HEALTHY, CHAT_CD_MEM_CAUTION, CHAT_CD_MEM_LOW,

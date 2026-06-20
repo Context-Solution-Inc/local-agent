@@ -245,6 +245,8 @@
   "chat.cd.attached_image": "Imagen adjunta",
   "chat.cd.attach_image": "Adjuntar imagen",
   "chat.cd.remove_image": "Quitar imagen",
+  "chat.cd.clear_input": "Borrar texto",
+  "chat.cd.delete_message": "Eliminar mensaje",
   "chat.cd.mic_start": "Iniciar dictado por voz",
   "chat.cd.mic_stop": "Detener dictado por voz",
   "chat.cd.tts_enable": "Activar lectura en voz alta",

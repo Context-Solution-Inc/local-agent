@@ -120,6 +120,36 @@ class ConversationRepositoryTest {
     }
 
     @Test
+    fun loadMessagesWithIds_uses_explicit_id_and_deleteMessage_removes_only_that_row() = runTest {
+        repo.create("c1", "title", nowEpochMs = 100L)
+        repo.appendMessage("c1", ChatMessage.User("hello"), nowEpochMs = 101L, id = "u-1")
+        repo.appendMessage("c1", ChatMessage.Assistant("hi there"), nowEpochMs = 102L, id = "a-1")
+
+        // The explicit ids round-trip through loadMessagesWithIds.
+        val stored = repo.loadMessagesWithIds("c1")
+        assertEquals(listOf("u-1", "a-1"), stored.map { it.id })
+
+        // Deleting one message removes exactly that row; the rest survive.
+        repo.deleteMessage("c1", "a-1")
+        val remaining = repo.loadMessagesWithIds("c1")
+        assertEquals(1, remaining.size)
+        assertEquals("u-1", remaining.single().id)
+        assertTrue(remaining.single().message is ChatMessage.User)
+    }
+
+    @Test
+    fun deleteMessage_only_touches_its_own_conversation() = runTest {
+        repo.create("c1", "one", nowEpochMs = 100L)
+        repo.create("c2", "two", nowEpochMs = 100L)
+        repo.appendMessage("c1", ChatMessage.Assistant("keep me"), nowEpochMs = 101L, id = "a-c1")
+        repo.appendMessage("c2", ChatMessage.Assistant("delete me"), nowEpochMs = 101L, id = "a-c2")
+
+        repo.deleteMessage("c2", "a-c2")
+        assertEquals(1, repo.loadMessagesWithIds("c1").size)
+        assertEquals(0, repo.loadMessagesWithIds("c2").size)
+    }
+
+    @Test
     fun loadMessages_round_trips_user_assistant_tool_with_tool_call() = runTest {
         repo.create("c1", "title", 100L)
         val original = listOf(

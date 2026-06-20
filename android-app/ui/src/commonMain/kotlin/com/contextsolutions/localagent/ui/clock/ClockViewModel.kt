@@ -10,6 +10,7 @@ import com.contextsolutions.localagent.clock.TimerEntry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -27,8 +28,15 @@ class ClockViewModel(
     val timers: StateFlow<List<TimerEntry>> = repository.timers()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), repository.snapshotTimers())
 
+    // Always display earliest-first by time so toggling an alarm on/off never
+    // reorders the list (the repositories append the upserted alarm to the end).
     val alarms: StateFlow<List<AlarmEntry>> = repository.alarms()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), repository.snapshotAlarms())
+        .map { it.sortedWith(compareBy(AlarmEntry::hour, AlarmEntry::minute)) }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            repository.snapshotAlarms().sortedWith(compareBy(AlarmEntry::hour, AlarmEntry::minute)),
+        )
 
     fun createTimer(durationMs: Long, label: String?) {
         if (durationMs <= 0) return
