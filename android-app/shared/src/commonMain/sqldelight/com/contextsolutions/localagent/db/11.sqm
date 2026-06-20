@@ -1,0 +1,9 @@
+-- v11 -> v12 (PR #4). Soft-delete (tombstone) for messages so a per-turn
+-- delete on one device propagates to the paired device instead of being
+-- resurrected by the additive message sync (upsertMessageFromPeer is
+-- INSERT OR IGNORE / union-merge). Mirrors the conversations soft-delete
+-- (3.sqm `deleted_at`). NULL = live; non-null = tombstoned at that epoch ms.
+-- Nullable + appended at the END of the table per CLAUDE.md invariant #20
+-- (ALTER ... ADD COLUMN appends; verifyMigrations replays this against 11.db).
+
+ALTER TABLE messages ADD COLUMN deleted_at_epoch_ms INTEGER;

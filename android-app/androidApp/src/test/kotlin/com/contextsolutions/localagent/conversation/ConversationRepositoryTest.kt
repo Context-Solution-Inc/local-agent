@@ -120,33 +120,80 @@ class ConversationRepositoryTest {
     }
 
     @Test
-    fun loadMessagesWithIds_uses_explicit_id_and_deleteMessage_removes_only_that_row() = runTest {
+    fun deleteTurnContaining_tombstones_the_whole_turn_keeping_other_turns() = runTest {
         repo.create("c1", "title", nowEpochMs = 100L)
-        repo.appendMessage("c1", ChatMessage.User("hello"), nowEpochMs = 101L, id = "u-1")
-        repo.appendMessage("c1", ChatMessage.Assistant("hi there"), nowEpochMs = 102L, id = "a-1")
+        // Turn 1: a tool-using exchange. Turn 2: a plain exchange.
+        repo.appendMessage("c1", ChatMessage.User("q1"), nowEpochMs = 101L, id = "u-1")
+        repo.appendMessage(
+            "c1",
+            ChatMessage.Assistant(text = "", toolCall = ToolCall("call-1", "web_search", "{}")),
+            nowEpochMs = 102L,
+            id = "a-1-tool",
+        )
+        repo.appendMessage("c1", ChatMessage.Tool("call-1", "web_search", "result"), nowEpochMs = 103L, id = "t-1")
+        repo.appendMessage("c1", ChatMessage.Assistant("answer 1"), nowEpochMs = 104L, id = "a-1")
+        repo.appendMessage("c1", ChatMessage.User("q2"), nowEpochMs = 105L, id = "u-2")
+        repo.appendMessage("c1", ChatMessage.Assistant("answer 2"), nowEpochMs = 106L, id = "a-2")
 
-        // The explicit ids round-trip through loadMessagesWithIds.
-        val stored = repo.loadMessagesWithIds("c1")
-        assertEquals(listOf("u-1", "a-1"), stored.map { it.id })
+        // Delete via the final assistant of turn 1 → the entire turn 1 goes.
+        val deleted = repo.deleteTurnContaining("c1", "a-1").toSet()
+        assertEquals(setOf("u-1", "a-1-tool", "t-1", "a-1"), deleted)
 
-        // Deleting one message removes exactly that row; the rest survive.
-        repo.deleteMessage("c1", "a-1")
-        val remaining = repo.loadMessagesWithIds("c1")
-        assertEquals(1, remaining.size)
-        assertEquals("u-1", remaining.single().id)
-        assertTrue(remaining.single().message is ChatMessage.User)
+        // Active load: only turn 2 survives.
+        assertEquals(listOf("u-2", "a-2"), repo.loadMessagesWithIds("c1").map { it.id })
+
+        // The tombstoned rows physically remain (with deleted_at set) so the
+        // delete can propagate over sync — they're just filtered from reads.
+        val raw = db.conversationsQueries.selectMessagesByConversation("c1").executeAsList()
+        assertEquals(6, raw.size)
+        assertEquals(4, raw.count { it.deleted_at_epoch_ms != null })
     }
 
     @Test
-    fun deleteMessage_only_touches_its_own_conversation() = runTest {
-        repo.create("c1", "one", nowEpochMs = 100L)
-        repo.create("c2", "two", nowEpochMs = 100L)
-        repo.appendMessage("c1", ChatMessage.Assistant("keep me"), nowEpochMs = 101L, id = "a-c1")
-        repo.appendMessage("c2", ChatMessage.Assistant("delete me"), nowEpochMs = 101L, id = "a-c2")
+    fun deleteTurnContaining_via_user_message_id_also_removes_its_answer() = runTest {
+        repo.create("c1", "title", nowEpochMs = 100L)
+        repo.appendMessage("c1", ChatMessage.User("q1"), nowEpochMs = 101L, id = "u-1")
+        repo.appendMessage("c1", ChatMessage.Assistant("a1"), nowEpochMs = 102L, id = "a-1")
+        repo.appendMessage("c1", ChatMessage.User("q2"), nowEpochMs = 103L, id = "u-2")
+        repo.appendMessage("c1", ChatMessage.Assistant("a2"), nowEpochMs = 104L, id = "a-2")
 
-        repo.deleteMessage("c2", "a-c2")
-        assertEquals(1, repo.loadMessagesWithIds("c1").size)
-        assertEquals(0, repo.loadMessagesWithIds("c2").size)
+        val deleted = repo.deleteTurnContaining("c1", "u-1").toSet()
+        assertEquals(setOf("u-1", "a-1"), deleted)
+        assertEquals(listOf("u-2", "a-2"), repo.loadMessagesWithIds("c1").map { it.id })
+    }
+
+    @Test
+    fun unknown_message_id_deletes_nothing() = runTest {
+        repo.create("c1", "title", nowEpochMs = 100L)
+        repo.appendMessage("c1", ChatMessage.User("q1"), nowEpochMs = 101L, id = "u-1")
+        repo.appendMessage("c1", ChatMessage.Assistant("a1"), nowEpochMs = 102L, id = "a-1")
+
+        assertTrue(repo.deleteTurnContaining("c1", "nope").isEmpty())
+        assertEquals(2, repo.loadMessagesWithIds("c1").size)
+    }
+
+    @Test
+    fun peer_tombstone_wins_and_cannot_be_resurrected() = runTest {
+        repo.create("c1", "title", nowEpochMs = 100L)
+        repo.appendMessage("c1", ChatMessage.Assistant("a1"), nowEpochMs = 101L, id = "a-1")
+
+        // A peer reports the same message as deleted → tombstone is applied.
+        db.conversationsQueries.upsertMessageFromPeer(
+            id = "a-1", conversation_id = "c1", role = "assistant", content = "a1",
+            tool_call_json = null, tool_result_json = null,
+            created_at_epoch_ms = 101L, sequence_index = 0L,
+            image_bytes = null, render_markdown = 1L, deleted_at_epoch_ms = 500L,
+        )
+        assertEquals(0, repo.loadMessagesWithIds("c1").size)
+
+        // A later peer copy that is NOT deleted must not undo the tombstone.
+        db.conversationsQueries.upsertMessageFromPeer(
+            id = "a-1", conversation_id = "c1", role = "assistant", content = "a1",
+            tool_call_json = null, tool_result_json = null,
+            created_at_epoch_ms = 101L, sequence_index = 0L,
+            image_bytes = null, render_markdown = 1L, deleted_at_epoch_ms = null,
+        )
+        assertEquals(0, repo.loadMessagesWithIds("c1").size)
     }
 
     @Test

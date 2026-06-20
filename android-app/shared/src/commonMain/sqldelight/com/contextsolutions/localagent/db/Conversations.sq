@@ -30,7 +30,8 @@ CREATE TABLE messages (
     created_at_epoch_ms INTEGER NOT NULL,
     sequence_index INTEGER NOT NULL,          -- monotonically increasing within conversation
     image_bytes BLOB,                         -- 5.sqm (PR #49): downscaled JPEG, display-only; never re-fed to the model
-    render_markdown INTEGER NOT NULL DEFAULT 1 -- 6.sqm (PR #50): 1 = render markdown+LaTeX, 0 = plain (weather/finance cards)
+    render_markdown INTEGER NOT NULL DEFAULT 1, -- 6.sqm (PR #50): 1 = render markdown+LaTeX, 0 = plain (weather/finance cards)
+    deleted_at_epoch_ms INTEGER               -- 11.sqm (PR #4): soft-delete tombstone for per-turn delete; NULL = live
 );
 
 CREATE INDEX messages_by_conversation ON messages(conversation_id, sequence_index);
@@ -91,24 +92,43 @@ INSERT INTO messages(id, conversation_id, role, content, tool_call_json, tool_re
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- PR #57 sync: messages are immutable + keyed by UUID, so a peer's message is
--- unioned in with INSERT OR IGNORE (an existing id is left untouched).
+-- unioned in by id. Content columns are never updated (immutable); the ONLY
+-- mutable field is the PR #4 soft-delete tombstone, which is propagated with
+-- "tombstone wins, no resurrection": a peer's deleted_at is applied iff we
+-- haven't already deleted the row, and a NULL deleted_at can never clear an
+-- existing tombstone. New rows insert as usual.
 upsertMessageFromPeer:
-INSERT OR IGNORE INTO messages(id, conversation_id, role, content, tool_call_json, tool_result_json, created_at_epoch_ms, sequence_index, image_bytes, render_markdown)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO messages(id, conversation_id, role, content, tool_call_json, tool_result_json, created_at_epoch_ms, sequence_index, image_bytes, render_markdown, deleted_at_epoch_ms)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET
+    deleted_at_epoch_ms = excluded.deleted_at_epoch_ms
+WHERE excluded.deleted_at_epoch_ms IS NOT NULL AND messages.deleted_at_epoch_ms IS NULL;
 
+-- Raw read incl. tombstoned rows: used by the sync bundle (so deletes
+-- propagate) and by sequence-index computation (so a new message after a
+-- delete never reuses a tombstoned row's index).
 selectMessagesByConversation:
 SELECT * FROM messages WHERE conversation_id = ? ORDER BY sequence_index ASC;
+
+-- Live read (tombstones excluded): the UI bubble list + agent history.
+selectActiveMessagesByConversation:
+SELECT * FROM messages WHERE conversation_id = ? AND deleted_at_epoch_ms IS NULL ORDER BY sequence_index ASC;
 
 deleteMessagesBelowSequence:
 DELETE FROM messages
 WHERE conversation_id = :conversationId AND sequence_index < :cutoffSequenceIndex;
 
--- PR #4: remove a single message from a thread (the assistant-bubble "x").
-deleteMessageById:
-DELETE FROM messages WHERE conversation_id = :conversationId AND id = :id;
+-- PR #4: soft-delete (tombstone) a whole turn — the contiguous run of rows
+-- [startSeq, endSeq) from a user message up to (excluding) the next user
+-- message. Idempotent (already-tombstoned rows are skipped).
+softDeleteMessagesInRange:
+UPDATE messages SET deleted_at_epoch_ms = :nowEpochMs
+WHERE conversation_id = :conversationId
+  AND sequence_index >= :startSeq AND sequence_index < :endSeq
+  AND deleted_at_epoch_ms IS NULL;
 
 selectLastMessagePreview:
 SELECT content FROM messages
-WHERE conversation_id = :conversationId AND role IN ('user', 'assistant')
+WHERE conversation_id = :conversationId AND role IN ('user', 'assistant') AND deleted_at_epoch_ms IS NULL
 ORDER BY sequence_index DESC
 LIMIT 1;

@@ -626,7 +626,7 @@ fun ChatScreen(
                                 citations = message.citations,
                                 fromCache = message.fromCache,
                                 renderMarkdown = message.renderMarkdown,
-                                onDelete = { viewModel.deleteMessage(message.id) },
+                                onDelete = { viewModel.deleteTurn(message.id) },
                                 maxWidth = bubbleMaxWidth,
                             )
                             is UiMessage.MemoryPrompt -> MemoryPromptCard(
@@ -688,7 +688,7 @@ fun ChatScreen(
                             citations = message.citations,
                             fromCache = message.fromCache,
                             renderMarkdown = message.renderMarkdown,
-                            onDelete = { viewModel.deleteMessage(message.id) },
+                            onDelete = { viewModel.deleteTurn(message.id) },
                             maxWidth = bubbleMaxWidth,
                         )
                         is UiMessage.MemoryPrompt -> MemoryPromptCard(
@@ -1054,10 +1054,12 @@ private fun AssistantBubble(
     onDelete: () -> Unit,
     maxWidth: Dp = 320.dp,
 ) {
+    var confirmDelete by remember { mutableStateOf(false) }
     Column(modifier = Modifier.fillMaxWidth()) {
-        // PR #4 — the bubble sits beside a small "x" that removes this response
-        // from the thread (display + persistence). Aligned to the bubble top so
-        // it never overlaps the answer text.
+        // PR #4 — the bubble sits beside a small "x" that removes this whole
+        // exchange (the question + this answer) from the thread. Aligned to the
+        // bubble top so it never overlaps the answer text; confirmed first since
+        // it's destructive of both turns.
         Row(verticalAlignment = Alignment.Top) {
             Box(
                 modifier = Modifier
@@ -1079,10 +1081,10 @@ private fun AssistantBubble(
                     }
                 }
             }
-            IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+            IconButton(onClick = { confirmDelete = true }, modifier = Modifier.size(32.dp)) {
                 Icon(
                     Icons.Default.Close,
-                    contentDescription = tr(StringKeys.CHAT_CD_DELETE_MESSAGE),
+                    contentDescription = tr(StringKeys.CHAT_CD_DELETE_TURN),
                     tint = MaterialTheme.colorScheme.outline,
                     modifier = Modifier.size(16.dp),
                 )
@@ -1100,6 +1102,23 @@ private fun AssistantBubble(
             Spacer(Modifier.height(4.dp))
             CitationChips(citations)
         }
+    }
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text(tr(StringKeys.CHAT_DELETE_TURN_TITLE)) },
+            text = { Text(tr(StringKeys.CHAT_DELETE_TURN_BODY)) },
+            confirmButton = {
+                TextButton(onClick = { confirmDelete = false; onDelete() }) {
+                    Text(tr(StringKeys.CHAT_DELETE_TURN_CONFIRM))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = false }) {
+                    Text(tr(StringKeys.CHAT_DELETE_TURN_CANCEL))
+                }
+            },
+        )
     }
 }
 

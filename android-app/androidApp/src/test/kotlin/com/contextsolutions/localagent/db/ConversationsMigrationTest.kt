@@ -119,6 +119,104 @@ class ConversationsMigrationTest {
         assertArrayEquals(jpeg, bytes)
     }
 
+    @Test
+    fun migrate_eleven_to_twelve_adds_deleted_at_column_with_null_default() {
+        // PR #4 — 11.sqm adds messages.deleted_at_epoch_ms (soft-delete tombstone).
+        createV11Schema(driver)
+        insertV11Message(driver, id = "m1", convId = "c1", content = "hello")
+
+        val result = LocalAgentDatabase.Schema.migrate(driver, oldVersion = 11, newVersion = 12)
+        assertEquals(QueryResult.Unit, result)
+
+        val deletedAt = selectDeletedAtForMessage(driver, "m1")
+        assertNull("deleted_at_epoch_ms should default to NULL on existing rows", deletedAt)
+    }
+
+    @Test
+    fun migrated_messages_table_accepts_deleted_at_writes() {
+        createV11Schema(driver)
+        LocalAgentDatabase.Schema.migrate(driver, oldVersion = 11, newVersion = 12)
+
+        driver.execute(
+            identifier = null,
+            sql = "INSERT INTO messages(id, conversation_id, role, content, created_at_epoch_ms, sequence_index, render_markdown, deleted_at_epoch_ms) " +
+                "VALUES ('m2', 'c1', 'assistant', 'gone', 1700000000000, 0, 1, 1700000000500);",
+            parameters = 0,
+        )
+
+        val deletedAt = selectDeletedAtForMessage(driver, "m2")
+        assertNotNull("deleted_at must round-trip after migration", deletedAt)
+        assertEquals(1_700_000_000_500L, deletedAt)
+    }
+
+    // -- v11 fixture (post-6.sqm messages shape; only messages + parent needed) --
+
+    private fun createV11Schema(driver: JdbcSqliteDriver) {
+        driver.execute(
+            null,
+            """
+                CREATE TABLE conversations (
+                    id TEXT NOT NULL PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    created_at_epoch_ms INTEGER NOT NULL,
+                    updated_at_epoch_ms INTEGER NOT NULL,
+                    truncation_acknowledged_at INTEGER,
+                    deleted_at_epoch_ms INTEGER
+                );
+            """.trimIndent(),
+            0,
+        )
+        driver.execute(
+            null,
+            """
+                CREATE TABLE messages (
+                    id TEXT NOT NULL PRIMARY KEY,
+                    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    tool_call_json TEXT,
+                    tool_result_json TEXT,
+                    created_at_epoch_ms INTEGER NOT NULL,
+                    sequence_index INTEGER NOT NULL,
+                    image_bytes BLOB,
+                    render_markdown INTEGER NOT NULL DEFAULT 1
+                );
+            """.trimIndent(),
+            0,
+        )
+        driver.execute(null, "CREATE INDEX messages_by_conversation ON messages(conversation_id, sequence_index);", 0)
+        driver.execute(
+            null,
+            "INSERT INTO conversations(id, title, created_at_epoch_ms, updated_at_epoch_ms) " +
+                "VALUES ('c1', 'chat', 1700000000000, 1700000000000);",
+            0,
+        )
+    }
+
+    private fun insertV11Message(driver: JdbcSqliteDriver, id: String, convId: String, content: String) {
+        driver.execute(
+            null,
+            "INSERT INTO messages(id, conversation_id, role, content, created_at_epoch_ms, sequence_index, render_markdown) " +
+                "VALUES ('$id', '$convId', 'assistant', '$content', 1700000000000, 0, 1);",
+            0,
+        )
+    }
+
+    private fun selectDeletedAtForMessage(driver: JdbcSqliteDriver, id: String): Long? {
+        return driver.executeQuery(
+            identifier = null,
+            sql = "SELECT deleted_at_epoch_ms FROM messages WHERE id = '$id';",
+            parameters = 0,
+            mapper = { cursor ->
+                if (cursor.next().value) {
+                    QueryResult.Value(cursor.getLong(0))
+                } else {
+                    QueryResult.Value(null)
+                }
+            },
+        ).value
+    }
+
     // -- v5 fixture (post-4.sqm, pre-5.sqm) ---------------------------------
     // Only `messages` + its parent `conversations` are needed for 5.sqm's ALTER.
 

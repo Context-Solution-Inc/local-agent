@@ -525,22 +525,30 @@ class ChatViewModel(
     }
 
     /**
-     * PR #4 — remove a single assistant answer from the thread (the bubble "x").
-     * Drops it from the on-screen list immediately, deletes the persisted row,
-     * then resyncs [agentHistory] from the DB so the model no longer sees the
-     * removed turn on the next send. Other bubbles keep their in-memory state
-     * (e.g. the "from cache" flag) — only the targeted bubble is removed from UI.
+     * PR #4 — remove a whole conversational turn (the user message + its
+     * assistant answer(s) + any tool turns between them) given any message id in
+     * it. The repository soft-deletes the turn (tombstone, so it propagates to a
+     * paired device) and returns the affected ids; we prune those bubbles from
+     * the on-screen list and resync [agentHistory] so the model no longer sees
+     * the removed turn. Other bubbles keep their in-memory state (e.g. the
+     * "from cache" flag).
      */
-    fun deleteMessage(messageId: String) {
-        _ui.update { state ->
-            state.copy(messages = state.messages.filterNot { it is UiMessage.Assistant && it.id == messageId })
-        }
+    fun deleteTurn(messageId: String) {
         val convId = _conversationId.value ?: return
         viewModelScope.launch(Dispatchers.IO) {
             runCatching {
-                conversationRepository.deleteMessage(convId, messageId)
+                val deletedIds = conversationRepository.deleteTurnContaining(convId, messageId).toSet()
+                if (deletedIds.isEmpty()) return@launch
                 agentHistory = conversationRepository.loadMessagesWithIds(convId).map { it.message }
-            }.onFailure { logger.log("delete message failed: ${it.message}") }
+                _ui.update { state ->
+                    state.copy(
+                        messages = state.messages.filterNot {
+                            (it is UiMessage.User && it.id in deletedIds) ||
+                                (it is UiMessage.Assistant && it.id in deletedIds)
+                        },
+                    )
+                }
+            }.onFailure { logger.log("delete turn failed: ${it.message}") }
         }
     }
 

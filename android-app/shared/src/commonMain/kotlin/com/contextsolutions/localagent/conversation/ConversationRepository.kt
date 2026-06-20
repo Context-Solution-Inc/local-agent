@@ -67,8 +67,17 @@ interface ConversationRepository {
         id: String = newMessageId(),
     ): Long
 
-    /** Hard-delete a single message by id (PR #4 — the assistant-bubble "x"). */
-    suspend fun deleteMessage(conversationId: String, messageId: String)
+    /**
+     * Soft-delete (tombstone) the whole conversational turn that [messageId]
+     * belongs to — the user message plus its assistant answer(s) and any tool
+     * turns in between (PR #4, the bubble "x" deletes the exchange, not one
+     * bubble). Tombstoning (not a hard delete) lets the removal propagate to a
+     * paired device instead of being resurrected by the additive message sync.
+     * Bumps the conversation's `updated_at` so the delete rides the sync change
+     * feed. Returns the ids of the messages that were tombstoned (so the caller
+     * can prune the on-screen bubbles); empty if [messageId] isn't found.
+     */
+    suspend fun deleteTurnContaining(conversationId: String, messageId: String): List<String>
 
     /**
      * Hard-delete the oldest user+assistant turn-pair (plus any tool messages

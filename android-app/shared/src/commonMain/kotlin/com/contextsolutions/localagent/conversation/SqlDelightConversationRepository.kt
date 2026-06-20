@@ -93,7 +93,9 @@ class SqlDelightConversationRepository(
 
     override suspend fun loadMessagesWithIds(conversationId: String): List<StoredMessage> =
         withContext(ioDispatcher) {
-            queries.selectMessagesByConversation(conversationId).executeAsList()
+            // Active rows only — tombstoned turns (PR #4) are excluded from the
+            // UI bubble list and the agent's history.
+            queries.selectActiveMessagesByConversation(conversationId).executeAsList()
                 .map { row ->
                     StoredMessage(
                         id = row.id,
@@ -138,7 +140,9 @@ class SqlDelightConversationRepository(
 
     override suspend fun deleteOldestPair(conversationId: String): Int = withContext(ioDispatcher) {
         queries.transactionWithResult {
-            val rows = queries.selectMessagesByConversation(conversationId).executeAsList()
+            // Pair-drop operates on the live history (token-budget truncation);
+            // tombstoned rows (PR #4) are already gone from the user's view.
+            val rows = queries.selectActiveMessagesByConversation(conversationId).executeAsList()
             if (rows.isEmpty()) return@transactionWithResult 0
             // Find the SECOND user message. Everything strictly before its
             // sequence_index is the oldest user+assistant pair (plus any
@@ -158,13 +162,39 @@ class SqlDelightConversationRepository(
         }
     }
 
-    override suspend fun deleteMessage(conversationId: String, messageId: String): Unit = withContext(ioDispatcher) {
-        // PR #4 — single-message delete (assistant-bubble "x"). Note: a peer's
-        // copy can re-sync in via upsertMessageFromPeer (INSERT OR IGNORE);
-        // cross-device delete propagation is a deliberate follow-up.
-        queries.deleteMessageById(conversationId = conversationId, id = messageId)
-        localChangeBus?.notifyChanged()
-    }
+    override suspend fun deleteTurnContaining(conversationId: String, messageId: String): List<String> =
+        withContext(ioDispatcher) {
+            queries.transactionWithResult {
+                val active = queries.selectActiveMessagesByConversation(conversationId).executeAsList()
+                val target = active.firstOrNull { it.id == messageId }
+                    ?: return@transactionWithResult emptyList<String>()
+                // Turn start = the user message at or before the target; end = the
+                // next user message (exclusive), or the end of the thread.
+                val startSeq = active
+                    .filter { it.role == ROLE_USER && it.sequence_index <= target.sequence_index }
+                    .maxByOrNull { it.sequence_index }
+                    ?.sequence_index
+                    ?: target.sequence_index
+                val endSeq = active
+                    .filter { it.role == ROLE_USER && it.sequence_index > startSeq }
+                    .minByOrNull { it.sequence_index }
+                    ?.sequence_index
+                    ?: Long.MAX_VALUE
+                val deletedIds = active
+                    .filter { it.sequence_index in startSeq until endSeq }
+                    .map { it.id }
+                val now = Clock.System.now().toEpochMilliseconds()
+                queries.softDeleteMessagesInRange(
+                    nowEpochMs = now,
+                    conversationId = conversationId,
+                    startSeq = startSeq,
+                    endSeq = endSeq,
+                )
+                // Bump updated_at so the tombstones ride the sync change feed.
+                queries.touchUpdatedAt(nowEpochMs = now, id = conversationId)
+                deletedIds
+            }.also { localChangeBus?.notifyChanged() }
+        }
 
     override suspend fun acknowledgeTruncation(
         conversationId: String,
