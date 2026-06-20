@@ -23,3 +23,15 @@
 # (androidx.startup.InitializationProvider -> WorkManagerInitializer). Keep the
 # no-arg ctor of every RoomDatabase subclass so reflection can build it.
 -keep class * extends androidx.room.RoomDatabase { <init>(); }
+
+# LiteRT native runtimes (classifier/embedder = litert #18; Gemma LLM = litertlm).
+# Their .so code reaches back into Java via JNI FindClass/GetMethodID using the
+# fully-qualified class names — R8 can't see those string references, so it shrank
+# LiteRtException, and CompiledModel_nativeCreateFromFile aborted the process with
+#   litert_jni_common.h: Check failed: ex_class != nullptr
+#   Failed to find LiteRtException class
+# during classifier warm-up (before the chat screen renders). Keep both packages'
+# names + members so every JNI lookup resolves. (Build-time R8 can't catch this;
+# only an on-device launch does — see hard invariant #70 / #40.)
+-keep class com.google.ai.edge.litert.** { *; }
+-keep class com.google.ai.edge.litertlm.** { *; }
