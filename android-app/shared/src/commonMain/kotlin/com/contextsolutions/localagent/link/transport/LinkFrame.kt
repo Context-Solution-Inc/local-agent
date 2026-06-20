@@ -37,9 +37,21 @@ enum class FrameKind { REQUEST, RESPONSE, STREAM_DATA, STREAM_END, STREAM_ERROR,
 object LinkFrameCodec {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = false }
 
+    /**
+     * Defense-in-depth cap (security M5 / audit F4). The relay SDK has already
+     * materialized the full frame [ByteArray] by the time [decode] runs, so the
+     * *true* ingest-OOM bound lives below this seam (the SDK/gateway); this only
+     * caps the decode/parse amplification. 16 MB is generous vs. real CHAT history
+     * and SYNC_UPSERT bundle bodies. An oversized frame throws here, and
+     * [FrameDispatcher.start] already drops it safely via `runCatching{}.getOrNull()`.
+     */
+    const val MAX_FRAME_BYTES = 16 * 1024 * 1024
+
     fun encode(frame: LinkFrame): ByteArray =
         json.encodeToString(LinkFrame.serializer(), frame).encodeToByteArray()
 
-    fun decode(bytes: ByteArray): LinkFrame =
-        json.decodeFromString(LinkFrame.serializer(), bytes.decodeToString())
+    fun decode(bytes: ByteArray): LinkFrame {
+        require(bytes.size <= MAX_FRAME_BYTES) { "frame too large: ${bytes.size}" }
+        return json.decodeFromString(LinkFrame.serializer(), bytes.decodeToString())
+    }
 }

@@ -2,6 +2,7 @@ package com.contextsolutions.localagent.link.transport
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -17,15 +18,27 @@ import kotlinx.coroutines.sync.withLock
  * (or shutdown) tears the generation/subscription down. Each stream frame is
  * `send`-ed and awaited (peer ack) before the next, giving per-stream backpressure
  * across the relay.
+ *
+ * Resource bounds (security M5 / audit F4): the paired phone is lower-trust than
+ * the desktop, yet every streaming REQUEST spawns an LLM generation or a desktop
+ * subprocess and every unary REQUEST a coroutine. [maxConcurrentStreams] and
+ * [maxConcurrentUnary] bound concurrent in-flight work per connection; excess
+ * REQUESTs are rejected with a 429-style status ([STATUS_OVERLOADED]) instead of
+ * launching. A duplicate (attacker-chosen) [LinkFrame.id] for a live stream is
+ * rejected ([STATUS_DUPLICATE]) so a replay can't silently overwrite — and leak —
+ * the prior [Job], nor kill the legit stream.
  */
 class FrameDispatcher(
     private val pipe: RelayBytePipe,
     private val handler: LinkRequestHandler,
     private val scope: CoroutineScope,
     private val logger: (String) -> Unit = {},
+    private val maxConcurrentStreams: Int = DEFAULT_MAX_CONCURRENT_STREAMS,
+    private val maxConcurrentUnary: Int = DEFAULT_MAX_CONCURRENT_UNARY,
 ) {
     private val mutex = Mutex()
     private val streamJobs = mutableMapOf<Long, Job>()
+    private var unaryInFlight = 0
 
     fun start() {
         scope.launch {
@@ -51,46 +64,102 @@ class FrameDispatcher(
         }
         val request = LinkRequest(method, frame.body, frame.query ?: emptyMap())
         if (method.streaming) {
-            val job = scope.launch {
-                try {
-                    handler.handleStream(request).collect { event ->
-                        when (event) {
-                            is LinkStreamEvent.Data ->
-                                send(LinkFrame(id = frame.id, kind = FrameKind.STREAM_DATA, body = event.body))
-                            is LinkStreamEvent.End ->
-                                send(LinkFrame(id = frame.id, kind = FrameKind.STREAM_END, status = event.status))
-                            is LinkStreamEvent.Error ->
-                                send(LinkFrame(id = frame.id, kind = FrameKind.STREAM_ERROR, status = event.status, body = event.message))
-                        }
-                    }
-                    // The handler stream completed without an explicit terminal
-                    // (e.g. localChanges closed) — signal a clean end.
-                    send(LinkFrame(id = frame.id, kind = FrameKind.STREAM_END, status = 200))
-                } catch (c: CancellationException) {
-                    throw c
-                } catch (t: Throwable) {
-                    logger("stream ${frame.id} failed: ${t.message}")
-                    runCatching {
-                        send(LinkFrame(id = frame.id, kind = FrameKind.STREAM_ERROR, status = 0, body = t.message ?: "stream failed"))
-                    }
-                } finally {
-                    mutex.withLock { streamJobs.remove(frame.id) }
+            // Build the worker LAZY so the cap/duplicate decision + registration happen
+            // atomically under the mutex BEFORE it can run (fixes the old launch-then-register
+            // TOCTOU and the silent-overwrite leak). On rejection, cancel the unstarted job so
+            // it never lingers as a scope child.
+            val job = scope.launch(start = CoroutineStart.LAZY) { runStream(frame, request) }
+            val reject: Int? = mutex.withLock {
+                when {
+                    streamJobs.containsKey(frame.id) -> STATUS_DUPLICATE
+                    streamJobs.size >= maxConcurrentStreams -> STATUS_OVERLOADED
+                    else -> { streamJobs[frame.id] = job; null }
                 }
             }
-            mutex.withLock { streamJobs[frame.id] = job }
-        } else {
-            scope.launch {
-                val response = runCatching { handler.handleUnary(request) }
-                    .getOrElse { LinkResponse(500, """{"error":"${it.message ?: "error"}"}""") }
-                // The response send can fail if the peer went offline mid-request (relay
-                // PeerOfflineException). Swallow it — symmetric with the streaming branch — so it
-                // can't escape this launch and reach the uncaught handler.
+            if (reject == null) {
+                job.start()
+            } else {
+                job.cancel()
+                logger("stream ${frame.id} rejected ($reject)")
                 runCatching {
-                    send(LinkFrame(id = frame.id, kind = FrameKind.RESPONSE, status = response.status, body = response.body))
-                }.onFailure { logger("unary ${frame.id} response send failed: ${it.message}") }
+                    send(
+                        LinkFrame(
+                            id = frame.id,
+                            kind = FrameKind.STREAM_ERROR,
+                            status = reject,
+                            body = if (reject == STATUS_DUPLICATE) """{"error":"duplicate id"}""" else """{"error":"too many concurrent streams"}""",
+                        ),
+                    )
+                }
+            }
+        } else {
+            val accepted = mutex.withLock {
+                if (unaryInFlight >= maxConcurrentUnary) false else { unaryInFlight++; true }
+            }
+            if (!accepted) {
+                logger("unary ${frame.id} rejected (overloaded)")
+                runCatching {
+                    send(LinkFrame(id = frame.id, kind = FrameKind.RESPONSE, status = STATUS_OVERLOADED, body = """{"error":"too many concurrent requests"}"""))
+                }
+                return
+            }
+            scope.launch {
+                try {
+                    val response = runCatching { handler.handleUnary(request) }
+                        .getOrElse { LinkResponse(500, """{"error":"${it.message ?: "error"}"}""") }
+                    // The response send can fail if the peer went offline mid-request (relay
+                    // PeerOfflineException). Swallow it — symmetric with the streaming branch — so it
+                    // can't escape this launch and reach the uncaught handler.
+                    runCatching {
+                        send(LinkFrame(id = frame.id, kind = FrameKind.RESPONSE, status = response.status, body = response.body))
+                    }.onFailure { logger("unary ${frame.id} response send failed: ${it.message}") }
+                } finally {
+                    mutex.withLock { unaryInFlight-- }
+                }
             }
         }
     }
 
+    private suspend fun runStream(frame: LinkFrame, request: LinkRequest) {
+        try {
+            handler.handleStream(request).collect { event ->
+                when (event) {
+                    is LinkStreamEvent.Data ->
+                        send(LinkFrame(id = frame.id, kind = FrameKind.STREAM_DATA, body = event.body))
+                    is LinkStreamEvent.End ->
+                        send(LinkFrame(id = frame.id, kind = FrameKind.STREAM_END, status = event.status))
+                    is LinkStreamEvent.Error ->
+                        send(LinkFrame(id = frame.id, kind = FrameKind.STREAM_ERROR, status = event.status, body = event.message))
+                }
+            }
+            // The handler stream completed without an explicit terminal
+            // (e.g. localChanges closed) — signal a clean end.
+            send(LinkFrame(id = frame.id, kind = FrameKind.STREAM_END, status = 200))
+        } catch (c: CancellationException) {
+            throw c
+        } catch (t: Throwable) {
+            logger("stream ${frame.id} failed: ${t.message}")
+            runCatching {
+                send(LinkFrame(id = frame.id, kind = FrameKind.STREAM_ERROR, status = 0, body = t.message ?: "stream failed"))
+            }
+        } finally {
+            mutex.withLock { streamJobs.remove(frame.id) }
+        }
+    }
+
     private suspend fun send(frame: LinkFrame) = pipe.send(LinkFrameCodec.encode(frame))
+
+    companion object {
+        /** Max concurrent in-flight streams per connection (security M5 / audit F4). */
+        const val DEFAULT_MAX_CONCURRENT_STREAMS = 8
+
+        /** Max concurrent in-flight unary requests per connection. */
+        const val DEFAULT_MAX_CONCURRENT_UNARY = 16
+
+        /** 429-style: too many concurrent requests/streams. */
+        const val STATUS_OVERLOADED = 429
+
+        /** 409-style: a REQUEST reused a [LinkFrame.id] with a live stream. */
+        const val STATUS_DUPLICATE = 409
+    }
 }
