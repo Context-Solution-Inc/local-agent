@@ -40,6 +40,7 @@ class FrameDispatcherLimitsTest {
     ) {
         private val inbound = Channel<ByteArray>(Channel.UNLIMITED)
         val out = mutableListOf<LinkFrame>()
+        val logs = mutableListOf<String>()
 
         private val pipe = object : RelayBytePipe {
             override suspend fun send(bytes: ByteArray) {
@@ -51,7 +52,12 @@ class FrameDispatcherLimitsTest {
         }
 
         init {
-            FrameDispatcher(pipe, handler, scope, maxConcurrentStreams = maxStreams, maxConcurrentUnary = maxUnary).start()
+            FrameDispatcher(
+                pipe, handler, scope,
+                logger = { logs.add(it) },
+                maxConcurrentStreams = maxStreams,
+                maxConcurrentUnary = maxUnary,
+            ).start()
         }
 
         suspend fun request(id: Long, method: LinkMethod) =
@@ -168,6 +174,24 @@ class FrameDispatcherLimitsTest {
         val first = rig.framesFor(1).single()
         assertEquals(FrameKind.RESPONSE, first.kind)
         assertEquals(200, first.status)
+
+        scope.cancel()
+    }
+
+    @Test
+    fun acceptsLogInFlightCountAndWarnNearCap() = runTest {
+        val scope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
+        val rig = ServerRig(scope, ControllableHandler(), maxStreams = 3)
+
+        rig.request(1, LinkMethod.CHAT) // 1/3 — plain
+        rig.request(2, LinkMethod.CHAT) // 2/3 — near cap (within NEAR_CAP_MARGIN) → WARN
+        rig.request(3, LinkMethod.CHAT) // 3/3 — fills cap → WARN
+        advanceUntilIdle()
+
+        assertTrue(rig.logs.any { it == "stream 1 accepted (1/3)" }, "first accept logs count: ${rig.logs}")
+        assertTrue(rig.logs.any { it.startsWith("WARN stream 2 accepted (2/3)") }, "near-cap accept warns: ${rig.logs}")
+        assertTrue(rig.logs.any { it.startsWith("WARN stream 3 accepted (3/3)") }, "cap-filling accept warns: ${rig.logs}")
+        assertTrue(rig.logs.none { it.startsWith("WARN stream 1") }, "below-margin accept must not warn: ${rig.logs}")
 
         scope.cancel()
     }

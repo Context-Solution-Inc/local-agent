@@ -69,14 +69,16 @@ class FrameDispatcher(
             // TOCTOU and the silent-overwrite leak). On rejection, cancel the unstarted job so
             // it never lingers as a scope child.
             val job = scope.launch(start = CoroutineStart.LAZY) { runStream(frame, request) }
+            var inFlight = -1
             val reject: Int? = mutex.withLock {
                 when {
                     streamJobs.containsKey(frame.id) -> STATUS_DUPLICATE
                     streamJobs.size >= maxConcurrentStreams -> STATUS_OVERLOADED
-                    else -> { streamJobs[frame.id] = job; null }
+                    else -> { streamJobs[frame.id] = job; inFlight = streamJobs.size; null }
                 }
             }
             if (reject == null) {
+                logAccept("stream", frame.id, inFlight, maxConcurrentStreams)
                 job.start()
             } else {
                 job.cancel()
@@ -93,8 +95,9 @@ class FrameDispatcher(
                 }
             }
         } else {
+            var inFlight = -1
             val accepted = mutex.withLock {
-                if (unaryInFlight >= maxConcurrentUnary) false else { unaryInFlight++; true }
+                if (unaryInFlight >= maxConcurrentUnary) false else { unaryInFlight++; inFlight = unaryInFlight; true }
             }
             if (!accepted) {
                 logger("unary ${frame.id} rejected (overloaded)")
@@ -103,6 +106,7 @@ class FrameDispatcher(
                 }
                 return
             }
+            logAccept("unary", frame.id, inFlight, maxConcurrentUnary)
             scope.launch {
                 try {
                     val response = runCatching { handler.handleUnary(request) }
@@ -147,6 +151,20 @@ class FrameDispatcher(
         }
     }
 
+    /**
+     * Observability for the concurrency caps: one line per accepted request with the
+     * current in-flight count, escalated to a `WARN` once within [NEAR_CAP_MARGIN] of
+     * the cap (i.e. the last two slots) so the log shows the desktop approaching the
+     * limit before any 429 rejection actually fires.
+     */
+    private fun logAccept(kind: String, id: Long, inFlight: Int, max: Int) {
+        if (inFlight >= max - NEAR_CAP_MARGIN) {
+            logger("WARN $kind $id accepted ($inFlight/$max) — near concurrency cap")
+        } else {
+            logger("$kind $id accepted ($inFlight/$max)")
+        }
+    }
+
     private suspend fun send(frame: LinkFrame) = pipe.send(LinkFrameCodec.encode(frame))
 
     companion object {
@@ -161,5 +179,8 @@ class FrameDispatcher(
 
         /** 409-style: a REQUEST reused a [LinkFrame.id] with a live stream. */
         const val STATUS_DUPLICATE = 409
+
+        /** Accepts within this many slots of a cap are logged as WARN ("the last two slots"). */
+        const val NEAR_CAP_MARGIN = 1
     }
 }
