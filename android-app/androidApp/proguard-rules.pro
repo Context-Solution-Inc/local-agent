@@ -14,3 +14,12 @@
 # XNNPACK; LiteRT-LM GPU uses play-services' own delegate), so suppress the
 # R8 missing-class warning rather than re-adding the excluded dependency.
 -dontwarn org.tensorflow.lite.Delegate
+
+# Room (used internally by WorkManager for its WorkDatabase). The generated
+# *_Impl databases are instantiated reflectively via their no-arg constructor
+# (RoomDatabase.getGeneratedImplementation -> getDeclaredConstructor().newInstance()).
+# proguard-android-optimize.txt strips that unused-looking constructor, so launch
+# crashed with NoSuchMethodException: androidx.work.impl.WorkDatabase_Impl.<init> []
+# (androidx.startup.InitializationProvider -> WorkManagerInitializer). Keep the
+# no-arg ctor of every RoomDatabase subclass so reflection can build it.
+-keep class * extends androidx.room.RoomDatabase { <init>(); }
