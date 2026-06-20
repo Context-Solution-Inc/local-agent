@@ -93,6 +93,40 @@ class DesktopLinkRunJobTest {
     }
 
     @Test
+    fun cancelJobAcceptsRunningIdAndRejectsNotRunning() = runBlocking {
+        var captured: String? = null
+        val handler = DesktopLinkRequestHandler(
+            preferences = FakeLinkPrefs(),
+            sessionProvider = { error("session not used for CANCEL_JOB") },
+            syncService = NoOpSyncService(),
+            cancelJob = { id -> captured = id; id == "job-1" },
+        )
+
+        val ok = handler.handleUnary(LinkRequest(LinkMethod.CANCEL_JOB, query = mapOf("id" to "job-1")))
+        assertEquals(200, ok.status)
+        assertEquals("job-1", captured)
+
+        val notRunning = handler.handleUnary(LinkRequest(LinkMethod.CANCEL_JOB, query = mapOf("id" to "idle")))
+        assertEquals(404, notRunning.status)
+        assertEquals("idle", captured)
+    }
+
+    @Test
+    fun cancelJobRejectsMissingIdWithoutInvokingSeam() = runBlocking {
+        var called: String? = null
+        val handler = DesktopLinkRequestHandler(
+            preferences = FakeLinkPrefs(),
+            sessionProvider = { error("session not used for CANCEL_JOB") },
+            syncService = NoOpSyncService(),
+            cancelJob = { id -> called = id; true },
+        )
+
+        val res = handler.handleUnary(LinkRequest(LinkMethod.CANCEL_JOB))
+        assertEquals(404, res.status)
+        assertNull(called, "seam must not run on a blank id")
+    }
+
+    @Test
     fun runJobRejectsMissingIdWithoutInvokingSeam() = runBlocking {
         var called: String? = null
         val handler = DesktopLinkRequestHandler(

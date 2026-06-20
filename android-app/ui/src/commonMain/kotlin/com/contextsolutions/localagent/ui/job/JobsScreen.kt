@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -162,6 +163,7 @@ fun JobsScreen(
                             onTogglePaused = { paused -> viewModel.setPaused(job.id, paused) },
                             onOpenConversation = { job.lastRunConversationId?.let(onOpenConversation) },
                             onRunNow = { viewModel.runNow(job.id) },
+                            onCancel = { viewModel.cancel(job.id) },
                             onEdit = { editing = job },
                             onDelete = { deleting = job },
                         )
@@ -258,6 +260,7 @@ private fun JobRow(
     onTogglePaused: (Boolean) -> Unit,
     onOpenConversation: () -> Unit,
     onRunNow: () -> Unit,
+    onCancel: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -323,11 +326,23 @@ private fun JobRow(
         // and while a run is already in flight. Edit/Delete stay desktop-only (a peer
         // can't mutate a job definition).
         if (canControl) {
-            IconButton(
-                onClick = onRunNow,
-                enabled = job.deletedAtEpochMs == null && job.lastRunStatus != JobRunStatus.RUNNING,
-            ) {
-                Icon(Icons.Filled.PlayArrow, contentDescription = tr(StringKeys.JOBS_CD_RUN_NOW))
+            // While a run is in flight, swap run-now for a Cancel (stop) button that
+            // kills the desktop process tree — available on both platforms (mobile
+            // sends a CANCEL_JOB command over the link, like run-now).
+            if (job.lastRunStatus == JobRunStatus.RUNNING) {
+                IconButton(
+                    onClick = onCancel,
+                    enabled = job.deletedAtEpochMs == null,
+                ) {
+                    Icon(Icons.Filled.Stop, contentDescription = tr(StringKeys.JOBS_CD_CANCEL_RUN))
+                }
+            } else {
+                IconButton(
+                    onClick = onRunNow,
+                    enabled = job.deletedAtEpochMs == null,
+                ) {
+                    Icon(Icons.Filled.PlayArrow, contentDescription = tr(StringKeys.JOBS_CD_RUN_NOW))
+                }
             }
         }
         if (isAdmin) {

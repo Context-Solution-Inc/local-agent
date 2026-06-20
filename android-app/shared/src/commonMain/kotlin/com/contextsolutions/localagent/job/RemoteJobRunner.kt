@@ -16,6 +16,12 @@ import com.contextsolutions.localagent.link.transport.LinkTransportProvider
 interface RemoteJobRunner {
     /** Ask the desktop to run job [id] now. Returns true if the desktop accepted it. */
     suspend fun runNow(id: String): Boolean
+
+    /**
+     * Ask the desktop to cancel job [id]'s in-flight run (kills the process tree).
+     * Returns true if the desktop found a running job and cancelled it.
+     */
+    suspend fun cancel(id: String): Boolean
 }
 
 /**
@@ -29,6 +35,13 @@ class RelayRemoteJobRunner(private val transports: LinkTransportProvider) : Remo
         val transport = transports.current() ?: return false
         return transport.unary(
             LinkRequest(LinkMethod.RUN_JOB, query = mapOf("id" to id)),
+        ).isSuccess
+    }
+
+    override suspend fun cancel(id: String): Boolean {
+        val transport = transports.current() ?: return false
+        return transport.unary(
+            LinkRequest(LinkMethod.CANCEL_JOB, query = mapOf("id" to id)),
         ).isSuccess
     }
 }

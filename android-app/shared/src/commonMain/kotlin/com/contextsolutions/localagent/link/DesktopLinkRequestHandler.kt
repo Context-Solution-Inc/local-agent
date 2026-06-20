@@ -41,6 +41,10 @@ class DesktopLinkRequestHandler(
     // returns false when the id is unknown. Defaults to a no-op so non-desktop
     // callers and existing tests compile unchanged.
     private val runJob: suspend (String) -> Boolean = { false },
+    // Cancel a job's in-flight run by id. Desktop binds this to JobService.cancel;
+    // returns false when no run is in flight (→ 404). Default no-op keeps
+    // non-desktop callers + tests compiling.
+    private val cancelJob: suspend (String) -> Boolean = { false },
     // Run a job INLINE and return its captured output (PR #88). Desktop binds
     // this to JobExecutor.runCapture; returns null when the id is unknown
     // (→ stream End(404)). Default no-op keeps non-desktop callers + tests
@@ -84,6 +88,15 @@ class DesktopLinkRequestHandler(
                 LinkResponse(200, """{"ok":true}""")
             } else {
                 LinkResponse(404, """{"error":"unknown job"}""")
+            }
+        }
+
+        LinkMethod.CANCEL_JOB -> {
+            val id = request.query["id"].orEmpty()
+            if (id.isNotBlank() && cancelJob(id)) {
+                LinkResponse(200, """{"ok":true}""")
+            } else {
+                LinkResponse(404, """{"error":"no running job"}""")
             }
         }
 

@@ -253,6 +253,9 @@ fun main() {
                 false
             }
         },
+        // Cancel a job's in-flight run from a mobile peer (kills the process tree);
+        // false → no run in flight → 404.
+        cancelJob = { id -> jobService.cancel(id) },
         // PR #88 — a mobile "run job …" chat command runs the job inline on the
         // desktop and streams its output back. Unknown id → null (→ stream 404);
         // cancellation of the relay stream cancels runCapture → kills the process.
