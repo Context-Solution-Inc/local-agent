@@ -46,6 +46,8 @@ data class MessageSyncRecord(
     /** Base64 of the display-only JPEG (PR #49); null when absent. */
     val imageBytesBase64: String? = null,
     val renderMarkdown: Boolean = true,
+    /** PR #4 soft-delete tombstone; non-null = deleted at that epoch ms. Propagates per-turn deletes. */
+    val deletedAtEpochMs: Long? = null,
 )
 
 @Serializable

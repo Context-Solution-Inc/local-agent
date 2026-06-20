@@ -7,6 +7,7 @@ import com.contextsolutions.localagent.agent.ChatSessionController
 import com.contextsolutions.localagent.inference.SessionState
 import com.contextsolutions.localagent.conversation.ConversationRecord
 import com.contextsolutions.localagent.conversation.ConversationRepository
+import com.contextsolutions.localagent.conversation.StoredMessage
 import com.contextsolutions.localagent.inference.Accelerator
 import com.contextsolutions.localagent.inference.ThermalStatus
 import com.contextsolutions.localagent.inference.ThermalStatusProvider
@@ -82,10 +83,10 @@ class ChatViewModelReloadTest {
             updatedAtEpochMs = 200L,
             truncationAcknowledgedAtEpochMs = null,
         )
-        coEvery { conversationRepository.loadMessages("c1") } returns listOf(
-            ChatMessage.User("look at this", imageBytes = jpeg),
-            ChatMessage.Assistant("that's a cat"),
-            ChatMessage.User("thanks"),
+        coEvery { conversationRepository.loadMessagesWithIds("c1") } returns listOf(
+            StoredMessage("m1", ChatMessage.User("look at this", imageBytes = jpeg)),
+            StoredMessage("m2", ChatMessage.Assistant("that's a cat")),
+            StoredMessage("m3", ChatMessage.User("thanks")),
         )
 
         val vm = newViewModel()

@@ -67,6 +67,7 @@ class SqlDelightLinkSyncService(
                     sequenceIndex = m.sequence_index,
                     imageBytesBase64 = m.image_bytes?.let { Base64.Default.encode(it) },
                     renderMarkdown = m.render_markdown != 0L,
+                    deletedAtEpochMs = m.deleted_at_epoch_ms,
                 )
             }
             ConversationSyncRecord(
@@ -152,6 +153,7 @@ class SqlDelightLinkSyncService(
                     sequence_index = m.sequenceIndex,
                     image_bytes = m.imageBytesBase64?.let { runCatching { Base64.Default.decode(it) }.getOrNull() },
                     render_markdown = if (m.renderMarkdown) 1L else 0L,
+                    deleted_at_epoch_ms = m.deletedAtEpochMs,
                 )
             }
         }

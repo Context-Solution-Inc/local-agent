@@ -2,7 +2,7 @@
 
 How to use the assistant's features once it's built and installed (see
 [BUILD.md](BUILD.md) to get there). Covers configuring search sources, forcing a web search, photo
-input, voice in/read-aloud, and desktop appearance.
+input, voice in/read-aloud, managing conversations, and desktop appearance.
 
 ## Contents
 
@@ -10,6 +10,7 @@ input, voice in/read-aloud, and desktop appearance.
 - [Forcing a web search](#forcing-a-web-search)
 - [Asking about a photo](#asking-about-a-photo)
 - [Voice input and read-aloud](#voice-input-and-read-aloud)
+- [Managing conversations](#managing-conversations)
 - [Desktop appearance & window](#desktop-appearance--window)
 
 ---
@@ -192,6 +193,23 @@ ignored so the assistant's own voice doesn't get transcribed back into the box.
 > volume, the mic mostly hears *it*, not you, so *"speaker off"* spoken over the playback may not
 > register reliably (a pause between the assistant's words helps). The on-screen **speaker button** is
 > the guaranteed instant stop.
+
+## Managing conversations
+
+Tidy up the current thread without starting over (works on Android and desktop):
+
+- **Clear the prompt.** When the input box has text, an **×** appears at its right edge — tap it to
+  wipe your draft (also resets any in-progress voice transcript). The same thing happens on the
+  spoken *"clear"* command.
+- **Delete an exchange.** Each assistant answer has a small **×** in its top corner. Tapping it asks
+  you to confirm, then removes **the whole exchange** — your question *and* its response — from the
+  conversation (not just the one bubble, so the thread never shows a dangling question or orphan
+  answer). The removed turn also leaves the model's context, so it won't influence later replies.
+- **Delete a whole conversation.** Use the History screen to remove an entire thread.
+
+Deletes are permanent on this device. If your phone is paired to a desktop (anywhere-access
+subscription), a delete syncs to the other device and stays deleted — it won't reappear on the next
+sync.
 
 ## Desktop appearance & window
 

@@ -626,6 +626,7 @@ fun ChatScreen(
                                 citations = message.citations,
                                 fromCache = message.fromCache,
                                 renderMarkdown = message.renderMarkdown,
+                                onDelete = { viewModel.deleteTurn(message.id) },
                                 maxWidth = bubbleMaxWidth,
                             )
                             is UiMessage.MemoryPrompt -> MemoryPromptCard(
@@ -687,6 +688,7 @@ fun ChatScreen(
                             citations = message.citations,
                             fromCache = message.fromCache,
                             renderMarkdown = message.renderMarkdown,
+                            onDelete = { viewModel.deleteTurn(message.id) },
                             maxWidth = bubbleMaxWidth,
                         )
                         is UiMessage.MemoryPrompt -> MemoryPromptCard(
@@ -823,6 +825,16 @@ fun ChatScreen(
                         }
                     },
                 placeholder = { Text(tr(StringKeys.CHAT_INPUT_HINT)) },
+                // Quick "x" to wipe the current draft. Resets both the shown text
+                // and the dictation commit anchor (PR #67) so a stale transcript
+                // can't resurface on the next partial.
+                trailingIcon = {
+                    if (input.isNotEmpty()) {
+                        IconButton(onClick = { input = ""; committedInput = "" }) {
+                            Icon(Icons.Default.Close, contentDescription = tr(StringKeys.CHAT_CD_CLEAR_INPUT))
+                        }
+                    }
+                },
                 enabled = !ui.isGenerating && !thermal.isBlocking,
                 minLines = 1,
                 maxLines = 6,
@@ -1039,27 +1051,43 @@ private fun AssistantBubble(
     citations: List<SearchSource>,
     fromCache: Boolean,
     renderMarkdown: Boolean,
+    onDelete: () -> Unit,
     maxWidth: Dp = 320.dp,
 ) {
+    var confirmDelete by remember { mutableStateOf(false) }
     Column(modifier = Modifier.fillMaxWidth()) {
-        Box(
-            modifier = Modifier
-                .widthIn(max = maxWidth)
-                .background(
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = RoundedCornerShape(12.dp),
-                )
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-        ) {
-            // LLM answers render as markdown + LaTeX math (PR #50); the
-            // deterministic weather/finance cards (renderMarkdown=false) keep
-            // the plain selectable Text so their layout/`$` aren't reparsed.
-            if (renderMarkdown) {
-                MarkdownMath(text, renderMarkdown = true)
-            } else {
-                SelectionContainer {
-                    Text(text, style = MaterialTheme.typography.bodyMedium)
+        // PR #4 — the bubble sits beside a small "x" that removes this whole
+        // exchange (the question + this answer) from the thread. Aligned to the
+        // bubble top so it never overlaps the answer text; confirmed first since
+        // it's destructive of both turns.
+        Row(verticalAlignment = Alignment.Top) {
+            Box(
+                modifier = Modifier
+                    .widthIn(max = maxWidth)
+                    .background(
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(12.dp),
+                    )
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+            ) {
+                // LLM answers render as markdown + LaTeX math (PR #50); the
+                // deterministic weather/finance cards (renderMarkdown=false) keep
+                // the plain selectable Text so their layout/`$` aren't reparsed.
+                if (renderMarkdown) {
+                    MarkdownMath(text, renderMarkdown = true)
+                } else {
+                    SelectionContainer {
+                        Text(text, style = MaterialTheme.typography.bodyMedium)
+                    }
                 }
+            }
+            IconButton(onClick = { confirmDelete = true }, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = tr(StringKeys.CHAT_CD_DELETE_TURN),
+                    tint = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.size(16.dp),
+                )
             }
         }
         if (fromCache) {
@@ -1074,6 +1102,23 @@ private fun AssistantBubble(
             Spacer(Modifier.height(4.dp))
             CitationChips(citations)
         }
+    }
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text(tr(StringKeys.CHAT_DELETE_TURN_TITLE)) },
+            text = { Text(tr(StringKeys.CHAT_DELETE_TURN_BODY)) },
+            confirmButton = {
+                TextButton(onClick = { confirmDelete = false; onDelete() }) {
+                    Text(tr(StringKeys.CHAT_DELETE_TURN_CONFIRM))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = false }) {
+                    Text(tr(StringKeys.CHAT_DELETE_TURN_CANCEL))
+                }
+            },
+        )
     }
 }
 

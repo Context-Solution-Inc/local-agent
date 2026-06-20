@@ -73,7 +73,7 @@ marketing.
 |---|---|
 | Data encrypted in transit | **Yes** — HTTPS to Brave + Firebase only |
 | Data encrypted at rest | **Yes** — Android File-Based Encryption Credential-Encrypted Storage (default for `Context.dataDir`); Brave key in EncryptedSharedPreferences |
-| User can request data deletion | **Yes** — Settings → Memory → "Clear all"; Android Settings → App → Clear storage |
+| User can request data deletion | **Yes** — delete a single exchange (the chat bubble "×", removes the question + its response), a whole conversation (History), all memories (Settings → Memory → "Clear all"), or everything (Android Settings → App → Clear storage). Chat/conversation deletes are soft-delete tombstones, so they propagate to a paired device and are not resurrected by sync (CLAUDE.md invariant #68). |
 | Independent security review | Not yet (M6 internal audit only) |
 | Complies with Families Policy | N/A — app is not targeted at children |
 

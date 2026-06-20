@@ -183,6 +183,13 @@ offline/revoked fallback. See CLAUDE.md invariant **#55**.
   wire payloads (OpenAI chat JSON, post-`data:` SSE chunks, `SyncBundle` JSON) ride
   unchanged inside the frames, so `DesktopLinkInferenceEngine` / `LinkSyncClient`
   (renamed from `LinkSyncHttpClient`) / `SyncController` are transport-agnostic.
+  - **Deletes propagate, not just inserts.** The `SyncBundle` carries soft-delete
+    tombstones — conversations (`8.sqm` `deleted_at`) and, since PR #4, individual
+    chat turns (`messages.deleted_at_epoch_ms`, `11.sqm`). Message merge is
+    **tombstone-wins / no-resurrection** (`upsertMessageFromPeer` applies a peer's
+    `deleted_at` only if the local row isn't already deleted; a NULL never clears a
+    tombstone), so a per-turn delete on one device stays deleted on the other. See
+    CLAUDE.md invariant **#68**.
   - `LanLinkTransport` — today's Ktor HTTP, relocated (LAN behaviour byte-identical).
   - `RelayLinkTransport` (mobile) — frames RPC over a `RelayBytePipe` (the SDK's
     opaque `send`/`onMessage`) via `FrameMultiplexer` (client) ↔ `FrameDispatcher`

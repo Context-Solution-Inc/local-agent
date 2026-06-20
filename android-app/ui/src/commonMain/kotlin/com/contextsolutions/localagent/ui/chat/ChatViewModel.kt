@@ -12,6 +12,7 @@ import com.contextsolutions.localagent.agent.TranslationIntentDetector
 import com.contextsolutions.localagent.agent.ChatSessionController
 import com.contextsolutions.localagent.di.AgentLoopFactory
 import com.contextsolutions.localagent.conversation.ConversationRepository
+import com.contextsolutions.localagent.conversation.StoredMessage
 import com.contextsolutions.localagent.inference.SessionState
 import com.contextsolutions.localagent.inference.ThermalStatus
 import com.contextsolutions.localagent.inference.ThermalStatusProvider
@@ -256,13 +257,17 @@ class ChatViewModel(
             _conversationId.value = "conv-${Uuid.random()}"
         }
 
+        // PR #4 — id shared by the on-screen bubble and the persisted row so the
+        // user turn can be deleted by id without a reload.
+        val userMsgId = ConversationRepository.newMessageId()
+
         // Add user bubble immediately so it appears even before the model loads.
         // isCancelling is cleared here in case a prior turn left it set (e.g.
         // the user cancelled then immediately re-sent before the prior turn's
         // CancellationException catch ran).
         _ui.update {
             it.copy(
-                messages = it.messages + UiMessage.User(trimmed, imageBytes = imageBytes),
+                messages = it.messages + UiMessage.User(id = userMsgId, text = trimmed, imageBytes = imageBytes),
                 // Clear the input chip now that the image is part of the turn.
                 pendingImageBytes = null,
                 partialText = "",
@@ -305,6 +310,7 @@ class ChatViewModel(
                     // still only sees the current turn's image (invariant #39).
                     message = ChatMessage.User(trimmed, imageBytes = imageBytes),
                     nowEpochMs = now,
+                    id = userMsgId,
                 )
 
                 val historySnapshot = agentHistory
@@ -458,16 +464,16 @@ class ChatViewModel(
         currentJob?.cancel()
         viewModelScope.launch {
             val record = conversationRepository.get(conversationId) ?: return@launch
-            val messages = conversationRepository.loadMessages(conversationId)
+            val stored = conversationRepository.loadMessagesWithIds(conversationId)
 
-            agentHistory = messages
+            agentHistory = stored.map { it.message }
             _conversationId.value = record.id
             truncationAcknowledged = record.truncationAcknowledgedAtEpochMs != null
             conversationPersisted = true
             pendingCandidates.clear()
             _overflowDecision.value = null
 
-            val uiMessages = messages.mapNotNull { it.toUiMessage() }
+            val uiMessages = stored.mapNotNull { it.toUiMessage() }
             _ui.value = ChatUiState(messages = uiMessages)
 
             telemetryCounters.increment(CounterNames.CONVERSATIONS_RESUMED_TOTAL)
@@ -518,6 +524,34 @@ class ChatViewModel(
         }
     }
 
+    /**
+     * PR #4 — remove a whole conversational turn (the user message + its
+     * assistant answer(s) + any tool turns between them) given any message id in
+     * it. The repository soft-deletes the turn (tombstone, so it propagates to a
+     * paired device) and returns the affected ids; we prune those bubbles from
+     * the on-screen list and resync [agentHistory] so the model no longer sees
+     * the removed turn. Other bubbles keep their in-memory state (e.g. the
+     * "from cache" flag).
+     */
+    fun deleteTurn(messageId: String) {
+        val convId = _conversationId.value ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val deletedIds = conversationRepository.deleteTurnContaining(convId, messageId).toSet()
+                if (deletedIds.isEmpty()) return@launch
+                agentHistory = conversationRepository.loadMessagesWithIds(convId).map { it.message }
+                _ui.update { state ->
+                    state.copy(
+                        messages = state.messages.filterNot {
+                            (it is UiMessage.User && it.id in deletedIds) ||
+                                (it is UiMessage.Assistant && it.id in deletedIds)
+                        },
+                    )
+                }
+            }.onFailure { logger.log("delete turn failed: ${it.message}") }
+        }
+    }
+
     private suspend fun ensureConversationPersisted(conversationId: String, firstUserMessage: String) {
         if (conversationPersisted) return
         val now = Clock.System.now().toEpochMilliseconds()
@@ -534,30 +568,34 @@ class ChatViewModel(
         while (TokenBudgetEstimator.wouldOverflow(projected)) {
             val dropped = conversationRepository.deleteOldestPair(conversationId)
             if (dropped == 0) break // fewer than 2 user messages; can't pair-drop further
-            agentHistory = conversationRepository.loadMessages(conversationId)
+            val stored = conversationRepository.loadMessagesWithIds(conversationId)
+            agentHistory = stored.map { it.message }
             _ui.update { state ->
-                state.copy(messages = agentHistory.mapNotNull { it.toUiMessage() })
+                state.copy(messages = stored.mapNotNull { it.toUiMessage() })
             }
             projected = agentHistory + ChatMessage.User(pendingUserMessage)
         }
     }
 
-    private fun ChatMessage.toUiMessage(): UiMessage? = when (this) {
+    // PR #4 — maps a persisted (id, message) pair to a UI bubble, threading the
+    // DB row id through so the bubble can be deleted by id.
+    private fun StoredMessage.toUiMessage(): UiMessage? = when (val msg = message) {
         // PR #49 — carry the persisted JPEG so a resumed conversation re-renders
         // the photo. UserBubble decodes it lazily (decode-on-demand).
-        is ChatMessage.User -> UiMessage.User(text, imageBytes = imageBytes)
+        is ChatMessage.User -> UiMessage.User(id = id, text = msg.text, imageBytes = msg.imageBytes)
         is ChatMessage.Assistant -> {
             // Skip intermediate tool-call turns. The fresh-conversation path
             // surfaces only the FINAL Assistant on Done (the one with the
             // user-visible reply text and `toolCall == null`); rebuilding
             // history from persistence has to mirror that or we end up
             // rendering an empty leading bubble before each real response.
-            if (toolCall != null) null
+            if (msg.toolCall != null) null
             else UiMessage.Assistant(
-                text = text,
-                citations = citations,
+                id = id,
+                text = msg.text,
+                citations = msg.citations,
                 fromCache = false,
-                renderMarkdown = renderMarkdown,
+                renderMarkdown = msg.renderMarkdown,
             )
         }
         is ChatMessage.Tool -> null // tool turns aren't shown in the UI bubble list
@@ -604,10 +642,13 @@ class ChatViewModel(
                 // before the answer is read aloud so they never overlap.
                 stopWorkingTicker()
                 agentHistory = agentHistory + event.turnMessages
+                // PR #4 — id shared by the answer bubble and its persisted row.
+                val assistantMsgId = ConversationRepository.newMessageId()
                 _ui.update {
                     val cacheHit = it.searchStatus is SearchStatus.CompletedFromCache
                     it.copy(
                         messages = it.messages + UiMessage.Assistant(
+                            id = assistantMsgId,
                             text = event.message.text,
                             citations = event.message.citations,
                             fromCache = cacheHit,
@@ -625,7 +666,7 @@ class ChatViewModel(
                 if (ttsPreferences.isEnabled() && event.message.text.isNotBlank()) {
                     speaker.speak(MarkdownToPlainText.strip(event.message.text))
                 }
-                persistAgentTurnMessages(event.turnMessages)
+                persistAgentTurnMessages(event.turnMessages, finalAssistantId = assistantMsgId)
                 runMemoryExtraction(event)
             }
             is AgentEvent.Error -> {
@@ -648,18 +689,29 @@ class ChatViewModel(
      * user message (already persisted at send time so it survives a mid-turn
      * crash). Tool and assistant turns land in chronological order.
      */
-    private fun persistAgentTurnMessages(turnMessages: List<ChatMessage>) {
+    private fun persistAgentTurnMessages(turnMessages: List<ChatMessage>, finalAssistantId: String) {
         val convId = _conversationId.value ?: return
         val toPersist = turnMessages.dropWhile { it is ChatMessage.User }
         if (toPersist.isEmpty()) return
         viewModelScope.launch(Dispatchers.IO) {
             val now = Clock.System.now().toEpochMilliseconds()
-            for (msg in toPersist) {
+            toPersist.forEachIndexed { index, msg ->
+                // PR #4 — the final user-visible assistant turn shares its id with
+                // the on-screen bubble so it can be deleted by id; tool / tool-call
+                // turns keep fresh auto-generated ids.
+                val id = if (index == toPersist.lastIndex &&
+                    msg is ChatMessage.Assistant && msg.toolCall == null
+                ) {
+                    finalAssistantId
+                } else {
+                    ConversationRepository.newMessageId()
+                }
                 runCatching {
                     conversationRepository.appendMessage(
                         conversationId = convId,
                         message = msg,
                         nowEpochMs = now,
+                        id = id,
                     )
                 }.onFailure { logger.log("persist turn message failed: ${it.message}") }
             }
@@ -883,10 +935,15 @@ sealed interface UiMessage {
      * `decodeImageBitmap`) so a long thread doesn't hold every bitmap at once.
      */
     data class User(
+        // PR #4 — stable DB row id (shared with the persisted row) so a bubble
+        // can be targeted for deletion. Empty for transient/never-persisted rows.
+        val id: String,
         val text: String,
         val imageBytes: ByteArray? = null,
     ) : UiMessage
     data class Assistant(
+        // PR #4 — stable DB row id; the assistant-bubble "x" deletes by this id.
+        val id: String,
         val text: String,
         val citations: List<SearchSource>,
         val fromCache: Boolean = false,
