@@ -109,6 +109,18 @@ val modelSha256: String = secrets.getProperty("MODEL_SHA256", "")
 val modelSizeBytes: String = secrets.getProperty("MODEL_SIZE_BYTES", "0")
 val hfAuthToken: String = secrets.getProperty("HF_AUTH_TOKEN", "")
 
+// Release signing. For distribution supply a private keystore via secrets.properties
+// (RELEASE_STORE_FILE / RELEASE_STORE_PASSWORD / RELEASE_KEY_ALIAS / RELEASE_KEY_PASSWORD).
+// When those are absent we fall back to the standard Android debug keystore so that
+// `./gradlew :androidApp:installRelease` works out of the box for on-device testing of the
+// minified build. A debug-signed release is for LOCAL VERIFICATION ONLY — never ship it
+// (Play requires an upload key + App Signing). When no keystore is available at all (CI,
+// fresh checkout that has never run a debug build) the release stays unsigned, exactly as
+// before — CI never assembles the APK, so this is just a safety net.
+val releaseStoreFile: String = secrets.getProperty("RELEASE_STORE_FILE", "")
+val debugKeystore = file(System.getProperty("user.home") + "/.android/debug.keystore")
+val hasReleaseSigning = releaseStoreFile.isNotEmpty() || debugKeystore.exists()
+
 // Toggles the InferenceEngine binding between StubInferenceEngine and the real
 // LiteRT-LM-backed implementation (see InferenceModule). Override from the
 // command line: `./gradlew :androidApp:assembleDebug -PuseStubEngine=true`.
@@ -185,6 +197,25 @@ android {
         ndk { abiFilters += "arm64-v8a" }
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                if (releaseStoreFile.isNotEmpty()) {
+                    storeFile = file(releaseStoreFile)
+                    storePassword = secrets.getProperty("RELEASE_STORE_PASSWORD", "")
+                    keyAlias = secrets.getProperty("RELEASE_KEY_ALIAS", "")
+                    keyPassword = secrets.getProperty("RELEASE_KEY_PASSWORD", "")
+                } else {
+                    // Local-testing fallback: the standard debug keystore.
+                    storeFile = debugKeystore
+                    storePassword = "android"
+                    keyAlias = "androiddebugkey"
+                    keyPassword = "android"
+                }
+            }
+        }
+    }
+
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
@@ -200,6 +231,12 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            // Attach the signing config when a keystore is available (see above) so
+            // `installRelease` produces an installable APK; otherwise the release is
+            // left unsigned, the prior behaviour.
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             // Production builds never bundle a key — BYOK only.
             buildConfigField("String", "BRAVE_DEV_KEY", "\"\"")
