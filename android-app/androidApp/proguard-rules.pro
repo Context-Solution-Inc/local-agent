@@ -48,3 +48,17 @@
 # the litert JNI keep above (R8 can't see reflective construction) — hard invariant #70.
 -keep class com.securegateway.** { *; }
 -keepattributes Signature
+
+# JNA + lazysodium — the relay SDK's Crypto signs/encrypts via lazysodium, which
+# calls native libsodium through JNA. JNA's native dispatcher (libjnidispatch.so)
+# reaches back into Java via JNI to read com.sun.jna.Pointer's `peer` field (and
+# other Structure/Library members) BY NAME; R8 renamed them, so pairing failed:
+#   UnsatisfiedLinkError: Can't obtain peer field ID for class com.sun.jna.Pointer
+#   -> NoClassDefFoundError: com.securegateway.core.Crypto  (static init failed)
+# at MobileClient.<init> / AndroidKeystoreKeyStore.loadOrCreateIdentity. These are
+# JNA's documented ProGuard rules plus a keep for lazysodium's JNA bindings.
+-keep class com.sun.jna.** { *; }
+-keep class * extends com.sun.jna.** { *; }
+-keepclassmembers class * extends com.sun.jna.** { *; }
+-keep class com.goterl.** { *; }
+-dontwarn java.awt.**
