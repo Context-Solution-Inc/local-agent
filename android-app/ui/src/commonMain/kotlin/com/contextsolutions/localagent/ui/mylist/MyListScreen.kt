@@ -96,7 +96,10 @@ fun MyListScreen(
                             Text(tr(StringKeys.MYLIST_UI_CLEAR_DONE))
                         }
                     }
-                    IconButton(onClick = { creating = true }) {
+                    // Nudge left so the "+" right-aligns with the per-row edit/delete
+                    // icons, which sit inside the body's 16dp horizontal padding while
+                    // TopAppBar actions inset only ~4dp.
+                    IconButton(onClick = { creating = true }, modifier = Modifier.padding(end = 12.dp)) {
                         Icon(Icons.Filled.Add, contentDescription = tr(StringKeys.MYLIST_UI_CD_ADD))
                     }
                 },
@@ -228,11 +231,21 @@ private fun MyListRow(
                 )
             }
         }
+        // Grey (onSurfaceVariant) to match the top-bar "+" action icon, which uses
+        // the TopAppBar's default actionIconContentColor.
         IconButton(onClick = onEdit) {
-            Icon(Icons.Filled.Edit, contentDescription = tr(StringKeys.MYLIST_UI_CD_EDIT))
+            Icon(
+                Icons.Filled.Edit,
+                contentDescription = tr(StringKeys.MYLIST_UI_CD_EDIT),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
         IconButton(onClick = onDelete) {
-            Icon(Icons.Filled.Delete, contentDescription = tr(StringKeys.MYLIST_UI_CD_DELETE))
+            Icon(
+                Icons.Filled.Delete,
+                contentDescription = tr(StringKeys.MYLIST_UI_CD_DELETE),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
