@@ -79,10 +79,11 @@ Versions are pinned in `android-app/gradle/libs.versions.toml`.
   | `MODEL_SHA256` / `MODEL_SIZE_BYTES` | Checksum + size for the download + progress |
   | `HF_AUTH_TOKEN` | Read-scoped HuggingFace token for the gated Gemma repo (accept the license on HF first) |
 
-- **`google-services.json`** in `android-app/androidApp/` — *optional*. Enables Firebase Analytics +
-  Crashlytics. Gitignored, so it's absent in fresh checkouts; the app runs fine without it (telemetry
-  stays off, no launch crash). Add it (registered to `com.contextsolutions.localagent` /
-  `…localagent.debug`) only if you want crash/analytics reporting.
+- **`google-services.json`** in `android-app/androidApp/` — *optional, Android only*. Enables Firebase
+  Analytics + Crashlytics on Android. Gitignored, so it's absent in fresh checkouts; the app runs fine
+  without it (telemetry stays off, no launch crash). Add it (registered to
+  `com.contextsolutions.localagent` / `…localagent.debug`) only if you want Android crash/analytics
+  reporting. **Desktop crash reporting is a separate backend (Sentry) — see [Crash reporting](#crash-reporting).**
 - **Submodules:** clone with `--recurse-submodules`, or run `git submodule update --init` (pulls
   `agent-jobs`, the desktop job library). The `secure-gateway` SDK is a *sibling* repo published to
   `mavenLocal()`, not a submodule — only needed for the relay/subscription paths (see the run book).
@@ -176,10 +177,30 @@ Gradle properties (`-Pname=value`):
 | `-PauxModelBaseUrl=https://host/path` | `:desktopApp` | Override the compile-time hosting endpoint for the ONNX aux models (baked into `desktop_build_info.properties`). Default is the CDN (`DesktopAuxModels.DEFAULT_BASE_URL`). |
 
 Runtime env vars (desktop): `LOCALAGENT_GATEWAY_URL`, `LOCALAGENT_RELAY_WS_URL` (relay/subscription),
-`LOCALAGENT_LLAMA_SERVER_VARIANT` / `LOCALAGENT_LLAMA_SERVER`, `GEMMA_GGUF_PATH`,
+`LOCALAGENT_SUBSCRIPTION_PORTAL_URL` (static fallback for the Stripe customer-portal URL),
+`LOCALAGENT_LLAMA_SERVER_VARIANT` / `LOCALAGENT_LLAMA_SERVER`, `LOCALAGENT_LLAMA_SERVER_ARGS` (extra
+args appended to the `llama-server` subprocess, e.g. cache-type tuning for iGPU) /
+`LOCALAGENT_LLAMA_SERVER_DEVICE` (device pinning for inference), `GEMMA_GGUF_PATH`,
 `LOCALAGENT_CLASSIFIER_ONNX` / `LOCALAGENT_EMBEDDER_ONNX`, `LOCALAGENT_VOSK_MODEL`, `BRAVE_API_KEY`,
 `LOCALAGENT_HEADLESS=1` (background service, no window), `LOCALAGENT_KEYSTORE_PASSWORD` (overrides the
-derived desktop secret-store password). `DI_CHECK=1` resolves the Koin graph and exits.
+derived desktop secret-store password), `LOCALAGENT_TRAY_ICON_SIZE` (tray icon size override, px),
+`SENTRY_DSN` / `LOCALAGENT_RELEASE` (desktop crash reporting — see [Crash reporting](#crash-reporting)).
+`DI_CHECK=1` resolves the Koin graph and exits.
+
+### Crash reporting
+
+Crash reporting uses a different backend per platform, behind the common `SafeCrashReporter` facade.
+Both are gated by telemetry consent (default **OFF** per PRD §3.2.1) and degrade to a no-op reporter
+when unconfigured — neither is required to build or run.
+
+| Platform | Backend | Activation |
+|---|---|---|
+| **Android** | Firebase Analytics + Crashlytics | Active only when `google-services.json` is present (registered to `com.contextsolutions.localagent` / `…localagent.debug`); absent ⇒ no-op, no launch crash. |
+| **Desktop** | **Sentry** (`io.sentry:sentry` JVM SDK, `desktopMain` only) | Bound unconditionally but inert unless `SENTRY_DSN` is set (absent ⇒ local-logger no-op, no network). Optional `LOCALAGENT_RELEASE` tags the release. No `google-services.json` on desktop. |
+
+**For a production desktop build:** set `SENTRY_DSN` (and optionally `LOCALAGENT_RELEASE`) in the
+service/launch environment to capture crashes. **For Android:** drop in `google-services.json`; no env
+vars needed.
 
 ## Sideloading models (fast dev installs)
 
