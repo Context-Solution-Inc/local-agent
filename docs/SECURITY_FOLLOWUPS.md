@@ -10,8 +10,27 @@ remaining work.
 
 ## M4 — Move the Secure Gateway SDK off `mavenLocal()` to a signed repo + pin SHAs
 
-**Status:** PR #16 leaves `mavenLocal()` as-is (no published remote exists yet). The work
-below is two ordered PRs (gateway/SDK first, then local-agent consumer).
+**Status: DONE — fully CI-validated (local-agent PR #18).** Step 1 (secure-gateway PR #6) wired
+GPG-signed publishing to GitHub Packages; the namespace was then renamed `com.securegateway` →
+`com.contextsolutions.securegateway` (secure-gateway PR #7 / local-agent PR #17) and a signed
+`0.2.3` release published (signatures verified). Step 2 (local-agent PR #18) swapped
+`mavenLocal()` → the signed GitHub Packages repo (content-filtered, `read:packages` auth) and
+turned on Gradle dependency verification (`android-app/gradle/verification-metadata.xml`, sha256,
+`verify-metadata=true`, ~1395 components) pinning every artifact incl. the SDK. CI
+(`prompt-eval-gate.yml`, `desktop-package.yml`) authenticates with the **`SECURE_GATEWAY_PAT`
+repo secret** (classic PAT, `repo` + `read:packages`) instead of checking out +
+`publishToMavenLocal`.
+
+**Validated green:** `prompt-eval-gate` (Android + verification), `desktop-package` on
+**Linux**, local `installRelease` (R8 + lint) on a Pixel 7, and local `installDebug`. The
+exposed-during-setup token was rotated. **Deferred:** macOS/Windows `desktop-package`
+verification — that workflow runs on `v*` tags (not PRs), so formal cross-OS validation is
+deferred to the release-tag run; the macOS/Windows native entries are hand-added in
+`verification-metadata.xml` and were exercised once via a manual `workflow_dispatch`. See
+CLAUDE.md "Relay SDK from GitHub Packages + dependency verification" for the (battle-tested)
+regen procedure — note the lint/release path needs a separate `--no-configuration-cache` pass.
+
+Historical plan (for reference):
 
 **Recommendation: GitHub Packages (Maven registry) under `Context-Solution-Inc`.** Both repos
 are already in that org; the package is private by default (the SDK is crypto code — do **not**

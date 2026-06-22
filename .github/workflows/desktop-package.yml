@@ -77,6 +77,16 @@ jobs:
         # Builds every installer format declared for the current OS (Deb+Rpm /
         # Dmg+Pkg / Msi+Exe). Models (GGUF, ONNX, Vosk) are NOT bundled — they
         # download into the app-data dir at first run (docs/DESKTOP_PACKAGING.md).
+        #
+        # :desktopApp → :shared resolves the relay SDK
+        # (com.contextsolutions.securegateway:*) from secure-gateway's private GitHub Packages
+        # (M4 Step 2), so each OS runner needs read:packages auth — SECURE_GATEWAY_PAT, since
+        # the built-in cross-repo token can't read it. Dependency verification
+        # (gradle/verification-metadata.xml) pins every artifact, incl. the per-OS Skiko/
+        # Compose natives this matrix resolves.
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.SECURE_GATEWAY_PAT }}
         run: ./gradlew :desktopApp:packageDistributionForCurrentOS --no-daemon --stacktrace
 
       - name: Upload installers
