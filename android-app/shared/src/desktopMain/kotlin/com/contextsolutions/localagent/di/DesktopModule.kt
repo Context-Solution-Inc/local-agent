@@ -88,6 +88,7 @@ import com.contextsolutions.localagent.preferences.SearchPreferencesRepository
 import com.contextsolutions.localagent.platform.AgentClock
 import com.contextsolutions.localagent.platform.AppBuildConfig
 import com.contextsolutions.localagent.platform.DesktopAppBuildConfig
+import com.contextsolutions.localagent.platform.DesktopDiag
 import com.contextsolutions.localagent.platform.DesktopToaster
 import com.contextsolutions.localagent.platform.DesktopUrlOpener
 import com.contextsolutions.localagent.platform.Toaster
@@ -231,25 +232,19 @@ private const val EMPTY_DEFAULTS_JSON = """{"fallback":"US","countries":{"US":{}
  * Markdown/LaTeX is an expect/actual in :ui. Phase 7 complete (→ Phase 8
  * packaging, Phase 9 UI cutover).
  */
-// Security M2/M3: raw search queries, response bodies, and relay diagnostics are
-// privacy/credential-sensitive, so these logs are emitted only on internal/debug
-// builds (desktop `isDebug` is the `localagent.debug` system property), never in a
-// normal release run.
-private fun verboseDiagnostics(config: AppBuildConfig): Boolean = config.isDebug || config.isInternalBuild
-
 val desktopModule: Module = module {
     // PR #55 (Option 3) — desktop inference runs through llama.cpp's reference
     // `llama-server` subprocess over localhost HTTP, NOT the net.ladenthin:llama JNI
     // binding (which drops images before the vision encoder and ships CPU-only natives).
     // The binary is downloaded/cached on first run; the mmproj resolver (read lazily at
     // loadModel) enables vision via `--mmproj`.
-    single { LlamaServerBinaryStore(logger = { System.err.println("[LlamaServer] $it") }) }
+    single { LlamaServerBinaryStore(logger = { DesktopDiag.log("[LlamaServer] $it") }) }
 
     // PR #78 — desktop GPU device pin. The persisted pin rides into the llama-server
     // launch args as `--device <id>` so a multi-GPU box ignores the slow iGPU; the
     // enumerator backs the Settings "Detect devices" button.
     single { DesktopGpuPreferences(DesktopJsonStore(File(DesktopAppDirs.dataDir(), "gpu_prefs.json"))) }
-    single { LlamaServerDevices(binaryStore = get(), logger = { System.err.println("[LlamaServer] $it") }) }
+    single { LlamaServerDevices(binaryStore = get(), logger = { DesktopDiag.log("[LlamaServer] $it") }) }
 
     // PR #56 — remote Ollama config + client + engine. The OpenAI-compatible
     // OllamaInferenceEngine is shared (commonMain); only the prefs store is
@@ -257,13 +252,13 @@ val desktopModule: Module = module {
     single<OllamaPreferences> {
         DesktopOllamaPreferences(DesktopJsonStore(File(DesktopAppDirs.dataDir(), "ollama_prefs.json")))
     }
-    single { OllamaClient(get<HttpEngineFactory>(), get<SecureStorage>(), logger = { System.err.println("[OllamaClient] $it") }) }
+    single { OllamaClient(get<HttpEngineFactory>(), get<SecureStorage>(), logger = { DesktopDiag.log("[OllamaClient] $it") }) }
 
     // PR #74 — paid "anywhere access" (Secure Gateway relay subscription).
     single<SubscriptionPreferences> {
         DesktopSubscriptionPreferences(DesktopJsonStore(File(DesktopAppDirs.dataDir(), "subscription_prefs.json")))
     }
-    single { RelayGatewayClient(get<HttpEngineFactory>(), logger = { System.err.println("[RelayGateway] $it") }) }
+    single { RelayGatewayClient(get<HttpEngineFactory>(), logger = { DesktopDiag.log("[RelayGateway] $it") }) }
     single {
         RelaySubscriptionService(
             client = get(),
@@ -273,14 +268,14 @@ val desktopModule: Module = module {
             scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
             gatewayBaseUrl = RelaySubscriptionService.gatewayUrlFromEnv(),
             subscriptionPortalUrl = RelaySubscriptionService.portalUrlFromEnv(),
-            logger = { System.err.println("[Subscription] $it") },
+            logger = { DesktopDiag.log("[Subscription] $it") },
         )
     }
     single<SubscriptionUiController> {
         DesktopSubscriptionUiController(
             service = get(),
             scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
-            logger = { System.err.println("[Subscription] $it") },
+            logger = { DesktopDiag.log("[Subscription] $it") },
         )
     }
     // Relay follow-up — the desktop relay host (mints the relay QR + serves framed
@@ -294,8 +289,9 @@ val desktopModule: Module = module {
             relayWsUrl = RelaySubscriptionService.relayWsUrlFromEnv(),
             keyStorePath = File(DesktopAppDirs.dataDir(), "relay_identity.key").toPath(),
             // Security M3: relay diagnostics (endpoints, pair ids, SDK lines) only on
-            // internal/debug builds; release runs silent. SDK lines are also redacted.
-            logger = if (verboseDiagnostics(get())) { s -> System.err.println("[Relay] $s") } else { _ -> },
+            // internal/debug builds (DesktopDiag gates); release runs silent. SDK lines
+            // are also redacted at the wiring site.
+            logger = { DesktopDiag.log("[Relay] $it") },
         )
     }
     // Desktop "Disconnect" for a relay connection revokes the pairing via the relay host.
@@ -305,7 +301,7 @@ val desktopModule: Module = module {
     single {
         OllamaConnectionMonitor(
             healthProbe = { url -> get<OllamaClient>().health(url, get<OllamaPreferences>().config().serverType) },
-            logger = { System.err.println("[Ollama] $it") },
+            logger = { DesktopDiag.log("[Ollama] $it") },
         )
     }
     single {
@@ -315,7 +311,7 @@ val desktopModule: Module = module {
             client = get(),
             monitor = get(),
             secureStorage = get(),
-            logger = { System.err.println("[Ollama] $it") },
+            logger = { DesktopDiag.log("[Ollama] $it") },
         )
     }
 
@@ -335,11 +331,11 @@ val desktopModule: Module = module {
                     System.getenv("LOCALAGENT_LLAMA_SERVER_DEVICE")?.takeIf { it.isNotBlank() }
                         ?: get<DesktopGpuPreferences>().devicePin()
                 },
-                logger = { System.err.println("[LlamaServer] $it") },
+                logger = { DesktopDiag.log("[LlamaServer] $it") },
             ),
             ollama = get<OllamaInferenceEngine>(),
             preferences = get(),
-            logger = { System.err.println("[Inference] $it") },
+            logger = { DesktopDiag.log("[Inference] $it") },
         )
     }
 
@@ -383,7 +379,7 @@ val desktopModule: Module = module {
             jobPolicy = get(),
             embedder = get(),
             bus = get(),
-            logger = { System.err.println("[Sync] $it") },
+            logger = { DesktopDiag.log("[Sync] $it") },
             // A mobile pause wrote the row via the raw query (no bus) — drive the
             // scheduler so the job's coroutine actually cancels/rearms.
             onJobPausedFromPeer = { id, paused -> get<JobService>().reactToPausedChange(id, paused) },
@@ -401,7 +397,7 @@ val desktopModule: Module = module {
     // downloader fetches/verifies/promotes it. Phase 7's tray/chat drives download() and
     // loads from inventory.localFile() — replacing the harness's GEMMA_GGUF_PATH env var.
     single { DesktopModelInventory(DesktopModelInventory.DEFAULT) }
-    single { DesktopModelDownloader(inventory = get(), logger = { System.err.println("[ModelDownload] $it") }) }
+    single { DesktopModelDownloader(inventory = get(), logger = { DesktopDiag.log("[ModelDownload] $it") }) }
 
     // PR #55 — vision projector (mmproj) acquisition. A second inventory + downloader
     // for the ~990 MB mmproj GGUF; the desktop app fetches it in the background
@@ -410,7 +406,7 @@ val desktopModule: Module = module {
     single(named("mmproj")) {
         DesktopModelDownloader(
             inventory = get(named("mmproj")),
-            logger = { System.err.println("[MmprojDownload] $it") },
+            logger = { DesktopDiag.log("[MmprojDownload] $it") },
         )
     }
 
@@ -424,20 +420,20 @@ val desktopModule: Module = module {
     single<ClassifierEngine> {
         OnnxClassifierEngine(
             modelPath = DesktopAuxModels.classifierModel(),
-            logger = { System.err.println("[Classifier] $it") },
+            logger = { DesktopDiag.log("[Classifier] $it") },
         )
     }
     single<EmbedderEngine> {
         OnnxEmbedderEngine(
             tokenizer = get(),
             modelPath = DesktopAuxModels.embedderModel(),
-            logger = { System.err.println("[Embedder] $it") },
+            logger = { DesktopDiag.log("[Embedder] $it") },
         )
     }
     // First-run downloader for the two ONNX aux models (classifier + embedder), like
     // the GGUF/Vosk. Main.kt ensures them before warmUp; no-op when present, env-
     // overridden, or the hosting endpoint isn't configured (-PauxModelBaseUrl).
-    single { DesktopAuxModelStore(logger = { System.err.println("[AuxModels] $it") }) }
+    single { DesktopAuxModelStore(logger = { DesktopDiag.log("[AuxModels] $it") }) }
     single<HttpEngineFactory> { DesktopHttpEngineFactory() }
 
     // Secrets (Brave key, HF token, search-enabled flag) in a PKCS#12 keystore at
@@ -447,7 +443,7 @@ val desktopModule: Module = module {
 
     // File-backed DB at <app-data>/local_agent.db (Phase 6) — persists across
     // launches, create/migrate driven off PRAGMA user_version.
-    single<SqlDriver> { DesktopDatabaseFactory.create(logger = { System.err.println("[DB] $it") }) }
+    single<SqlDriver> { DesktopDatabaseFactory.create(logger = { DesktopDiag.log("[DB] $it") }) }
     single { LocalAgentDatabase(get()) }
     single { get<LocalAgentDatabase>().searchCacheQueries }
     single { get<LocalAgentDatabase>().memoriesQueries }
@@ -491,7 +487,7 @@ val desktopModule: Module = module {
         DesktopTtsSpeaker(voiceConfig = { get<DesktopTtsPreferences>().voiceConfig() }, piper = get())
     }
     // Chat-screen log sink (Phase 9 inc 8d) — desktop routes to stderr.
-    single<ChatLogger> { ChatLogger { System.err.println("[ChatViewModel] $it") } }
+    single<ChatLogger> { ChatLogger { DesktopDiag.log("[ChatViewModel] $it") } }
     // System-memory status dot source (chat header) — constant healthy on desktop.
     single<SystemMemoryStatusProvider> { DesktopSystemMemoryStatusProvider() }
     // Theme-mode persistence for the shared :ui ThemeModeViewModel (Phase 9 inc 8d).
@@ -533,7 +529,7 @@ val desktopModule: Module = module {
         FileAnalyticsSink(
             file = File(DesktopAppDirs.dataDir(), "telemetry/events.jsonl"),
             nowEpochMs = { get<AgentClock>().nowEpochMs() },
-            logger = { System.err.println("[Telemetry] $it") },
+            logger = { DesktopDiag.log("[Telemetry] $it") },
         )
     }
     single<SafeCrashReporter> { SentrySafeCrashReporter(consent = get()) }
@@ -548,7 +544,7 @@ val desktopModule: Module = module {
             nowEpochMs = { get<AgentClock>().nowEpochMs() },
         )
     }
-    single { DesktopTelemetryScheduler(uploader = get(), logger = { System.err.println("[Telemetry] $it") }) }
+    single { DesktopTelemetryScheduler(uploader = get(), logger = { DesktopDiag.log("[Telemetry] $it") }) }
 
     // -- Search ON (Phase 6) ---------------------------------------------------
     // User key from SecureStorage (set via settings, Phase 9) overrides the
@@ -561,8 +557,8 @@ val desktopModule: Module = module {
     // Default (GENERAL): /llm/context, maxUrls = 3 (invariant #37).
     // Security M2: raw query/response logs only on internal/debug builds.
     single<BraveSearchClient> {
-        KtorBraveLlmContextClient(get<HttpEngineFactory>(), maxUrls = 3, logQueries = verboseDiagnostics(get())) {
-            System.err.println("[BraveApi] $it")
+        KtorBraveLlmContextClient(get<HttpEngineFactory>(), maxUrls = 3, logQueries = DesktopDiag.verbose) {
+            DesktopDiag.log("[BraveApi] $it")
         }
     }
 
@@ -652,7 +648,7 @@ val desktopModule: Module = module {
     single<SearchService>(named("sports")) {
         SearchService(
             keyProvider = get(),
-            client = KtorBraveLlmContextClient(get<HttpEngineFactory>(), maxUrls = 1, logQueries = verboseDiagnostics(get())) { System.err.println("[BraveApi] $it") },
+            client = KtorBraveLlmContextClient(get<HttpEngineFactory>(), maxUrls = 1, logQueries = DesktopDiag.verbose) { DesktopDiag.log("[BraveApi] $it") },
             cache = get(),
             isEnabled = { get<SecureStorage>().get(SecureStorageKeys.SEARCH_ENABLED) != "false" },
             cacheNamespace = "sports:",
@@ -661,7 +657,7 @@ val desktopModule: Module = module {
     single<SearchService>(named("news")) {
         SearchService(
             keyProvider = get(),
-            client = KtorBraveLlmContextClient(get<HttpEngineFactory>(), maxUrls = 10, logQueries = verboseDiagnostics(get())) { System.err.println("[BraveApi] $it") },
+            client = KtorBraveLlmContextClient(get<HttpEngineFactory>(), maxUrls = 10, logQueries = DesktopDiag.verbose) { DesktopDiag.log("[BraveApi] $it") },
             cache = get(),
             isEnabled = { get<SecureStorage>().get(SecureStorageKeys.SEARCH_ENABLED) != "false" },
             cacheNamespace = "news:",
@@ -670,7 +666,7 @@ val desktopModule: Module = module {
     single<SearchService>(named("finance")) {
         SearchService(
             keyProvider = get(),
-            client = KtorBraveSearchClient(get<HttpEngineFactory>(), logQueries = verboseDiagnostics(get())) { System.err.println("[BraveApi] $it") },
+            client = KtorBraveSearchClient(get<HttpEngineFactory>(), logQueries = DesktopDiag.verbose) { DesktopDiag.log("[BraveApi] $it") },
             cache = get(),
             isEnabled = { get<SecureStorage>().get(SecureStorageKeys.SEARCH_ENABLED) != "false" },
             cacheNamespace = "fin:",
@@ -682,7 +678,7 @@ val desktopModule: Module = module {
     // dropped here. Bind it to timestamped stderr so the force-fire path is visible.
     single<AgentLogger> {
         AgentLogger { msg ->
-            System.err.println("[AgentLoop ${LocalTime.now().format(AGENT_LOG_TIME_FMT)}] $msg")
+            DesktopDiag.log("[AgentLoop ${LocalTime.now().format(AGENT_LOG_TIME_FMT)}] $msg")
         }
     }
 
@@ -696,7 +692,7 @@ val desktopModule: Module = module {
             configProvider = { config },
             searchAvailableProvider = { searchService.isAvailable() },
             subtypeDetector = get(),
-            logger = { System.err.println("[ClassifierModule] $it") }, // invariant #28
+            logger = { DesktopDiag.log("[ClassifierModule] $it") }, // invariant #28
         )
     }
 
@@ -708,8 +704,8 @@ val desktopModule: Module = module {
             sportsSearchService = get(named("sports")),
             financeSearchService = get(named("finance")),
             newsSearchService = get(named("news")),
-            logger = { System.err.println("[VerticalSearch] $it") },
-            logQueries = verboseDiagnostics(get()), // security M2
+            logger = { DesktopDiag.log("[VerticalSearch] $it") },
+            logQueries = DesktopDiag.verbose, // security M2
         )
     }
 
@@ -739,7 +735,7 @@ val desktopModule: Module = module {
             counters = get(),
             config = get(),
             appVersionName = get<AppBuildConfig>().versionName,
-            logger = { msg -> System.err.println("[MemoryBackup] $msg") },
+            logger = { msg -> DesktopDiag.log("[MemoryBackup] $msg") },
         )
     }
     single { RememberForgetDetector() }
@@ -751,7 +747,7 @@ val desktopModule: Module = module {
             embedder = get(),
             store = get(),
             nowProvider = { clock.nowEpochMs() },
-            logger = { System.err.println("[MemoryRetriever] $it") },
+            logger = { DesktopDiag.log("[MemoryRetriever] $it") },
         )
     }
     single {
@@ -769,7 +765,7 @@ val desktopModule: Module = module {
             nowProvider = { clock.nowEpochMs() },
             configProvider = { config },
             creationEnabledProvider = { preferences.creationEnabled() },
-            logger = { System.err.println("[MemoryExtractor] $it") },
+            logger = { DesktopDiag.log("[MemoryExtractor] $it") },
         )
     }
 
@@ -805,7 +801,7 @@ val desktopModule: Module = module {
             clockServiceProvider = { get<ClockService>() },
             presenter = get(),
             clock = get(),
-            logger = { System.err.println("[ClockScheduler] $it") },
+            logger = { DesktopDiag.log("[ClockScheduler] $it") },
         )
     }
     single { ClockService(repository = get(), scheduler = get()) }
@@ -820,7 +816,7 @@ val desktopModule: Module = module {
         DesktopJobScheduler(
             jobServiceProvider = { get<JobService>() },
             clock = get(),
-            logger = { System.err.println("[JobScheduler] $it") },
+            logger = { DesktopDiag.log("[JobScheduler] $it") },
         )
     }
     single {
@@ -828,7 +824,7 @@ val desktopModule: Module = module {
             jobs = get(),
             conversations = get(),
             clock = get(),
-            logger = { System.err.println("[JobExecutor] $it") },
+            logger = { DesktopDiag.log("[JobExecutor] $it") },
         )
     }
     single {
@@ -837,7 +833,7 @@ val desktopModule: Module = module {
             scheduler = get(),
             executor = get(),
             clock = get(),
-            logger = { System.err.println("[JobService] $it") },
+            logger = { DesktopDiag.log("[JobService] $it") },
         )
     }
     // The desktop is the authority: bind the admin seam so the shared Jobs UI can
@@ -851,13 +847,13 @@ val desktopModule: Module = module {
     single {
         DesktopJobLibraryStore(
             deploymentId = get<AppBuildConfig>().let { "${it.versionCode}-${it.gitDescribe}" },
-            logger = { System.err.println("[JobLibrary] $it") },
+            logger = { DesktopDiag.log("[JobLibrary] $it") },
         )
     }
-    single<JobCatalog> { DesktopJobCatalog(library = get(), logger = { System.err.println("[JobCatalog] $it") }) }
-    single { DesktopNodeProvisioner(logger = { System.err.println("[NodeProvision] $it") }) }
+    single<JobCatalog> { DesktopJobCatalog(library = get(), logger = { DesktopDiag.log("[JobCatalog] $it") }) }
+    single { DesktopNodeProvisioner(logger = { DesktopDiag.log("[NodeProvision] $it") }) }
     single<JobInitializer> {
-        DesktopJobInitializer(nodeProvisioner = get(), logger = { System.err.println("[JobInit] $it") })
+        DesktopJobInitializer(nodeProvisioner = get(), logger = { DesktopDiag.log("[JobInit] $it") })
     }
     // PR #88 — the desktop runs a "run job …" chat command locally (subprocess);
     // mobile binds the relay variant. AgentCoreModule pulls this with getOrNull().
@@ -877,7 +873,7 @@ val desktopModule: Module = module {
             presenter = get(),
             prefs = get(),
             stringCatalog = get(),
-            logger = { System.err.println("[JobNotifier] $it") },
+            logger = { DesktopDiag.log("[JobNotifier] $it") },
         )
     }
 

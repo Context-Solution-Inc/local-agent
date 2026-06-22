@@ -40,6 +40,7 @@ import com.contextsolutions.localagent.memory.EmbedderEngine
 import com.contextsolutions.localagent.memory.MemoryExtractor
 import com.contextsolutions.localagent.memory.MemoryStore
 import com.contextsolutions.localagent.platform.AppBuildConfig
+import com.contextsolutions.localagent.platform.DesktopDiag
 import com.contextsolutions.localagent.platform.UrlOpener
 import com.contextsolutions.localagent.preferences.OllamaPreferences
 import com.contextsolutions.localagent.telemetry.TelemetryCounters
@@ -181,7 +182,7 @@ fun main() {
     koin.get<UrlOpener>()
     koin.get<ImagePreprocessor>()
     koin.get<FilePicker>()
-    System.err.println("[desktopApp] Koin agent graph resolved OK")
+    DesktopDiag.log("[desktopApp] Koin agent graph resolved OK")
 
     if (System.getenv("DI_CHECK") == "1") {
         kotlin.system.exitProcess(0)
@@ -265,7 +266,7 @@ fun main() {
     )
     val linkServer = DesktopLinkServer(
         onSubscribeCallback = { code, nonce -> subscription.handleClaimCode(code, nonce) },
-        logger = { System.err.println("[DesktopLink] $it") },
+        logger = { DesktopDiag.log("[DesktopLink] $it") },
     )
     // The checkout redirect targets the loopback callback server's port.
     subscription.callbackPortProvider = { linkServer.boundPort.takeIf { it > 0 } }
@@ -285,7 +286,7 @@ fun main() {
             combine(relayQrPayload, relayQrExpiresAt) { payload, expiresAt -> payload to expiresAt }
                 .onEach { (payload, expiresAt) ->
                     koin.get<MutableDesktopLinkQr>().set(payload, expiresAt)
-                    System.err.println("[DesktopLink] pairing QR ${if (payload != null) "ready" else "unavailable"}")
+                    DesktopDiag.log("[DesktopLink] pairing QR ${if (payload != null) "ready" else "unavailable"}")
                 }
                 .launchIn(appScope)
         }.onFailure { System.err.println("[DesktopLink] callback server failed to start: ${it.message}") }
@@ -321,7 +322,7 @@ fun main() {
                         if (relayHost.reconnect(linkHandler, appScope)) {
                             relayQrPayload.value = null
                             relayQrExpiresAt.value = null
-                            System.err.println("[Relay] reconnected to existing pairing; serving framed link requests")
+                            DesktopDiag.log("[Relay] reconnected to existing pairing; serving framed link requests")
                         } else {
                             // PR #92 — don't auto-mint (the token is only valid ~300s). Show the
                             // "Pair Now" button (no QR) and wait for the user's click before minting.
@@ -332,7 +333,7 @@ fun main() {
                                 relayQrExpiresAt.value =
                                     clock.nowEpochMs() + DesktopRelayHost.PAIRING_WINDOW.toMillis()
                                 relayQrPayload.value = relayHost.generatePairingQr()
-                                System.err.println("[Relay] pairing QR ready; awaiting phone (300s)…")
+                                DesktopDiag.log("[Relay] pairing QR ready; awaiting phone (300s)…")
                                 val paired = runCatching {
                                     relayHost.awaitPairing(DesktopRelayHost.PAIRING_WINDOW)
                                     true
@@ -344,13 +345,13 @@ fun main() {
                                 relayQrExpiresAt.value = null
                                 if (paired) {
                                     relayHost.connectAndServe(linkHandler, appScope)
-                                    System.err.println("[Relay] connected; serving framed link requests")
+                                    DesktopDiag.log("[Relay] connected; serving framed link requests")
                                     break // connected — stop waiting for further pair requests
                                 } else {
                                     // Window elapsed without a scan — drop the half-open client so the
                                     // next mint is fresh, then loop back to the "Pair Now" button.
                                     relayHost.close()
-                                    System.err.println("[Relay] pairing window expired; showing Pair Now again")
+                                    DesktopDiag.log("[Relay] pairing window expired; showing Pair Now again")
                                 }
                             }
                         }
@@ -414,7 +415,7 @@ fun main() {
         notifications = presenter,
         stringCatalog = koin.get(),
         scope = appScope,
-        logger = { System.err.println("[MmprojDownload] $it") },
+        logger = { DesktopDiag.log("[MmprojDownload] $it") },
         notifyMilestones = false, // PR #95 — see modelDownload above (single aggregate notice)
     )
 
@@ -577,7 +578,7 @@ fun main() {
         return
     }
     if (startHeadless) {
-        System.err.println("[desktopApp] background: runtime started, minimized to tray (Show to open).")
+        DesktopDiag.log("[desktopApp] background: runtime started, minimized to tray (Show to open).")
     }
 
     application {

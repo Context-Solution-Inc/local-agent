@@ -115,6 +115,15 @@ configurations.all {
 // downloaded (CPU today; Vulkan/Metal/CUDA is the follow-up in LlamaServerRelease), NOT
 // a JVM system property. The old `-PllamaLibPath` JNI hook is gone with the binding.
 
+// Dev runs (`:desktopApp:run`) keep FULL diagnostic logging by setting the
+// `localagent.debug` system property the gate (`DesktopDiag`) reads. This is scoped to the
+// `run` JavaExec task ONLY — it is NOT added to `application.jvmArgs`, so a packaged
+// production installer stays quiet by default. Operators can still opt a packaged build
+// into verbose logging by launching it with `-Dlocalagent.debug=true`.
+tasks.withType<JavaExec>().configureEach {
+    if (name == "run") systemProperty("localagent.debug", "true")
+}
+
 compose.desktop {
     application {
         mainClass = "com.contextsolutions.localagent.desktop.app.MainKt"
