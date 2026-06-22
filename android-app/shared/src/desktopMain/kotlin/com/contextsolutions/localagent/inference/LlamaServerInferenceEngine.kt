@@ -1,5 +1,6 @@
 package com.contextsolutions.localagent.inference
 
+import com.contextsolutions.localagent.platform.DesktopDiag
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpTimeout
@@ -56,7 +57,7 @@ class LlamaServerInferenceEngine(
     /** Resolves the Vulkan device pin (null ⇒ all GPUs); consulted only on the GPU variant (#78). */
     private val devicePinProvider: () -> String? = { null },
     private val defaultTemperature: Float = InferenceConfig().temperature,
-    private val logger: (String) -> Unit = { System.err.println("[LlamaServer] $it") },
+    private val logger: (String) -> Unit = { DesktopDiag.log("[LlamaServer] $it") },
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : InferenceEngine {
 

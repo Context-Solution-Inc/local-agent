@@ -12,6 +12,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.contextsolutions.localagent.app.AppDiag
 import com.contextsolutions.localagent.telemetry.TelemetryUploader
 import org.koin.mp.KoinPlatform.getKoin
 import java.util.concurrent.TimeUnit
@@ -45,7 +46,7 @@ class TelemetryUploadWorker(
     override suspend fun doWork(): Result = try {
         val includeCurrent = inputData.getBoolean(KEY_INCLUDE_CURRENT_WINDOW, false)
         val outcome = uploader.upload(includeCurrentWindow = includeCurrent)
-        Log.i(
+        AppDiag.i(
             TAG,
             "telemetry upload outcome=${outcome::class.simpleName}" +
                 if (includeCurrent) " (include_current_window=true)" else "",

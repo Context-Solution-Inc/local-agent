@@ -170,6 +170,7 @@
   "settings.ollama.ssl_locked": "Usar SSL (https): obligatorio para OpenAI-compatible",
   "settings.ollama.ssl_locked_by_key": "SSL es obligatorio mientras haya una clave de API guardada. Borre la clave guardada para desactivarlo.",
   "settings.ollama.ssl": "Usar SSL (https)",
+  "settings.ollama.http_warning": "El tráfico a este servidor no está cifrado (HTTP). Úselo solo en una red privada de confianza: cualquier persona en la red puede leer o alterar sus mensajes y respuestas.",
   "settings.ollama.base_url": "URL base",
   "settings.ollama.host": "Host / IP",
   "settings.ollama.port": "Puerto",

@@ -293,6 +293,10 @@ object EnglishStrings {
             "SSL is required while an API key is saved. Clear the saved key to turn it off.",
         ),
         StringKeys.SETTINGS_OLLAMA_SSL to Simple("Use SSL (https)"),
+        StringKeys.SETTINGS_OLLAMA_HTTP_WARNING to Simple(
+            "Traffic to this server is unencrypted (HTTP). Only use it on a trusted private " +
+                "network — anyone on the network can read or alter your prompts and replies.",
+        ),
         StringKeys.SETTINGS_OLLAMA_BASE_URL to Simple("Base URL"),
         StringKeys.SETTINGS_OLLAMA_HOST to Simple("Host / IP"),
         StringKeys.SETTINGS_OLLAMA_PORT to Simple("Port"),

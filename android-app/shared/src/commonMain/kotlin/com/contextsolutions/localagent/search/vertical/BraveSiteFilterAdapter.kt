@@ -37,6 +37,9 @@ class BraveSiteFilterAdapter(
     private val subtype: SearchSubtype = SearchSubtype.NEWS,
     private val maxCitations: Int? = null,
     private val logger: (String) -> Unit = {},
+    // Security M2: gates the effective query (contains the raw user query).
+    // Off by default; DI flips it on for internal/debug builds.
+    private val logQueries: Boolean = false,
 ) : VerticalSearchAdapter {
 
     override suspend fun fetch(
@@ -59,7 +62,7 @@ class BraveSiteFilterAdapter(
             // bind together rather than the last one floating onto the query.
             else -> "$query (${domains.joinToString(separator = " OR ") { "site:$it" }})"
         }
-        logger("[vertical:$subtype] brave query=\"$effectiveQuery\"")
+        if (logQueries) logger("[vertical:$subtype] brave query=\"$effectiveQuery\"")
         val outcome = searchService.search(effectiveQuery)
         // Single-source verticals (FINANCE / SPORTS) cap the citation chips so a
         // single site doesn't render several redundant chips — the model still

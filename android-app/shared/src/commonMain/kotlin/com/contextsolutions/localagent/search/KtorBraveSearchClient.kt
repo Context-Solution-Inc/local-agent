@@ -40,15 +40,18 @@ class KtorBraveSearchClient internal constructor(
     private val httpClient: HttpClient,
     private val endpoint: String = DEFAULT_ENDPOINT,
     private val logger: (String) -> Unit = {},
+    // Security M2: the raw user query is privacy-sensitive (health/financial/etc.).
+    // Off by default; DI flips it on only for internal/debug builds.
+    private val logQueries: Boolean = false,
 ) : BraveSearchClient {
 
     constructor(httpEngineFactory: HttpEngineFactory) : this(httpEngineFactory.create())
     constructor(httpEngineFactory: HttpEngineFactory, endpoint: String) : this(httpEngineFactory.create(), endpoint)
-    constructor(httpEngineFactory: HttpEngineFactory, logger: (String) -> Unit) :
-        this(httpEngineFactory.create(), logger = logger)
+    constructor(httpEngineFactory: HttpEngineFactory, logQueries: Boolean = false, logger: (String) -> Unit) :
+        this(httpEngineFactory.create(), logger = logger, logQueries = logQueries)
 
     override suspend fun search(query: String, apiKey: String): BraveSearchResult {
-        logger("q=\"$query\"")
+        if (logQueries) logger("q=\"$query\"")
         val response = try {
             httpClient.get(endpoint) {
                 parameter("q", query)

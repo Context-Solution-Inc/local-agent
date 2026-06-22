@@ -26,6 +26,9 @@ object VerticalSearchDispatcherFactory {
         financeSearchService: SearchService = searchService,
         newsSearchService: SearchService = searchService,
         logger: (String) -> Unit = {},
+        // Security M2: gates the BraveSiteFilterAdapter query logs (raw user query).
+        // Off by default; DI flips it on for internal/debug builds.
+        logQueries: Boolean = false,
     ): VerticalSearchDispatcher {
         val client = httpEngineFactory.create {
             install(UserAgent) { agent = USER_AGENT }
@@ -61,6 +64,7 @@ object VerticalSearchDispatcherFactory {
                     subtype = SearchSubtype.NEWS,
                     maxCitations = 10,
                     logger = logger,
+                    logQueries = logQueries,
                 ),
                 maxMergedCitations = 10,
                 logger = logger,
@@ -89,6 +93,7 @@ object VerticalSearchDispatcherFactory {
                 maxDomains = 1,
                 maxCitations = 1,
                 logger = logger,
+                logQueries = logQueries,
             ),
             // FINANCE resolves the ticker via Brave's finance result, then
             // fetches stockanalysis.com for a structured quote rendered as a
@@ -106,6 +111,7 @@ object VerticalSearchDispatcherFactory {
                     maxDomains = 1,
                     maxCitations = 1,
                     logger = logger,
+                    logQueries = logQueries,
                 ),
                 logger = logger,
             ),

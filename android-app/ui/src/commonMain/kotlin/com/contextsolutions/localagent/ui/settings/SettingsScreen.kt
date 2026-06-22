@@ -904,6 +904,19 @@ private fun OllamaServerSection(
             color = MaterialTheme.colorScheme.outline,
         )
     }
+    // Security L1: warn when the connection will be cleartext HTTP (Ollama, SSL off, and the
+    // host isn't an explicit https:// URL) — the LAN Ollama path is plain HTTP and MITM-able.
+    // Mirrors OllamaConfig.baseUrl()'s scheme logic.
+    val willUseCleartext = !isOpenAi && !(useSsl || sslForcedOn) &&
+        host.isNotBlank() && !host.trim().lowercase().startsWith("https://")
+    if (willUseCleartext) {
+        Spacer(Modifier.height(4.dp))
+        Text(
+            tr(StringKeys.SETTINGS_OLLAMA_HTTP_WARNING),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+        )
+    }
     // Port is only required for the Ollama backend; OpenAI carries it in the URL.
     // OpenAI also requires an API key before the server can be saved.
     val portReady = isOpenAi || port.isNotBlank()

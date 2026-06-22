@@ -1,5 +1,6 @@
 package com.contextsolutions.localagent.inference
 
+import com.contextsolutions.localagent.platform.DesktopDiag
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.ServerSocket
@@ -32,7 +33,7 @@ class LlamaServerProcess(
     private val gpuLayers: Int,
     /** Pin Vulkan offload to a single device id (e.g. `Vulkan1`); null ⇒ all GPUs (#78). */
     private val vulkanDevice: String? = null,
-    private val logger: (String) -> Unit = { System.err.println("[LlamaServer] $it") },
+    private val logger: (String) -> Unit = { DesktopDiag.log("[LlamaServer] $it") },
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     /** Per-process key sent on every request so other local processes can't drive our server. */

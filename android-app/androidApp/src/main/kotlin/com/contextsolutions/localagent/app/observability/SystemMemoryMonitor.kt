@@ -1,6 +1,6 @@
 package com.contextsolutions.localagent.app.observability
 
-import android.util.Log
+import com.contextsolutions.localagent.app.AppDiag
 import com.contextsolutions.localagent.inference.MemoryHeadroomProvider
 import com.contextsolutions.localagent.inference.MemoryStatus
 import com.contextsolutions.localagent.inference.SystemMemoryThresholds
@@ -48,7 +48,7 @@ class SystemMemoryMonitor(
         val initialAvail = provider.availableBytes()
         val initialStatus = thresholds.classify(initialAvail)
         _status.value = initialStatus
-        Log.i(
+        AppDiag.i(
             TAG,
             "monitor armed: status=$initialStatus avail=${initialAvail.mb()}MB " +
                 "thresholds=watchdog<${thresholds.watchdogUnloadBytes.mb()}MB " +
@@ -61,7 +61,7 @@ class SystemMemoryMonitor(
                 val nextStatus = thresholds.classify(avail)
                 val previous = _status.value
                 if (nextStatus != previous) {
-                    Log.i(
+                    AppDiag.i(
                         TAG,
                         "status transition: $previous -> $nextStatus (avail=${avail.mb()}MB)",
                     )

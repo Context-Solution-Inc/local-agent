@@ -77,6 +77,31 @@ class KtorBraveLlmContextClientTest {
     }
 
     @Test
+    fun `does not log the raw query or response body by default (security M2)`() = runTest {
+        val factory = CapturingFactory()
+        val lines = mutableListOf<String>()
+        val client = KtorBraveLlmContextClient(factory, maxUrls = 3, logQueries = false) { lines += it }
+
+        client.search("a private medical question", "k")
+
+        assertTrue(
+            "no diagnostic line should contain the query or response body when logQueries is off",
+            lines.none { it.contains("a private medical question") || it.contains("Raptors") || it.contains("rawResp@") },
+        )
+    }
+
+    @Test
+    fun `logs the raw query when logQueries is enabled (internal-build diagnostics)`() = runTest {
+        val factory = CapturingFactory()
+        val lines = mutableListOf<String>()
+        val client = KtorBraveLlmContextClient(factory, maxUrls = 3, logQueries = true) { lines += it }
+
+        client.search("a private medical question", "k")
+
+        assertTrue(lines.any { it.contains("a private medical question") })
+    }
+
+    @Test
     fun `maps a 401 to an Auth error without crashing`() = runTest {
         val factory = CapturingFactory(responseBody = "", status = HttpStatusCode.Unauthorized)
         val client = KtorBraveLlmContextClient(factory, maxUrls = 3)

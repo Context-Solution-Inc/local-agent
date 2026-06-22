@@ -24,7 +24,7 @@ kotlin {
 val gitCommitTimestamp: Int =
     providers.exec { commandLine("git", "log", "-1", "--format=%ct", "HEAD") }
         .standardOutput.asText.get().trim().toIntOrNull() ?: 1
-val appVersionName = "0.1.0"
+val appVersionName = "0.2.0"
 val gitDescribe: String =
     providers.exec { commandLine("git", "describe", "--always", "--dirty", "--abbrev=7") }
         .standardOutput.asText.get().trim().ifEmpty { "unknown" }
@@ -115,6 +115,15 @@ configurations.all {
 // downloaded (CPU today; Vulkan/Metal/CUDA is the follow-up in LlamaServerRelease), NOT
 // a JVM system property. The old `-PllamaLibPath` JNI hook is gone with the binding.
 
+// Dev runs (`:desktopApp:run`) keep FULL diagnostic logging by setting the
+// `localagent.debug` system property the gate (`DesktopDiag`) reads. This is scoped to the
+// `run` JavaExec task ONLY — it is NOT added to `application.jvmArgs`, so a packaged
+// production installer stays quiet by default. Operators can still opt a packaged build
+// into verbose logging by launching it with `-Dlocalagent.debug=true`.
+tasks.withType<JavaExec>().configureEach {
+    if (name == "run") systemProperty("localagent.debug", "true")
+}
+
 compose.desktop {
     application {
         mainClass = "com.contextsolutions.localagent.desktop.app.MainKt"
@@ -136,11 +145,11 @@ compose.desktop {
             )
             packageName = "LocalAgent"
             // Installer/upgrade-detection version ONLY — deliberately decoupled from the
-            // release tag + app version (v0.1.0, see androidApp appVersionName /
+            // release tag + app version (v0.2.0, see androidApp appVersionName /
             // DesktopAppBuildConfig.versionName / the About dialog). The Compose plugin
             // (and jpackage/macOS CFBundleVersion) require MAJOR > 0, so a 0.x value is
             // rejected at configuration time — the installer's internal version stays
-            // 1.0.0 while the user-facing version is 0.1.0. Bump in lockstep once the
+            // 1.0.0 while the user-facing version is 0.2.0. Bump in lockstep once the
             // release reaches 1.x.
             packageVersion = "1.0.0"
             description = "On-device AI assistant — private, offline-capable chat, search, and memory."
@@ -172,7 +181,7 @@ compose.desktop {
                 appCategory = "public.app-category.productivity"
                 // dmgPackageVersion/pkgPackageVersion default to packageVersion.
 
-                // Code signing + notarization (docs/PRODUCTION_DESKTOP_RUNBOOK.md).
+                // Code signing + notarization (docs/PRODUCTION_RUNBOOK.md).
                 // GATED on credentials so the unsigned local/CI build still works (the
                 // "CPU-default build that ALWAYS works" guarantee — Phase 8): signing
                 // engages ONLY when MAC_SIGN_IDENTITY is exported. With it set,

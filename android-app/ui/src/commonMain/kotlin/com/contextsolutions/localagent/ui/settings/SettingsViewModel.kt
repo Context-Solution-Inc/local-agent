@@ -148,12 +148,14 @@ class SettingsViewModel(
      * the QR parsed as a valid relay QR.
      */
     fun applyScannedLink(rawQr: String): Boolean {
-        // TESTING diagnostics (revert with the relay logging). Sanitized — never log the
-        // raw QR or the account secret (it sits last in the relay JSON, after `endpoints`).
-        val head = rawQr.trim().take(40).replace("\n", " ")
-        println("[Relay/scan] applyScannedLink: ${rawQr.length} chars; head='$head'")
+        // Security M3: relay-scan diagnostics are gated to internal/debug builds and
+        // carry no credential material (gateway endpoints, the pairing token, and the
+        // account-secret status are all omitted) — they leak infrastructure + partial
+        // credentials otherwise. Release builds log nothing here.
+        val diag = buildConfig.isDebug || buildConfig.isInternalBuild
+        if (diag) println("[Relay/scan] applyScannedLink: ${rawQr.length} chars")
         RelayQrPayload.parseOrNull(rawQr)?.let { relay ->
-            println("[Relay/scan] -> matched RELAY v=${relay.v} relay='${relay.endpoints["relay"]}' auth='${relay.endpoints["auth"]}' token=${relay.pairingToken.take(6)}… secret=${if (relay.accountSecret.isBlank()) "MISSING" else "present"}")
+            if (diag) println("[Relay/scan] -> matched RELAY v=${relay.v}")
             if (relay.accountSecret.isNotBlank()) {
                 secureStorage.put(SecureStorageKeys.RELAY_ACCOUNT_SECRET, relay.accountSecret)
             }
@@ -166,8 +168,10 @@ class SettingsViewModel(
             )
             return true
         }
-        println("[Relay/scan] -> UNRECOGNIZED: not a valid relay QR " +
-            "(needs v>=1 + pairing_token + endpoints.relay). Persisted nothing.")
+        if (diag) {
+            println("[Relay/scan] -> UNRECOGNIZED: not a valid relay QR " +
+                "(needs v>=1 + pairing_token + endpoints.relay). Persisted nothing.")
+        }
         return false
     }
 

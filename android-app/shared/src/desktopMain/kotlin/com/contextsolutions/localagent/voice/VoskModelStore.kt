@@ -1,5 +1,6 @@
 package com.contextsolutions.localagent.voice
 
+import com.contextsolutions.localagent.platform.DesktopDiag
 import com.contextsolutions.localagent.inference.DesktopAppDirs
 import com.contextsolutions.localagent.inference.DesktopModelDownloader
 import com.contextsolutions.localagent.inference.DesktopModelInventory
@@ -31,9 +32,9 @@ import kotlinx.coroutines.withContext
 class VoskModelStore(
     private val baseDir: File = DesktopAppDirs.dataDir(),
     private val downloaderFactory: (DesktopModelInventory) -> DesktopModelDownloader = { inv ->
-        DesktopModelDownloader(inv, logger = { System.err.println("[VoskModelDownload] $it") })
+        DesktopModelDownloader(inv, logger = { DesktopDiag.log("[VoskModelDownload] $it") })
     },
-    private val logger: (String) -> Unit = { System.err.println("[VoskModel] $it") },
+    private val logger: (String) -> Unit = { DesktopDiag.log("[VoskModel] $it") },
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     private val modelsDir: File get() = File(baseDir, "models").apply { mkdirs() }

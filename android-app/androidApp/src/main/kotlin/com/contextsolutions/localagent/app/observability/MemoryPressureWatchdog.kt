@@ -1,6 +1,7 @@
 package com.contextsolutions.localagent.app.observability
 
 import android.util.Log
+import com.contextsolutions.localagent.app.AppDiag
 import com.contextsolutions.localagent.app.service.AuxModelLifecycleCoordinator
 import com.contextsolutions.localagent.app.service.InferenceSessionManager
 import com.contextsolutions.localagent.inference.SessionState
@@ -71,7 +72,7 @@ class MemoryPressureWatchdog(
         supervisor = scope.launch {
             sessionManager.state.collectLatest { current ->
                 if (current !is SessionState.Loaded) return@collectLatest
-                Log.i(TAG, "watchdog armed: model loaded; polling every ${pollIntervalMs}ms")
+                AppDiag.i(TAG, "watchdog armed: model loaded; polling every ${pollIntervalMs}ms")
                 while (isActive) {
                     val avail = provider.availableBytes()
                     val unloadThresholdBytes = thresholds.watchdogUnloadBytes

@@ -1,5 +1,6 @@
 package com.contextsolutions.localagent.inference
 
+import com.contextsolutions.localagent.platform.DesktopDiag
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -18,7 +19,7 @@ data class GpuDevice(val id: String, val description: String)
  */
 class LlamaServerDevices(
     private val binaryStore: LlamaServerBinaryStore,
-    private val logger: (String) -> Unit = { System.err.println("[LlamaServer] $it") },
+    private val logger: (String) -> Unit = { DesktopDiag.log("[LlamaServer] $it") },
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     suspend fun list(onProgress: (Long, Long) -> Unit = { _, _ -> }): List<GpuDevice> =

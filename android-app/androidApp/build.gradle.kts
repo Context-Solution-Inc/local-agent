@@ -121,6 +121,39 @@ val releaseStoreFile: String = secrets.getProperty("RELEASE_STORE_FILE", "")
 val debugKeystore = file(System.getProperty("user.home") + "/.android/debug.keystore")
 val hasReleaseSigning = releaseStoreFile.isNotEmpty() || debugKeystore.exists()
 
+// Security M5: fail fast on a DISTRIBUTION build with no real keystore. The debug-keystore
+// fallback above exists only so `installRelease` works for local on-device verification —
+// the distribution artifacts (assembleRelease/bundleRelease, the APK/AAB you would ship)
+// must be signed with a real upload key, never the public debug keystore. Without this
+// guard `assembleRelease` silently produced a debug-signed "release" (the build is green,
+// the artifact is forgeable). Mirrors the #63 debug-secrets guard above: gated on the
+// REQUESTED task names so it fails at configuration time, before the long compile, and ONLY
+// for an actual distribution build — `installRelease`, unit tests, the desktop build, and CI
+// (which never assembles the APK) are unaffected.
+val distributionBuildRequested = gradle.startParameter.taskNames.any {
+    val taskName = it.substringAfterLast(':')
+    taskName == "assembleRelease" || taskName == "bundleRelease"
+}
+if (distributionBuildRequested && releaseStoreFile.isEmpty()) {
+    throw GradleException(
+        """
+
+        A distribution release build (assembleRelease/bundleRelease) was requested but
+        RELEASE_STORE_FILE is not set in android-app/secrets.properties.
+
+        Distribution artifacts must be signed with a real upload key — never the public
+        Android debug keystore (a debug-signed release is forgeable and must not be shipped).
+
+        Fix: set RELEASE_STORE_FILE (+ RELEASE_STORE_PASSWORD / RELEASE_KEY_ALIAS /
+        RELEASE_KEY_PASSWORD) in android-app/secrets.properties.
+
+        For local on-device verification of the minified build (debug-keystore fallback is
+        fine there), use `./gradlew :androidApp:installRelease` instead.
+
+        """.trimIndent(),
+    )
+}
+
 // Toggles the InferenceEngine binding between StubInferenceEngine and the real
 // LiteRT-LM-backed implementation (see InferenceModule). Override from the
 // command line: `./gradlew :androidApp:assembleDebug -PuseStubEngine=true`.
@@ -141,7 +174,7 @@ val gitCommitTimestamp: Int =
     providers.exec { commandLine("git", "log", "-1", "--format=%ct", "HEAD") }
         .standardOutput.asText.get().trim().toIntOrNull() ?: 1
 
-val appVersionName = "0.1.0"
+val appVersionName = "0.2.0"
 
 // Short HEAD SHA with a `-dirty` suffix when the working tree has uncommitted
 // edits. versionCode (above) only changes when HEAD changes, so during dev a

@@ -1,5 +1,6 @@
 package com.contextsolutions.localagent.voice
 
+import com.contextsolutions.localagent.platform.DesktopDiag
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -37,7 +38,7 @@ class DesktopTtsSpeaker(
     private val osName: String = System.getProperty("os.name").orEmpty().lowercase(),
     private val voiceConfig: () -> DesktopVoiceConfig = { DesktopVoiceConfig() },
     private val piper: PiperSpeechSynthesizer? = null,
-    private val logger: (String) -> Unit = { System.err.println("[ChatSpeaker] $it") },
+    private val logger: (String) -> Unit = { DesktopDiag.log("[ChatSpeaker] $it") },
 ) : ChatSpeaker {
 
     private val _shellSpeaking = MutableStateFlow(false)

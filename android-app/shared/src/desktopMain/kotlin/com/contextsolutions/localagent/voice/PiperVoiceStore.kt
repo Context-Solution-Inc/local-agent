@@ -1,5 +1,6 @@
 package com.contextsolutions.localagent.voice
 
+import com.contextsolutions.localagent.platform.DesktopDiag
 import com.contextsolutions.localagent.inference.DesktopAppDirs
 import com.contextsolutions.localagent.inference.DesktopModelDownloader
 import com.contextsolutions.localagent.inference.DesktopModelInventory
@@ -67,9 +68,9 @@ data class PiperVoiceFiles(val onnx: File, val sampleRate: Int)
 class PiperVoiceStore(
     private val baseDir: File = DesktopAppDirs.dataDir(),
     private val downloaderFactory: (DesktopModelInventory) -> DesktopModelDownloader = { inv ->
-        DesktopModelDownloader(inv, logger = { System.err.println("[PiperVoiceDownload] $it") })
+        DesktopModelDownloader(inv, logger = { DesktopDiag.log("[PiperVoiceDownload] $it") })
     },
-    private val logger: (String) -> Unit = { System.err.println("[PiperVoice] $it") },
+    private val logger: (String) -> Unit = { DesktopDiag.log("[PiperVoice] $it") },
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     private val voicesDir: File get() = File(baseDir, "piper/voices")

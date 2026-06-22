@@ -34,9 +34,12 @@ class DesktopHttpEngineFactory : HttpEngineFactory {
                 connectTimeoutMillis = 5_000
                 socketTimeoutMillis = 10_000
             }
+            // Security/privacy: the per-request ktor logs (`[ktor] REQUEST/RESPONSE`) are
+            // diagnostic only. Off in a production packaged build; full on a debug run
+            // (`-Dlocalagent.debug=true`). Redaction still applies when it is on.
             install(Logging) {
                 logger = RedactingLogger
-                level = LogLevel.INFO
+                level = if (DesktopDiag.verbose) LogLevel.INFO else LogLevel.NONE
             }
             block()
         }

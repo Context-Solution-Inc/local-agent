@@ -1,5 +1,6 @@
 package com.contextsolutions.localagent.voice
 
+import com.contextsolutions.localagent.platform.DesktopDiag
 import com.contextsolutions.localagent.inference.DesktopAppDirs
 import com.contextsolutions.localagent.inference.DesktopModelDownloader
 import com.contextsolutions.localagent.inference.DesktopModelInventory
@@ -78,9 +79,9 @@ object PiperRelease {
 class PiperBinaryStore(
     private val baseDir: File = DesktopAppDirs.dataDir(),
     private val downloaderFactory: (DesktopModelInventory) -> DesktopModelDownloader = { inv ->
-        DesktopModelDownloader(inv, logger = { System.err.println("[PiperBinaryDownload] $it") })
+        DesktopModelDownloader(inv, logger = { DesktopDiag.log("[PiperBinaryDownload] $it") })
     },
-    private val logger: (String) -> Unit = { System.err.println("[PiperBinary] $it") },
+    private val logger: (String) -> Unit = { DesktopDiag.log("[PiperBinary] $it") },
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     private val piperDir: File get() = File(baseDir, "piper/bin").apply { mkdirs() }

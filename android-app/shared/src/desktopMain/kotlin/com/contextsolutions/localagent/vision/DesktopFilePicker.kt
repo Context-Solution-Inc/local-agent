@@ -1,5 +1,6 @@
 package com.contextsolutions.localagent.vision
 
+import com.contextsolutions.localagent.platform.DesktopDiag
 import java.io.File
 import java.util.concurrent.atomic.AtomicReference
 import javax.swing.JFileChooser
@@ -20,7 +21,7 @@ import kotlinx.coroutines.withContext
  */
 class DesktopFilePicker(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-    private val logger: (String) -> Unit = { System.err.println("[FilePicker] $it") },
+    private val logger: (String) -> Unit = { DesktopDiag.log("[FilePicker] $it") },
 ) : FilePicker {
 
     override suspend fun pickImage(): ByteArray? = withContext(ioDispatcher) {

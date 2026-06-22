@@ -1,5 +1,6 @@
 package com.contextsolutions.localagent.voice
 
+import com.contextsolutions.localagent.platform.DesktopDiag
 import java.io.File
 import javax.sound.sampled.AudioFormat
 import javax.sound.sampled.AudioSystem
@@ -39,7 +40,7 @@ class PiperSpeechSynthesizer(
     private val binaryStore: PiperBinaryStore,
     private val voiceStore: PiperVoiceStore,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
-    private val logger: (String) -> Unit = { System.err.println("[Piper] $it") },
+    private val logger: (String) -> Unit = { DesktopDiag.log("[Piper] $it") },
 ) {
     private val _isSpeaking = MutableStateFlow(false)
     val isSpeaking: StateFlow<Boolean> = _isSpeaking.asStateFlow()

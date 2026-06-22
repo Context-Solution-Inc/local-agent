@@ -1,5 +1,6 @@
 package com.contextsolutions.localagent.vision
 
+import com.contextsolutions.localagent.platform.DesktopDiag
 import java.awt.RenderingHints
 import java.awt.image.BufferedImage
 import java.io.ByteArrayInputStream
@@ -29,7 +30,7 @@ class DesktopImagePreprocessor(
     private val targetLongestEdgePx: Int = ImagePreprocessor.TARGET_LONGEST_EDGE_PX,
     private val jpegQuality: Float = 0.85f,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-    private val logger: (String) -> Unit = { System.err.println("[ImagePreprocessor] $it") },
+    private val logger: (String) -> Unit = { DesktopDiag.log("[ImagePreprocessor] $it") },
 ) : ImagePreprocessor {
 
     override suspend fun toModelJpeg(imageBytes: ByteArray): ByteArray? = withContext(ioDispatcher) {
