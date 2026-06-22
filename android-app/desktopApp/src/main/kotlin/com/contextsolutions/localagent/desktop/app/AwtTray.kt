@@ -3,6 +3,7 @@ package com.contextsolutions.localagent.desktop.app
 import com.contextsolutions.localagent.notification.AppNotification
 import com.contextsolutions.localagent.notification.NotificationKind
 import com.contextsolutions.localagent.notification.NotificationPresenter
+import com.contextsolutions.localagent.platform.DesktopDiag
 import java.awt.Color
 import java.awt.Font
 import java.awt.Image
@@ -121,7 +122,7 @@ class AwtTray private constructor(
             val reported = maxOf(tray.trayIconSize.width, tray.trayIconSize.height)
             val side = System.getenv("LOCALAGENT_TRAY_ICON_SIZE")?.toIntOrNull()?.takeIf { it > 0 }
                 ?: DEFAULT_TRAY_ICON_SIZE
-            System.err.println(
+            DesktopDiag.log(
                 "[desktopApp] tray icon: reported slot=$reported, using size=$side " +
                     "(override with LOCALAGENT_TRAY_ICON_SIZE)",
             )

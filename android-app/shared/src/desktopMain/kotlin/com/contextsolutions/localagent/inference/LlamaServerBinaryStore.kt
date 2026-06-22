@@ -1,5 +1,6 @@
 package com.contextsolutions.localagent.inference
 
+import com.contextsolutions.localagent.platform.DesktopDiag
 import java.io.File
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -28,9 +29,9 @@ import kotlinx.coroutines.withContext
 class LlamaServerBinaryStore(
     private val baseDir: File = DesktopAppDirs.dataDir(),
     private val downloaderFactory: (DesktopModelInventory) -> DesktopModelDownloader = { inv ->
-        DesktopModelDownloader(inv, logger = { System.err.println("[LlamaServerDownload] $it") })
+        DesktopModelDownloader(inv, logger = { DesktopDiag.log("[LlamaServerDownload] $it") })
     },
-    private val logger: (String) -> Unit = { System.err.println("[LlamaServer] $it") },
+    private val logger: (String) -> Unit = { DesktopDiag.log("[LlamaServer] $it") },
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     private val serverDir: File get() = File(baseDir, "server").apply { mkdirs() }

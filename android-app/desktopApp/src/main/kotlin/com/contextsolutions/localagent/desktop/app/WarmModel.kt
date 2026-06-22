@@ -9,6 +9,7 @@ import com.contextsolutions.localagent.inference.InferenceConfig
 import com.contextsolutions.localagent.inference.InferenceEngine
 import com.contextsolutions.localagent.inference.ModelHandle
 import com.contextsolutions.localagent.inference.ToolDispatcher
+import com.contextsolutions.localagent.platform.DesktopDiag
 import java.io.File
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.sync.Mutex
@@ -37,7 +38,7 @@ class WarmModel(
     private val engine: InferenceEngine,
     private val inventory: DesktopModelInventory,
     private val enableVision: Boolean = false,
-    private val logger: (String) -> Unit = { System.err.println("[WarmModel] $it") },
+    private val logger: (String) -> Unit = { DesktopDiag.log("[WarmModel] $it") },
 ) {
     private val mutex = Mutex()
 

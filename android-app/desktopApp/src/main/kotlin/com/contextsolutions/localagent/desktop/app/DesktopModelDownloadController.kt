@@ -8,6 +8,7 @@ import com.contextsolutions.localagent.inference.ModelDownloadResult
 import com.contextsolutions.localagent.notification.AppNotification
 import com.contextsolutions.localagent.notification.NotificationKind
 import com.contextsolutions.localagent.notification.NotificationPresenter
+import com.contextsolutions.localagent.platform.DesktopDiag
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -54,7 +55,7 @@ class DesktopModelDownloadController(
     private val notifications: NotificationPresenter,
     private val stringCatalog: StringCatalog,
     private val scope: CoroutineScope,
-    private val logger: (String) -> Unit = { System.err.println("[ModelDownload] $it") },
+    private val logger: (String) -> Unit = { DesktopDiag.log("[ModelDownload] $it") },
     /**
      * Whether this controller fires its own coarse start/complete/fail tray
      * notifications. PR #95: the first-run GGUF + mmproj controllers set this

@@ -146,7 +146,7 @@ class DesktopSecureStorage internal constructor(
             PosixPerms.restrict(baseDir, PosixPerms.DIR_0700)
             val resolved = KeystorePassword.resolve(
                 baseDir,
-                logger = { System.err.println("[SecureStorage] $it") },
+                logger = { DesktopDiag.log("[SecureStorage] $it") },
             )
             return DesktopSecureStorage(File(baseDir, STORE_FILENAME), resolved.primary, resolved.candidates)
         }

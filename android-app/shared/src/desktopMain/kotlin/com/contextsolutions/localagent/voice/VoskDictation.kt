@@ -20,6 +20,9 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import com.contextsolutions.localagent.platform.DesktopDiag
+import org.vosk.LibVosk
+import org.vosk.LogLevel
 import org.vosk.Model
 import org.vosk.Recognizer
 
@@ -93,6 +96,10 @@ class VoskDictation(
         }
         var line: TargetDataLine? = null
         try {
+            // Silence Vosk's native model-load LOG spam in production; keep it on a
+            // debug/internal run (`-Dlocalagent.debug=true`). The native lib logs to
+            // stderr directly, so this is the only lever (DesktopDiag can't gate it).
+            LibVosk.setLogLevel(if (DesktopDiag.verbose) LogLevel.INFO else LogLevel.WARNINGS)
             Model(modelPath).use { model ->
                 Recognizer(model, SAMPLE_RATE).use { recognizer ->
                     line = (AudioSystem.getLine(info) as TargetDataLine).apply {
