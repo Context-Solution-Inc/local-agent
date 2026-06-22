@@ -24,7 +24,7 @@ kotlin {
 val gitCommitTimestamp: Int =
     providers.exec { commandLine("git", "log", "-1", "--format=%ct", "HEAD") }
         .standardOutput.asText.get().trim().toIntOrNull() ?: 1
-val appVersionName = "0.1.0"
+val appVersionName = "0.2.0"
 val gitDescribe: String =
     providers.exec { commandLine("git", "describe", "--always", "--dirty", "--abbrev=7") }
         .standardOutput.asText.get().trim().ifEmpty { "unknown" }
@@ -145,11 +145,11 @@ compose.desktop {
             )
             packageName = "LocalAgent"
             // Installer/upgrade-detection version ONLY — deliberately decoupled from the
-            // release tag + app version (v0.1.0, see androidApp appVersionName /
+            // release tag + app version (v0.2.0, see androidApp appVersionName /
             // DesktopAppBuildConfig.versionName / the About dialog). The Compose plugin
             // (and jpackage/macOS CFBundleVersion) require MAJOR > 0, so a 0.x value is
             // rejected at configuration time — the installer's internal version stays
-            // 1.0.0 while the user-facing version is 0.1.0. Bump in lockstep once the
+            // 1.0.0 while the user-facing version is 0.2.0. Bump in lockstep once the
             // release reaches 1.x.
             packageVersion = "1.0.0"
             description = "On-device AI assistant — private, offline-capable chat, search, and memory."
