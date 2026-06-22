@@ -3,6 +3,7 @@ package com.contextsolutions.localagent.app.ui
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.contextsolutions.localagent.app.AppDiag
 import com.contextsolutions.localagent.app.service.AuxModelLifecycleCoordinator
 import com.contextsolutions.localagent.app.service.ModelDownloadController
 import com.contextsolutions.localagent.app.service.ModelInventory
@@ -84,7 +85,7 @@ class MainViewModel(
         // land. Gate on the aux models specifically — they're what warmUpAll
         // loads (Gemma is warmed lazily on first generate(), PR #25).
         if (!inventory.auxModelsPresent()) {
-            Log.i(TAG, "aux warm-up skipped: aux models not present")
+            AppDiag.i(TAG, "aux warm-up skipped: aux models not present")
             return
         }
         runCatching { auxModelCoordinator.warmUpAll() }

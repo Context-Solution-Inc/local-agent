@@ -113,7 +113,7 @@ class LocalAgentApplication : Application() {
                 }
                 .launchIn(appScope)
         } else {
-            Log.i("LocalAgentApplication", "Firebase not configured (no matching google-services.json); analytics + crash reporting disabled")
+            AppDiag.i("LocalAgentApplication", "Firebase not configured (no matching google-services.json); analytics + crash reporting disabled")
         }
 
         // (b) Install our redacting uncaught-exception handler. Chains
