@@ -10,8 +10,17 @@ remaining work.
 
 ## M4 — Move the Secure Gateway SDK off `mavenLocal()` to a signed repo + pin SHAs
 
-**Status:** PR #16 leaves `mavenLocal()` as-is (no published remote exists yet). The work
-below is two ordered PRs (gateway/SDK first, then local-agent consumer).
+**Status: DONE.** Step 1 (secure-gateway PR #6) wired GPG-signed publishing to GitHub
+Packages; the namespace was then renamed `com.securegateway` → `com.contextsolutions.securegateway`
+(secure-gateway PR #7 / local-agent PR #17) and a signed `0.2.3` release published. Step 2
+(local-agent) swapped `mavenLocal()` → the signed GitHub Packages repo (content-filtered,
+`read:packages` auth) and turned on Gradle dependency verification
+(`android-app/gradle/verification-metadata.xml`, sha256, `verify-metadata=true`) pinning every
+artifact incl. the SDK. CI (`prompt-eval-gate.yml`, `desktop-package.yml`) authenticates with
+`SECURE_GATEWAY_PAT` (`read:packages`) instead of checking out + `publishToMavenLocal`. See
+CLAUDE.md "Relay SDK from GitHub Packages + dependency verification" for the regen procedure.
+
+Historical plan (for reference):
 
 **Recommendation: GitHub Packages (Maven registry) under `Context-Solution-Inc`.** Both repos
 are already in that org; the package is private by default (the SDK is crypto code — do **not**

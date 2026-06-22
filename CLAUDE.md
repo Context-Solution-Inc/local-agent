@@ -276,6 +276,8 @@ Other classes: `ClassifierEndToEndTest`, `EmbedderEndToEndTest`, `MemoryRetrieva
 
 **Secrets:** `secrets.properties` lives at `android-app/secrets.properties` (next to `settings.gradle.kts`), NOT the repo root. See `android-app/secrets.properties.example`.
 
+**Relay SDK from GitHub Packages + dependency verification (M4 Step 2).** The Secure Gateway SDK (`com.contextsolutions.securegateway:{core,java,android}`) is consumed from secure-gateway's **private GitHub Packages** Maven registry (NOT mavenLocal — that path is gone). Every build that resolves it (any `:shared`/`:androidApp`/`:desktopApp` build) needs **`read:packages`** auth: set `gpr.user`/`gpr.key` in `~/.gradle/gradle.properties` (a PAT with `read:packages`) or env `GITHUB_ACTOR`/`GITHUB_TOKEN`. CI passes the `SECURE_GATEWAY_PAT` secret (cross-repo, so the built-in token won't do). **Gradle dependency verification is ON** (`android-app/gradle/verification-metadata.xml`, sha256, `verify-metadata=true`) — every dependency is pinned. **Regenerate after any dependency bump:** `GITHUB_ACTOR=… GITHUB_TOKEN=… ./gradlew --write-verification-metadata sha256 :androidApp:testDebugUnitTest :shared:desktopTest :desktopApp:packageDistributionForCurrentOS` (run with the SDK cache purged so the GitHub Packages bytes are pinned, not a local build). **Per-OS desktop natives** (Skiko/Compose `macos-*`/`windows-x64`) can only be captured on that OS — the macOS/Windows variants are hand-added (SHA-256 is OS-independent, fetched from Maven Central); if a desktop dep bump adds a new native, the macOS/Windows `desktop-package.yml` jobs fail verification and name the missing artifact to add.
+
 ## Working norms
 
 - **Don't commit unless explicitly asked.** The user reviews diffs and decides.

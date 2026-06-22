@@ -17,9 +17,22 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        // Secure Gateway client SDK (com.contextsolutions.securegateway:java/:core), built from
-        // ../secure-gateway/sdk via `./gradlew publishToMavenLocal` (PR #74).
-        mavenLocal()
+        // Secure Gateway client SDK (com.contextsolutions.securegateway:{core,java,android}) —
+        // the GPG-signed artifacts published to GitHub Packages (M4 Step 2; secure-gateway's
+        // publish-sdk.yml). Replaces the old unsigned mavenLocal() consumption. Auth: gpr.user/
+        // gpr.key gradle props (~/.gradle/gradle.properties) or GITHUB_ACTOR/GITHUB_TOKEN env —
+        // a PAT with `read:packages`. GitHub Packages always requires auth, even to read.
+        // Content-filtered so ONLY this coordinate is queried here (everything else stays on
+        // google()/mavenCentral()), and dependency verification pins it (gradle/verification-metadata.xml).
+        maven {
+            name = "SecureGatewayGitHubPackages"
+            url = uri("https://maven.pkg.github.com/Context-Solution-Inc/secure-gateway")
+            credentials {
+                username = providers.gradleProperty("gpr.user").orNull ?: System.getenv("GITHUB_ACTOR")
+                password = providers.gradleProperty("gpr.key").orNull ?: System.getenv("GITHUB_TOKEN")
+            }
+            content { includeGroup("com.contextsolutions.securegateway") }
+        }
     }
 }
 
