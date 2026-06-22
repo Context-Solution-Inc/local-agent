@@ -276,7 +276,23 @@ Other classes: `ClassifierEndToEndTest`, `EmbedderEndToEndTest`, `MemoryRetrieva
 
 **Secrets:** `secrets.properties` lives at `android-app/secrets.properties` (next to `settings.gradle.kts`), NOT the repo root. See `android-app/secrets.properties.example`.
 
-**Relay SDK from GitHub Packages + dependency verification (M4 Step 2).** The Secure Gateway SDK (`com.contextsolutions.securegateway:{core,java,android}`) is consumed from secure-gateway's **private GitHub Packages** Maven registry (NOT mavenLocal — that path is gone). Every build that resolves it (any `:shared`/`:androidApp`/`:desktopApp` build) needs **`read:packages`** auth: set `gpr.user`/`gpr.key` in `~/.gradle/gradle.properties` (a PAT with `read:packages`) or env `GITHUB_ACTOR`/`GITHUB_TOKEN`. CI passes the `SECURE_GATEWAY_PAT` secret (cross-repo, so the built-in token won't do). **Gradle dependency verification is ON** (`android-app/gradle/verification-metadata.xml`, sha256, `verify-metadata=true`) — every dependency is pinned. **Regenerate after any dependency bump:** `GITHUB_ACTOR=… GITHUB_TOKEN=… ./gradlew --write-verification-metadata sha256 :androidApp:testDebugUnitTest :shared:desktopTest :desktopApp:packageDistributionForCurrentOS` (run with the SDK cache purged so the GitHub Packages bytes are pinned, not a local build). **Per-OS desktop natives** (Skiko/Compose `macos-*`/`windows-x64`) can only be captured on that OS — the macOS/Windows variants are hand-added (SHA-256 is OS-independent, fetched from Maven Central); if a desktop dep bump adds a new native, the macOS/Windows `desktop-package.yml` jobs fail verification and name the missing artifact to add.
+**Relay SDK from GitHub Packages + dependency verification (M4 Step 2, PR #18 — fully CI-validated).** The Secure Gateway SDK (`com.contextsolutions.securegateway:{core,java,android}`) is consumed from secure-gateway's **private GitHub Packages** Maven registry (NOT mavenLocal — that path is gone). Every build that resolves it (any `:shared`/`:androidApp`/`:desktopApp` build) needs **`read:packages`** auth: set `gpr.user`/`gpr.key` in `~/.gradle/gradle.properties` (a classic PAT with `repo` + `read:packages`) or env `GITHUB_ACTOR`/`GITHUB_TOKEN`. CI passes the **`SECURE_GATEWAY_PAT` repo secret** (cross-repo, so the built-in token can't read it; **fine-grained PATs don't reliably read the Maven registry — use a classic PAT**). **Gradle dependency verification is ON** (`android-app/gradle/verification-metadata.xml`, sha256, `verify-metadata=true`, ~1395 components — every dependency pinned).
+
+**Regenerate after any dependency bump** (the metadata is the canonical source of which artifacts each build path resolves — generation taught us each path resolves a different set):
+```bash
+# Cold cache so the GitHub-Packages SDK bytes (not a local build) are pinned + every parent/BOM POM is fetched:
+rm -rf ~/.gradle/caches/modules-2
+export GITHUB_ACTOR=<you> GITHUB_TOKEN=<PAT-with-read:packages>
+# Main paths (CI: android unit + desktop package; + dependency/buildscript graphs):
+./gradlew --write-verification-metadata sha256 \
+  :androidApp:testDebugUnitTest :shared:desktopTest :desktopApp:packageDistributionForCurrentOS \
+  :androidApp:dependencies :shared:dependencies :ui:dependencies :desktopApp:dependencies :desktopHarness:dependencies buildEnvironment
+# Lint/release path (installRelease/installDebug + lint resolve the Lint tool on a detached config the above miss).
+# MUST use --no-configuration-cache — the lint detached config can't be config-cache-serialized (else "could not be cached"):
+./gradlew --write-verification-metadata sha256 --no-configuration-cache \
+  :shared:extractAndroidMainAnnotations :androidApp:lintAnalyzeRelease :androidApp:assembleDebug :androidApp:lintAnalyzeDebug
+```
+`--write-verification-metadata` **merges** (adds, never prunes), so hand-added entries survive. **Per-OS desktop natives** (Skiko/Compose `macos-*`/`windows-x64`) can only resolve on that OS — the macOS/Windows variants are **hand-added** (SHA-256 is OS-independent, fetched from Maven Central); a desktop dep bump that adds a new native fails the macOS/Windows `desktop-package.yml` jobs, which name the missing artifact to add. **Validation oracle:** `desktop-package.yml` runs only on `workflow_dispatch`/`v*` tags — `gh workflow run desktop-package.yml --ref <branch>` to validate all 3 OSes before merge.
 
 ## Working norms
 
