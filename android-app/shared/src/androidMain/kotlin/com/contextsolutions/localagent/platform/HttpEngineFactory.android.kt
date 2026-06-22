@@ -11,7 +11,12 @@ import io.ktor.client.plugins.logging.Logging
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 
-class AndroidHttpEngineFactory : HttpEngineFactory {
+/**
+ * [verbose] gates the per-request ktor logging (`ktor` logcat tag). Off by default
+ * (quiet); DI passes `true` only on a debug/internal build, so a release APK doesn't
+ * emit REQUEST/RESPONSE lines. Redaction still applies when it is on.
+ */
+class AndroidHttpEngineFactory(private val verbose: Boolean = false) : HttpEngineFactory {
     override fun create(block: HttpClientConfig<*>.() -> Unit): HttpClient =
         HttpClient(OkHttp) {
             install(ContentNegotiation) {
@@ -29,7 +34,7 @@ class AndroidHttpEngineFactory : HttpEngineFactory {
             }
             install(Logging) {
                 logger = RedactingLogger
-                level = LogLevel.INFO
+                level = if (verbose) LogLevel.INFO else LogLevel.NONE
             }
             block()
         }

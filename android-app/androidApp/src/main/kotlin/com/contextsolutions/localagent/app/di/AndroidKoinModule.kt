@@ -212,6 +212,15 @@ private const val BRAVE_TAG = "BraveApi"
 // privacy/credential-sensitive, so these diagnostic logs are emitted only on
 // internal/debug builds, never in a release build.
 private val VERBOSE_DIAGNOSTICS = BuildConfig.DEBUG || BuildConfig.INTERNAL_BUILD
+
+// Security/privacy: component diagnostic loggers (AgentLoop turn dumps, Ollama request
+// bodies, classifier query, memory extraction, …) echo the user's prompt/query to logcat.
+// Gate them so a RELEASE build is quiet; a debug/internal build keeps full logging. Mirrors
+// the desktop `DesktopDiag`. Returns a no-op logger in release. NOTE: config-load Log.w
+// warnings are operational and intentionally NOT gated.
+private fun diagLog(tag: String): (String) -> Unit =
+    if (VERBOSE_DIAGNOSTICS) { msg -> Log.i(tag, msg) } else { _ -> }
+
 private val configJson = Json { ignoreUnknownKeys = true; isLenient = true }
 
 /**
@@ -223,7 +232,7 @@ private val configJson = Json { ignoreUnknownKeys = true; isLenient = true }
  * Loaded by `LocalAgentApplication.onCreate` alongside the shared `agentCoreModule`.
  */
 val androidModule: Module = module {
-    single<HttpEngineFactory> { AndroidHttpEngineFactory() }
+    single<HttpEngineFactory> { AndroidHttpEngineFactory(verbose = VERBOSE_DIAGNOSTICS) }
     single<SecureStorage> { SecureStorageFactory.create(androidContext()) }
     // App build flags for shared :ui screens (Phase 9). Backed by :androidApp BuildConfig.
     single<AppBuildConfig> { AndroidAppBuildConfig() }
@@ -252,7 +261,7 @@ val androidModule: Module = module {
             presenter = get(),
             prefs = get(),
             stringCatalog = get(),
-            logger = { Log.i("JobNotifier", it) },
+            logger = diagLog("JobNotifier"),
         )
     }
     single { get<LocalAgentDatabase>().conversationsQueries }
@@ -290,11 +299,11 @@ val androidModule: Module = module {
     single<RelayDisconnector> { RelayUnpairDisconnector(get<LinkTransportProvider>()) }
     // Mobile never mints a desktop pairing QR (PR #92) — no-op initiator.
     single<RelayPairingInitiator> { NoOpRelayPairingInitiator }
-    single { OllamaClient(get<HttpEngineFactory>(), get<SecureStorage>(), logger = { Log.i("OllamaClient", it) }) }
+    single { OllamaClient(get<HttpEngineFactory>(), get<SecureStorage>(), logger = diagLog("OllamaClient")) }
     single {
         OllamaConnectionMonitor(
             healthProbe = { url -> get<OllamaClient>().health(url, get<OllamaPreferences>().config().serverType) },
-            logger = { Log.i("Ollama", it) },
+            logger = diagLog("Ollama"),
         )
     }
     single {
@@ -304,7 +313,7 @@ val androidModule: Module = module {
             client = get(),
             monitor = get(),
             secureStorage = get(),
-            logger = { Log.i("Ollama", it) },
+            logger = diagLog("Ollama"),
         )
     }
 
@@ -331,7 +340,7 @@ val androidModule: Module = module {
             // The relay has no pollable health URL — push a reload when it comes
             // up/down so the next turn re-decides (reuses the desktop-link monitor).
             onRelayConnectivityChanged = { get<OllamaConnectionMonitor>(named("desktopLink")).requestReload() },
-            logger = { Log.i("Relay", it) },
+            logger = diagLog("Relay"),
         )
     }
     single(named("desktopLink")) {
@@ -342,14 +351,14 @@ val androidModule: Module = module {
                 val t = get<LinkTransportProvider>().current()
                 t != null && t.unary(LinkRequest(LinkMethod.HEALTH)).isSuccess
             },
-            logger = { Log.i("DesktopLink", it) },
+            logger = diagLog("DesktopLink"),
         )
     }
     single {
         DesktopLinkInferenceEngine(
             transports = get(),
             monitor = get(named("desktopLink")),
-            logger = { Log.i("DesktopLink", it) },
+            logger = diagLog("DesktopLink"),
         )
     }
     single<DesktopLinkStatusProvider> {
@@ -384,7 +393,7 @@ val androidModule: Module = module {
             jobPolicy = get(),
             embedder = get(),
             bus = get(),
-            logger = { Log.i("Sync", it) },
+            logger = diagLog("Sync"),
         )
     }
     single { LinkSyncClient(get<LinkTransportProvider>()) }
@@ -402,7 +411,7 @@ val androidModule: Module = module {
             watermarks = get(),
             lastSync = get(),
             lastSyncStatus = get(),
-            logger = { Log.i("Sync", it) },
+            logger = diagLog("Sync"),
         )
     }
 
@@ -422,7 +431,7 @@ val androidModule: Module = module {
             preferences = get(),
             desktopLink = get<DesktopLinkInferenceEngine>(),
             desktopLinkPreferences = get(),
-            logger = { Log.i("Inference", it) },
+            logger = diagLog("Inference"),
         )
     }
     single<ClassifierEngine> {
@@ -473,7 +482,7 @@ val androidModule: Module = module {
             embedder = get(),
             store = get(),
             nowProvider = { clock.nowEpochMs() },
-            logger = { Log.i("MemoryRetriever", it) },
+            logger = diagLog("MemoryRetriever"),
             counters = get(),
         )
     }
@@ -492,7 +501,7 @@ val androidModule: Module = module {
             nowProvider = { clock.nowEpochMs() },
             configProvider = { config },
             creationEnabledProvider = { preferences.creationEnabled() },
-            logger = { Log.i("MemoryExtractor", it) },
+            logger = diagLog("MemoryExtractor"),
             counters = get(),
         )
     }
@@ -573,7 +582,7 @@ val androidModule: Module = module {
             configProvider = { config },
             searchAvailableProvider = { searchService.isAvailable() },
             subtypeDetector = get(),
-            logger = { Log.i("ClassifierModule", it) }, // invariant #28: preflight log tag
+            logger = diagLog("ClassifierModule"), // invariant #28: preflight log tag
             counters = get(),
         )
     }
@@ -586,7 +595,7 @@ val androidModule: Module = module {
             sportsSearchService = get(named("sports")),
             financeSearchService = get(named("finance")),
             newsSearchService = get(named("news")),
-            logger = { Log.i("VerticalSearch", it) }, // invariant #28
+            logger = diagLog("VerticalSearch"), // invariant #28
             logQueries = VERBOSE_DIAGNOSTICS, // security M2
         )
     }
@@ -622,7 +631,7 @@ val androidModule: Module = module {
 
     // AgentLoop's diagnostic logger — keeps the "AgentLoop" logcat tag (invariant #28).
     // Consumed by the AgentLoopFactory binding in the shared agentCoreModule.
-    single<AgentLogger> { AgentLogger { Log.i("AgentLoop", it) } }
+    single<AgentLogger> { AgentLogger(diagLog("AgentLoop")) }
 
     // -- My List subsystem (agent tool). --
     single<MyListRepository> { SqlDelightMyListRepository(get()) }
@@ -751,7 +760,7 @@ val androidModule: Module = module {
             counters = get(),
             config = get(),
             appVersionName = get<AppBuildConfig>().versionName,
-            logger = { msg -> Log.i("MemoryBackup", msg) },
+            logger = diagLog("MemoryBackup"),
         )
     }
 
@@ -770,7 +779,7 @@ val androidModule: Module = module {
 
     // Chat-screen log sink — keeps the "ChatViewModel" logcat tag (invariant #28)
     // for the shared :ui ChatViewModel.
-    single<ChatLogger> { ChatLogger { Log.i("ChatViewModel", it) } }
+    single<ChatLogger> { ChatLogger(diagLog("ChatViewModel")) }
 
     // System-memory status dot source (chat header) — re-exposes the
     // SystemMemoryMonitor's status flow behind the shared seam.
