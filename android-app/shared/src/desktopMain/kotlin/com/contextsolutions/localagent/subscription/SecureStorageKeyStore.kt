@@ -42,8 +42,12 @@ class SecureStorageKeyStore(
     override fun loadOrCreateIdentity(): KeyPair {
         identity?.let { return it }
 
-        // 1. Already in the encrypted store.
+        // 1. Already in the encrypted store. Security L6: the identity is migrated, so any
+        // surviving legacy plaintext file is safe to remove now — retry the deletion every
+        // launch (a delete that failed during the one-time migration in step 2 would otherwise
+        // leave the cleartext private key on disk forever, since step 2 never runs again).
         secureStorage.get(SecureStorageKeys.RELAY_IDENTITY_KEY)?.takeIf { it.isNotBlank() }?.let { hex ->
+            purgeLegacyFileIfPresent()
             return fromHex(hex).also { identity = it }
         }
 
@@ -71,6 +75,22 @@ class SecureStorageKeyStore(
         logger("keystore: generated a new relay identity")
         identity = kp
         return kp
+    }
+
+    /**
+     * Best-effort deletion of the legacy plaintext [legacyFile] once the identity already
+     * lives in [secureStorage]. Safe to call repeatedly; a failure just logs and is retried
+     * on the next launch. NEVER call this before the key has been imported into the store
+     * (it would discard a not-yet-migrated identity and force a re-pair).
+     */
+    private fun purgeLegacyFileIfPresent() {
+        val file = legacyFile ?: return
+        runCatching {
+            if (Files.exists(file)) {
+                Files.delete(file)
+                logger("keystore: removed leftover legacy relay identity file $file")
+            }
+        }.onFailure { logger("keystore: could not delete leftover legacy identity file $file: ${it.message}") }
     }
 
     private fun fromHex(hex: String): KeyPair {

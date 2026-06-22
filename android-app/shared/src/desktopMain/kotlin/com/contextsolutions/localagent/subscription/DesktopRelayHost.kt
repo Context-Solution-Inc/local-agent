@@ -4,6 +4,7 @@ import com.contextsolutions.localagent.link.transport.DesktopRelayBytePipe
 import com.contextsolutions.localagent.link.transport.FrameDispatcher
 import com.contextsolutions.localagent.link.transport.LinkConnectionState
 import com.contextsolutions.localagent.link.transport.LinkRequestHandler
+import com.contextsolutions.localagent.observability.ContentRedactor
 import com.contextsolutions.localagent.platform.SecureStorage
 import com.contextsolutions.localagent.platform.SecureStorageKeys
 import com.securegateway.core.auth.AuthException
@@ -119,7 +120,11 @@ class DesktopRelayHost(
             // rather than the SDK's plaintext `relay_identity.key` file. The legacy file path is
             // passed so an existing identity migrates in once, then the plaintext file is removed.
             keyStore = SecureStorageKeyStore(secureStorage, keyStorePath) { this@DesktopRelayHost.logger(it) }
-            logger = java.util.function.Consumer { this@DesktopRelayHost.logger("[sdk] $it") }
+            // Security M3: scrub the SDK's diagnostic output (wss URLs with token query
+            // strings / auth headers) before it reaches any sink — defense-in-depth.
+            logger = java.util.function.Consumer {
+                this@DesktopRelayHost.logger("[sdk] ${ContentRedactor.redact(it).orEmpty()}")
+            }
         }
         return SecureGateway.desktop(config)
     }

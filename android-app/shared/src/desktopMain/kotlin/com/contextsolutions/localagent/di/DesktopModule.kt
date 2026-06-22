@@ -231,6 +231,12 @@ private const val EMPTY_DEFAULTS_JSON = """{"fallback":"US","countries":{"US":{}
  * Markdown/LaTeX is an expect/actual in :ui. Phase 7 complete (→ Phase 8
  * packaging, Phase 9 UI cutover).
  */
+// Security M2/M3: raw search queries, response bodies, and relay diagnostics are
+// privacy/credential-sensitive, so these logs are emitted only on internal/debug
+// builds (desktop `isDebug` is the `localagent.debug` system property), never in a
+// normal release run.
+private fun verboseDiagnostics(config: AppBuildConfig): Boolean = config.isDebug || config.isInternalBuild
+
 val desktopModule: Module = module {
     // PR #55 (Option 3) — desktop inference runs through llama.cpp's reference
     // `llama-server` subprocess over localhost HTTP, NOT the net.ladenthin:llama JNI
@@ -287,7 +293,9 @@ val desktopModule: Module = module {
             gatewayBaseUrl = RelaySubscriptionService.gatewayUrlFromEnv(),
             relayWsUrl = RelaySubscriptionService.relayWsUrlFromEnv(),
             keyStorePath = File(DesktopAppDirs.dataDir(), "relay_identity.key").toPath(),
-            logger = { System.err.println("[Relay] $it") },
+            // Security M3: relay diagnostics (endpoints, pair ids, SDK lines) only on
+            // internal/debug builds; release runs silent. SDK lines are also redacted.
+            logger = if (verboseDiagnostics(get())) { s -> System.err.println("[Relay] $s") } else { _ -> },
         )
     }
     // Desktop "Disconnect" for a relay connection revokes the pairing via the relay host.
@@ -551,8 +559,11 @@ val desktopModule: Module = module {
         DefaultBraveKeyProvider(get(), System.getenv("BRAVE_API_KEY"))
     }
     // Default (GENERAL): /llm/context, maxUrls = 3 (invariant #37).
+    // Security M2: raw query/response logs only on internal/debug builds.
     single<BraveSearchClient> {
-        KtorBraveLlmContextClient(get<HttpEngineFactory>(), maxUrls = 3) { System.err.println("[BraveApi] $it") }
+        KtorBraveLlmContextClient(get<HttpEngineFactory>(), maxUrls = 3, logQueries = verboseDiagnostics(get())) {
+            System.err.println("[BraveApi] $it")
+        }
     }
 
     // Real bundled WordPiece vocab (classpath resource, byte-identical to the
@@ -641,7 +652,7 @@ val desktopModule: Module = module {
     single<SearchService>(named("sports")) {
         SearchService(
             keyProvider = get(),
-            client = KtorBraveLlmContextClient(get<HttpEngineFactory>(), maxUrls = 1) { System.err.println("[BraveApi] $it") },
+            client = KtorBraveLlmContextClient(get<HttpEngineFactory>(), maxUrls = 1, logQueries = verboseDiagnostics(get())) { System.err.println("[BraveApi] $it") },
             cache = get(),
             isEnabled = { get<SecureStorage>().get(SecureStorageKeys.SEARCH_ENABLED) != "false" },
             cacheNamespace = "sports:",
@@ -650,7 +661,7 @@ val desktopModule: Module = module {
     single<SearchService>(named("news")) {
         SearchService(
             keyProvider = get(),
-            client = KtorBraveLlmContextClient(get<HttpEngineFactory>(), maxUrls = 10) { System.err.println("[BraveApi] $it") },
+            client = KtorBraveLlmContextClient(get<HttpEngineFactory>(), maxUrls = 10, logQueries = verboseDiagnostics(get())) { System.err.println("[BraveApi] $it") },
             cache = get(),
             isEnabled = { get<SecureStorage>().get(SecureStorageKeys.SEARCH_ENABLED) != "false" },
             cacheNamespace = "news:",
@@ -659,7 +670,7 @@ val desktopModule: Module = module {
     single<SearchService>(named("finance")) {
         SearchService(
             keyProvider = get(),
-            client = KtorBraveSearchClient(get<HttpEngineFactory>()) { System.err.println("[BraveApi] $it") },
+            client = KtorBraveSearchClient(get<HttpEngineFactory>(), logQueries = verboseDiagnostics(get())) { System.err.println("[BraveApi] $it") },
             cache = get(),
             isEnabled = { get<SecureStorage>().get(SecureStorageKeys.SEARCH_ENABLED) != "false" },
             cacheNamespace = "fin:",
@@ -698,6 +709,7 @@ val desktopModule: Module = module {
             financeSearchService = get(named("finance")),
             newsSearchService = get(named("news")),
             logger = { System.err.println("[VerticalSearch] $it") },
+            logQueries = verboseDiagnostics(get()), // security M2
         )
     }
 

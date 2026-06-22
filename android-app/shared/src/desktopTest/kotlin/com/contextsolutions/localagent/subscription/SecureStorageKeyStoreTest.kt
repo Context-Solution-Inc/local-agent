@@ -10,7 +10,6 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
-import kotlin.test.assertTrue
 
 /** PR #80 — relay identity key lives in SecureStorage (secrets.p12), not a plaintext file. */
 class SecureStorageKeyStoreTest {
@@ -48,7 +47,7 @@ class SecureStorageKeyStoreTest {
     }
 
     @Test
-    fun storeValueWinsOverLegacyFile() {
+    fun storeValueWinsOverLegacyFileAndPurgesIt() {
         val store = FakeSecureStorage()
         val stored = Crypto.generateKeyPair()
         store.put(SecureStorageKeys.RELAY_IDENTITY_KEY, Hex.encode(stored.privateKey()))
@@ -58,9 +57,30 @@ class SecureStorageKeyStoreTest {
 
         val loaded = SecureStorageKeyStore(store, legacy).loadOrCreateIdentity()
 
+        // The store's identity still wins (we never re-import a leftover file)...
         assertContentEquals(stored.privateKey(), loaded.privateKey())
-        assertTrue(Files.exists(legacy), "legacy file is untouched when the store already has a key")
-        Files.deleteIfExists(legacy)
+        // ...and security L6: the leftover plaintext file is purged once the store has the key,
+        // so a deletion that failed during the original migration is retried on a later load.
+        assertFalse(
+            Files.exists(legacy),
+            "leftover legacy plaintext file should be purged when the store already has a key",
+        )
+    }
+
+    @Test
+    fun retriesLegacyDeletionOnEveryLoad() {
+        // Simulate a migration whose plaintext-file delete failed: the key is in the store but
+        // the legacy file still exists. A subsequent launch (fresh keystore over the same store)
+        // must clean it up rather than leave the cleartext key on disk forever.
+        val store = FakeSecureStorage()
+        val kp = Crypto.generateKeyPair()
+        store.put(SecureStorageKeys.RELAY_IDENTITY_KEY, Hex.encode(kp.privateKey()))
+        val legacy = Files.createTempFile("relay_identity", ".key")
+        Files.writeString(legacy, Hex.encode(kp.privateKey()))
+
+        SecureStorageKeyStore(store, legacy).loadOrCreateIdentity()
+
+        assertFalse(Files.exists(legacy), "a leftover legacy file is retried + deleted on the next load")
     }
 
     private class FakeSecureStorage : SecureStorage {

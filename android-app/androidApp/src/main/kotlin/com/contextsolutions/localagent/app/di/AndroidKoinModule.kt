@@ -208,6 +208,10 @@ private const val EMPTY_DEFAULTS_JSON = """{"fallback":"US","countries":{"US":{}
 private const val KOIN_TAG = "AndroidKoinModule"
 // Preserve the "BraveApi" logcat tag (invariant #28: search log tags come from DI).
 private const val BRAVE_TAG = "BraveApi"
+// Security M2/M3: raw search queries, response bodies, and relay diagnostics are
+// privacy/credential-sensitive, so these diagnostic logs are emitted only on
+// internal/debug builds, never in a release build.
+private val VERBOSE_DIAGNOSTICS = BuildConfig.DEBUG || BuildConfig.INTERNAL_BUILD
 private val configJson = Json { ignoreUnknownKeys = true; isLenient = true }
 
 /**
@@ -314,7 +318,11 @@ val androidModule: Module = module {
     // paired (else null → on-device fallback). The desktop-link engine + sync client
     // route through the provider.
     single<RelayBytePipeFactory> {
-        AndroidRelayBytePipeFactory(androidContext(), get<SecureStorage>(), logger = { Log.i("Relay", it) })
+        // Security M3: relay diagnostics (endpoints, pair ids, SDK lines) only on
+        // internal/debug builds; release runs silent. The SDK logger is additionally
+        // redacted at the wiring site.
+        val relayLog: (String) -> Unit = if (VERBOSE_DIAGNOSTICS) { s -> Log.i("Relay", s) } else { _ -> }
+        AndroidRelayBytePipeFactory(androidContext(), get<SecureStorage>(), logger = relayLog)
     }
     single<LinkTransportProvider> {
         DefaultLinkTransportProvider(
@@ -497,7 +505,10 @@ val androidModule: Module = module {
         DefaultBraveKeyProvider(get(), if (BuildConfig.INTERNAL_BUILD) BuildConfig.BRAVE_DEV_KEY else null)
     }
     // Default (GENERAL): /llm/context, maxUrls = 3.
-    single<BraveSearchClient> { KtorBraveLlmContextClient(get(), maxUrls = 3) { Log.i(BRAVE_TAG, it) } }
+    // Security M2: the raw query/response logs are gated to internal/debug builds.
+    single<BraveSearchClient> {
+        KtorBraveLlmContextClient(get(), maxUrls = 3, logQueries = VERBOSE_DIAGNOSTICS) { Log.i(BRAVE_TAG, it) }
+    }
     single { SearchCacheDao(queries = get(), nowEpochMs = get<AgentClock>()::nowEpochMs) }
 
     single<SearchService> {
@@ -513,7 +524,7 @@ val androidModule: Module = module {
     single<SearchService>(named("sports")) {
         SearchService(
             keyProvider = get(),
-            client = KtorBraveLlmContextClient(get(), maxUrls = 1) { Log.i(BRAVE_TAG, it) },
+            client = KtorBraveLlmContextClient(get(), maxUrls = 1, logQueries = VERBOSE_DIAGNOSTICS) { Log.i(BRAVE_TAG, it) },
             cache = get(),
             isEnabled = { get<SecureStorage>().get(SecureStorageKeys.SEARCH_ENABLED) != "false" },
             counters = get(),
@@ -523,7 +534,7 @@ val androidModule: Module = module {
     single<SearchService>(named("news")) {
         SearchService(
             keyProvider = get(),
-            client = KtorBraveLlmContextClient(get(), maxUrls = 10) { Log.i(BRAVE_TAG, it) },
+            client = KtorBraveLlmContextClient(get(), maxUrls = 10, logQueries = VERBOSE_DIAGNOSTICS) { Log.i(BRAVE_TAG, it) },
             cache = get(),
             isEnabled = { get<SecureStorage>().get(SecureStorageKeys.SEARCH_ENABLED) != "false" },
             counters = get(),
@@ -533,7 +544,7 @@ val androidModule: Module = module {
     single<SearchService>(named("finance")) {
         SearchService(
             keyProvider = get(),
-            client = KtorBraveSearchClient(get()) { Log.i(BRAVE_TAG, it) },
+            client = KtorBraveSearchClient(get(), logQueries = VERBOSE_DIAGNOSTICS) { Log.i(BRAVE_TAG, it) },
             cache = get(),
             isEnabled = { get<SecureStorage>().get(SecureStorageKeys.SEARCH_ENABLED) != "false" },
             counters = get(),
@@ -576,6 +587,7 @@ val androidModule: Module = module {
             financeSearchService = get(named("finance")),
             newsSearchService = get(named("news")),
             logger = { Log.i("VerticalSearch", it) }, // invariant #28
+            logQueries = VERBOSE_DIAGNOSTICS, // security M2
         )
     }
 

@@ -1,6 +1,7 @@
 package com.contextsolutions.localagent.link.transport
 
 import android.content.Context
+import com.contextsolutions.localagent.observability.ContentRedactor
 import com.contextsolutions.localagent.platform.SecureStorage
 import com.contextsolutions.localagent.platform.SecureStorageKeys
 import com.securegateway.core.auth.QrPayload
@@ -57,7 +58,10 @@ class AndroidRelayBytePipeFactory(
                 relayUrl = qr.relayEndpoint()
                 accountSecret = qr.accountSecret
                 keyStore = AndroidKeystoreKeyStore(context)
-                logger = { this@AndroidRelayBytePipeFactory.logger("[sdk] $it") }
+                // Security M3: scrub the SDK's diagnostic output (it may carry
+                // wss URLs with token query strings / auth headers) before it
+                // reaches any sink — defense-in-depth even on internal builds.
+                logger = { this@AndroidRelayBytePipeFactory.logger("[sdk] ${ContentRedactor.redact(it).orEmpty()}") }
                 if (saved != null) {
                     deviceId = saved.deviceId
                     pairId = saved.pairId

@@ -43,6 +43,9 @@ class KtorBraveLlmContextClient internal constructor(
     private val maxTokens: Int = MAX_TOKENS,
     private val maxSnippetsPerUrl: Int = MAX_SNIPPETS_PER_URL,
     private val logger: (String) -> Unit = {},
+    // Security M2: gates the raw query + verbatim response-body dump (both
+    // privacy-sensitive). Off by default; DI flips it on for internal/debug builds.
+    private val logQueries: Boolean = false,
 ) : BraveSearchClient {
 
     /**
@@ -54,8 +57,9 @@ class KtorBraveLlmContextClient internal constructor(
     constructor(
         httpEngineFactory: HttpEngineFactory,
         maxUrls: Int = DEFAULT_MAX_URLS,
+        logQueries: Boolean = false,
         logger: (String) -> Unit = {},
-    ) : this(httpEngineFactory.create(), maxUrls = maxUrls, logger = logger)
+    ) : this(httpEngineFactory.create(), maxUrls = maxUrls, logger = logger, logQueries = logQueries)
 
     // Mirrors the server's ContentNegotiation config (ignores unknown keys, see
     // BraveLlmContextResponse) — we decode the text body ourselves so the raw
@@ -63,7 +67,7 @@ class KtorBraveLlmContextClient internal constructor(
     private val json = Json { ignoreUnknownKeys = true }
 
     override suspend fun search(query: String, apiKey: String): BraveSearchResult {
-        logger("llm-context q=\"$query\"")
+        if (logQueries) logger("llm-context q=\"$query\"")
         val response = try {
             httpClient.get(endpoint) {
                 parameter("q", query)
@@ -109,14 +113,16 @@ class KtorBraveLlmContextClient internal constructor(
                 "Brave LLM Context returned an unreadable response",
             )
         }
-        logger(">>> LLM CONTEXT RAW RESPONSE START >>> len=${rawBody.length}")
-        var offset = 0
-        while (offset < rawBody.length) {
-            val end = (offset + LOG_CHUNK).coerceAtMost(rawBody.length)
-            logger("rawResp@$offset: ${rawBody.substring(offset, end)}")
-            offset = end
+        if (logQueries) {
+            logger(">>> LLM CONTEXT RAW RESPONSE START >>> len=${rawBody.length}")
+            var offset = 0
+            while (offset < rawBody.length) {
+                val end = (offset + LOG_CHUNK).coerceAtMost(rawBody.length)
+                logger("rawResp@$offset: ${rawBody.substring(offset, end)}")
+                offset = end
+            }
+            logger("<<< LLM CONTEXT RAW RESPONSE END <<<")
         }
-        logger("<<< LLM CONTEXT RAW RESPONSE END <<<")
 
         val parsed = try {
             json.decodeFromString(BraveLlmContextResponse.serializer(), rawBody)
