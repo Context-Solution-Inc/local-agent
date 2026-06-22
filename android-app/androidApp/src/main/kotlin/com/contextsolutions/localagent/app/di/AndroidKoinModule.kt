@@ -1,7 +1,6 @@
 package com.contextsolutions.localagent.app.di
 
 import android.util.Log
-import app.cash.sqldelight.driver.android.AndroidSqliteDriver
 import com.contextsolutions.localagent.agent.currentTimeContext
 import com.contextsolutions.localagent.app.BuildConfig
 import com.contextsolutions.localagent.app.service.ManagedClassifierEngine
@@ -47,6 +46,7 @@ import com.contextsolutions.localagent.platform.AgentClock
 import com.contextsolutions.localagent.platform.AndroidHttpEngineFactory
 import com.contextsolutions.localagent.platform.HttpEngineFactory
 import com.contextsolutions.localagent.app.platform.AndroidAppBuildConfig
+import com.contextsolutions.localagent.app.platform.AndroidDatabaseFactory
 import com.contextsolutions.localagent.platform.AppBuildConfig
 import com.contextsolutions.localagent.platform.AndroidToaster
 import com.contextsolutions.localagent.platform.AndroidUrlOpener
@@ -244,7 +244,17 @@ val androidModule: Module = module {
     // SQLDelight: one DB per process via the Android driver (same file/migration path as
     // the former DatabaseModule). Per-table query handles are distinct Koin types, so
     // they resolve by type without qualifiers (mirrors desktopModule's searchCacheQueries).
-    single { LocalAgentDatabase(AndroidSqliteDriver(LocalAgentDatabase.Schema, androidContext(), DB_NAME)) }
+    // M1 — the driver is SQLCipher-keyed via AndroidDatabaseFactory (passphrase from SecureStorage).
+    single {
+        LocalAgentDatabase(
+            AndroidDatabaseFactory.create(
+                context = androidContext(),
+                secureStorage = get(),
+                dbName = DB_NAME,
+                logger = { Log.i("AndroidKoinModule", "[DB] $it") },
+            ),
+        )
+    }
     single { get<LocalAgentDatabase>().searchCacheQueries }
     single { get<LocalAgentDatabase>().telemetryAggregateQueries }
     // PR #70 — jobs. The repo renders synced state offline; mobile binds NO

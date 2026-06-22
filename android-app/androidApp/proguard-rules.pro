@@ -62,3 +62,12 @@
 -keepclassmembers class * extends com.sun.jna.** { *; }
 -keep class com.goterl.** { *; }
 -dontwarn java.awt.**
+
+# SQLCipher (M1 — net.zetetic:sqlcipher-android). The encrypted DB is opened through
+# net.zetetic.database.sqlcipher.SupportFactory, whose native libsqlcipher.so reaches back
+# into Java via JNI BY NAME (SQLiteConnection, SQLiteDatabase, native callbacks). Same class
+# of break as the litert/JNA keeps above — R8 can't see JNI string lookups, so an obfuscated
+# class/member SIGABRTs at first DB open (release only; debug never exercises R8). Keep the
+# whole package + members. Hard invariant #70.
+-keep class net.zetetic.** { *; }
+-dontwarn net.zetetic.**

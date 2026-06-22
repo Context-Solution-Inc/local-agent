@@ -129,7 +129,12 @@ kotlin {
                 implementation(libs.ktor.server.content.negotiation)
                 implementation(libs.ktor.server.status.pages)
                 // JDBC SQLite driver for the desktop SQLDelight driver (Phase 6).
+                // M1 — sqldelight-sqlite-driver bundles xerial sqlite-jdbc (no SQLCipher);
+                // we swap in the willena fork (sqlite3mc), which exposes the SAME org.sqlite
+                // package, so JdbcSqliteDriver is unchanged. The transitive xerial is excluded
+                // at the configuration level below (AGP 9 KMP rejects the closure form — #19).
                 implementation(libs.sqldelight.sqlite.driver)
+                implementation(libs.willena.sqlite.jdbc)
                 // Desktop LLM runtime is llama.cpp's `llama-server` subprocess over HTTP
                 // (PR #55 Option 3, LlamaServerInferenceEngine via ktor-client-cio above) —
                 // NOT a JNI binding. The net.ladenthin:llama JNI dep was removed: it drops
@@ -206,6 +211,15 @@ configurations.matching {
         it.name.startsWith("debugAndroid") || it.name.startsWith("releaseAndroid")
 }.configureEach {
     exclude(group = "org.tensorflow", module = "tensorflow-lite-api")
+}
+
+// M1 — keep exactly one org.sqlite.JDBC on the desktop classpath. sqldelight-sqlite-driver
+// pulls xerial sqlite-jdbc (no SQLCipher); we use the willena fork (sqlite3mc) instead, which
+// shares the org.sqlite package, so both present would collide. Exclude the transitive xerial
+// from every desktop configuration (AGP 9 KMP rejects the inline `implementation(dep){…}` form
+// for catalog Providers — invariant #19, so it must be configuration-level here).
+configurations.matching { it.name.startsWith("desktop") }.configureEach {
+    exclude(group = "org.xerial", module = "sqlite-jdbc")
 }
 
 sqldelight {

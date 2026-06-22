@@ -479,6 +479,10 @@ dependencies {
     // platform-specific and constructed here in DatabaseModule alongside the rest
     // of the Android wiring.
     implementation(libs.sqldelight.android.driver)
+    // M1 — SQLCipher for the at-rest-encrypted SQLDelight DB. net.zetetic's
+    // sqlcipher-android implements the AndroidX SupportSQLiteOpenHelper.Factory,
+    // fed into AndroidSqliteDriver(...) in AndroidDatabaseFactory.
+    implementation(libs.sqlcipher.android)
 
     // PR #15 — kotlinx-datetime for the TODO management screen (relative
     // date labels, DatePicker → local-tz midnight conversion). :shared

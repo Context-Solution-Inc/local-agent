@@ -64,6 +64,12 @@ securegateway = "0.2.3"
 # Storage
 sqldelight = "2.0.2"
 sqldelight-dialect = "sqlite-3-25"   # SQLite 3.25+ for UPSERT (ON CONFLICT ... DO UPDATE)
+# M1 — encryption at rest (SQLCipher). Android: net.zetetic's maintained AndroidX
+# successor to the deprecated android-database-sqlcipher (ships 16KB-aligned .so).
+# Desktop: the willena xerial fork bundling SQLite3 Multiple Ciphers (sqlite3mc) —
+# same org.sqlite package as xerial, so it feeds JdbcSqliteDriver unchanged.
+sqlcipher-android = "4.16.0"
+willena-sqlite-jdbc = "3.51.2.0"
 
 # Firebase (M6 Phase C — opt-in counter-only telemetry + Phase D — Crashlytics)
 # BoM 33.x pins all firebase-* artifacts together; the firebase-analytics
@@ -176,6 +182,10 @@ sqldelight-android-driver = { module = "app.cash.sqldelight:android-driver", ver
 sqldelight-native-driver = { module = "app.cash.sqldelight:native-driver", version.ref = "sqldelight" }
 sqldelight-sqlite-driver = { module = "app.cash.sqldelight:sqlite-driver", version.ref = "sqldelight" }
 sqldelight-sqlite-dialect = { module = "app.cash.sqldelight:sqlite-3-25-dialect", version.ref = "sqldelight" }
+
+# SQLCipher (M1 — datastore encryption at rest)
+sqlcipher-android = { module = "net.zetetic:sqlcipher-android", version.ref = "sqlcipher-android" }
+willena-sqlite-jdbc = { module = "io.github.willena:sqlite-jdbc", version.ref = "willena-sqlite-jdbc" }
 
 # LiteRT-LM
 litertlm-android = { module = "com.google.ai.edge.litertlm:litertlm-android", version.ref = "litertlm" }
