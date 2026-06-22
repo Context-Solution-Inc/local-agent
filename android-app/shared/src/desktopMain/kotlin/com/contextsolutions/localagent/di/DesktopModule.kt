@@ -443,7 +443,7 @@ val desktopModule: Module = module {
 
     // File-backed DB at <app-data>/local_agent.db (Phase 6) — persists across
     // launches, create/migrate driven off PRAGMA user_version.
-    single<SqlDriver> { DesktopDatabaseFactory.create(logger = { DesktopDiag.log("[DB] $it") }) }
+    single<SqlDriver> { DesktopDatabaseFactory.create(secureStorage = get(), logger = { DesktopDiag.log("[DB] $it") }) }
     single { LocalAgentDatabase(get()) }
     single { get<LocalAgentDatabase>().searchCacheQueries }
     single { get<LocalAgentDatabase>().memoriesQueries }

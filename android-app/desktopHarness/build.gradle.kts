@@ -14,8 +14,11 @@ dependencies {
     implementation(project(":shared"))
     implementation(libs.kotlinx.coroutines.core)
     // JDBC SQLite driver so the harness can stand up an in-memory LocalAgentDatabase
-    // (proves the SQLDelight JVM driver seam too).
-    implementation(libs.sqldelight.sqlite.driver)
+    // (proves the SQLDelight JVM driver seam too). M1 — :shared (desktop) now bundles the
+    // willena fork's org.sqlite, so exclude xerial here to avoid a duplicate org.sqlite.JDBC.
+    implementation(libs.sqldelight.sqlite.driver) {
+        exclude(group = "org.xerial", module = "sqlite-jdbc")
+    }
 }
 
 application {

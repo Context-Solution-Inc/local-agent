@@ -5,8 +5,8 @@ import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import com.contextsolutions.localagent.db.LocalAgentDatabase
 import com.contextsolutions.localagent.inference.DesktopAppDirs
+import org.sqlite.mc.SQLiteMCSqlCipherConfig
 import java.io.File
-import java.util.Properties
 
 /**
  * File-backed SQLDelight driver for desktop (Phase 6, docs/DESKTOP_PORT_PLAN.md).
@@ -23,14 +23,40 @@ import java.util.Properties
  *
  * The DB lives at `<app-data>/local_agent.db` ([DesktopAppDirs]); the same file
  * the Phase-7 tray/UI and any background task queue read.
+ *
+ * M1 — the connection is keyed with SQLCipher (via the willena/sqlite3mc driver). The
+ * passphrase comes from [SecureStorage] ([DatabaseKeyProvider]); it is set through the JDBC
+ * [java.util.Properties] so EVERY connection the driver opens is keyed (a one-shot `PRAGMA key`
+ * would leave any later connection unkeyed). On open we also do a one-time fresh-start wipe of
+ * any legacy plaintext `local_agent.db` (pre-M1 installs), and fail loudly if an encrypted DB
+ * exists but the key is gone (secure-store loss — never silently re-key a fresh DB over it).
  */
 object DesktopDatabaseFactory {
     const val DB_FILENAME: String = "local_agent.db"
 
-    fun create(baseDir: File = DesktopAppDirs.dataDir(), logger: (String) -> Unit = {}): SqlDriver {
+    fun create(
+        secureStorage: SecureStorage,
+        baseDir: File = DesktopAppDirs.dataDir(),
+        logger: (String) -> Unit = {},
+    ): SqlDriver {
         baseDir.mkdirs()
         val dbFile = File(baseDir, DB_FILENAME)
-        val driver = JdbcSqliteDriver("jdbc:sqlite:${dbFile.absolutePath}", Properties())
+
+        // Fresh-start wipe: a pre-M1 plaintext DB carries the SQLite magic header; an encrypted
+        // one never does. Delete it (+ WAL/SHM sidecars) so the create path builds an encrypted DB.
+        if (dbFile.exists() && isPlaintextDb(dbFile)) {
+            deleteDbFiles(dbFile)
+            logger("wiped legacy plaintext DB at $dbFile (M1 fresh-start)")
+        }
+        // Keystore-loss guard: an encrypted DB remains but the key is gone → unrecoverable; do
+        // not regenerate a key (that would orphan the data behind a fresh, mismatched DB).
+        if (dbFile.exists() && DatabaseKeyProvider.existing(secureStorage) == null) {
+            error("Encrypted database present but no key in secure storage — secure store lost; refusing to re-key")
+        }
+
+        val passphrase = DatabaseKeyProvider.getOrCreate(secureStorage)
+        val props = SQLiteMCSqlCipherConfig.getDefault().withKey(passphrase).build().toProperties()
+        val driver = JdbcSqliteDriver("jdbc:sqlite:${dbFile.absolutePath}", props)
         val schema = LocalAgentDatabase.Schema
         when (val current = userVersion(driver)) {
             0L -> {
@@ -59,5 +85,17 @@ object DesktopDatabaseFactory {
     private fun setUserVersion(driver: SqlDriver, version: Long) {
         // PRAGMA doesn't accept bound parameters; version is a trusted Long.
         driver.execute(identifier = null, sql = "PRAGMA user_version = $version", parameters = 0)
+    }
+
+    /** True when [dbFile] starts with the plaintext SQLite magic (i.e. an unencrypted legacy DB). */
+    private fun isPlaintextDb(dbFile: File): Boolean {
+        val header = ByteArray(SqliteHeader.MAGIC_LENGTH)
+        val read = dbFile.inputStream().use { it.read(header) }
+        return read == SqliteHeader.MAGIC_LENGTH && SqliteHeader.isPlaintext(header)
+    }
+
+    /** Deletes the DB and its WAL/SHM sidecars (best-effort). */
+    private fun deleteDbFiles(dbFile: File) {
+        listOf(dbFile, File(dbFile.path + "-wal"), File(dbFile.path + "-shm")).forEach { it.delete() }
     }
 }

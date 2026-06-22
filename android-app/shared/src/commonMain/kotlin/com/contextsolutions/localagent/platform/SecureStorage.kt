@@ -32,6 +32,18 @@ object SecureStorageKeys {
     const val HF_AUTH_TOKEN = "hf_auth_token"
 
     /**
+     * The SQLCipher passphrase for the local SQLDelight database (`local_agent.db`),
+     * M1 — datastore encryption at rest. A ~256-bit URL-safe-Base64 string minted once
+     * via [generateDatabaseKey] and read on every DB open (see [DatabaseKeyProvider]). It
+     * lives in the same tier as the relay credentials — Android Keystore-backed
+     * EncryptedSharedPreferences / desktop PKCS#12 `secrets.p12` — and, like
+     * [BRAVE_API_KEY], MUST never be logged or written to plaintext disk. Losing it makes
+     * the encrypted DB permanently unreadable; the factories fail loudly rather than
+     * silently regenerating it over an existing encrypted file.
+     */
+    const val DB_ENCRYPTION_KEY = "db_encryption_key"
+
+    /**
      * Optional API key for the remote chat LLM (PR #58). When set, it rides every
      * outbound request to the configured Ollama / OpenAI-compatible server as an
      * `Authorization: Bearer <key>` header (see
