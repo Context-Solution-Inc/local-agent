@@ -67,17 +67,16 @@ Versions are pinned in `android-app/gradle/libs.versions.toml`.
   create it (it's gitignored). If you also use the Docker container, prefer `ANDROID_HOME` (a host-path
   `sdk.dir=` is wrong inside the container).
 - **`secrets.properties`** in `android-app/` (NOT the repo root — see `secrets.properties.example`).
-  Holds the dev-channel Brave key, the HuggingFace token, and Gemma checksums. **Required for a debug
-  device build:** `assembleDebug` / `installDebug` fail fast at configuration time if it's missing
-  (without it the installed app can't search or download the model). Release builds use BYOK and don't
-  need it; unit tests and the desktop build don't read it.
+  Holds the dev-channel Brave key. **Required for a debug device build:** `assembleDebug` /
+  `installDebug` fail fast at configuration time if it's missing (without it the installed app can't
+  search until the user supplies their own Brave key). Release builds use BYOK and don't need it; unit
+  tests and the desktop build don't read it. **All AI models now download from the public R2 CDN with
+  no auth** (PR #22 — URLs + checksums are pinned in `ModelInventory`/`AndroidAuxModels`, so the old
+  `MODEL_*` / `HF_AUTH_TOKEN` keys are gone; HuggingFace is no longer used).
 
   | Key | Purpose |
   |---|---|
   | `BRAVE_DEV_KEY` | Bundled into debug builds only; production users supply their own via Settings |
-  | `MODEL_DOWNLOAD_URL` | Gemma 4 E2B `.litertlm` artifact URL (pre-filled in the example) |
-  | `MODEL_SHA256` / `MODEL_SIZE_BYTES` | Checksum + size for the download + progress |
-  | `HF_AUTH_TOKEN` | Read-scoped HuggingFace token for the gated Gemma repo (accept the license on HF first) |
 
 - **`google-services.json`** in `android-app/androidApp/` — *optional, Android only*. Enables Firebase
   Analytics + Crashlytics on Android. Gitignored, so it's absent in fresh checkouts; the app runs fine

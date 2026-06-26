@@ -148,7 +148,7 @@ or operator-supplied):
 | Artifact | Source | Notes |
 |---|---|---|
 | `llama-server` binary (CPU + Vulkan/Metal) | `LlamaServerBinaryStore` → GitHub `ggml-org/llama.cpp` release, pinned `LlamaServerRelease.TAG` (`b9478`) | sha256/size pinned per host asset in `LlamaServerRelease`; extracted via system `tar` (preserves `.so` symlinks) into app-data `server/<variant>/`. GPU variant attempted by default, CPU fallback. Override path with `LOCALAGENT_LLAMA_SERVER`, variant with `LOCALAGENT_LLAMA_SERVER_VARIANT` (`cpu`\|`vulkan`\|`auto`) |
-| GGUF Gemma (Q4_K_M, ≈3.1 GB) + mmproj-F16 | `DesktopModelDownloader` → tray progress | sha256/size **pinned** in `DesktopModelStore` (`unsloth/gemma-4-E2B-it-GGUF`, public repo — no token unless you point at a gated mirror via `HF_AUTH_TOKEN`). **Use a standard instruction GGUF with the stock Gemma template (`<start_of_turn>`); avoid "thinking"/"reasoning" community conversions — they carry a `<\|think\|>` block in the chat template and reason out loud in the chat (Android's E2B doesn't). Quick check: `strings model.gguf \| grep -m1 '<\|think\|>'` should find nothing.** |
+| GGUF Gemma (Q4_K_M, ≈3.1 GB) + mmproj-F16 | `DesktopModelDownloader` → tray progress | sha256/size **pinned** in `DesktopModelStore`; downloaded from the **public R2 CDN, no auth** (`gemma-4-E2B-it-Q4_K_M.gguf` / `gemma-4-E2B-it-mmproj-F16.gguf` — PR #22 moved this off HuggingFace; the `HF_AUTH_TOKEN` plumbing is gone). **Use a standard instruction GGUF with the stock Gemma template (`<start_of_turn>`); avoid "thinking"/"reasoning" community conversions — they carry a `<\|think\|>` block in the chat template and reason out loud in the chat (Android's E2B doesn't). Quick check: `strings model.gguf \| grep -m1 '<\|think\|>'` should find nothing.** |
 | ONNX classifier + embedder | `DesktopAuxModelStore` → app-data `models/` (auto-download), or `LOCALAGENT_{CLASSIFIER,EMBEDDER}_ONNX` env override | exported by `ct-export-onnx` / `export_minilm_onnx.py`; sha256/size pinned in `DesktopAuxModels`. **Auto-downloads from the CDN on first run** (default `DesktopAuxModels.DEFAULT_BASE_URL`, PR #3); override the host with `-PauxModelBaseUrl=https://host/path` (baked into `desktop_build_info.properties`). Absent ⇒ classifier no-ops (pre-flight under-fires; explicit `web search …` still works). |
 | Vosk acoustic model | app-data `models/vosk` or `LOCALAGENT_VOSK_MODEL` | optional; STT no-ops without it |
 | Piper binary + voice (neural TTS) | `PiperBinaryStore` (`rhasspy/piper`, pinned `PiperRelease.TAG`) + `PiperVoiceStore` (HF `rhasspy/piper-voices`, `en_US-lessac-medium` ≈63 MB) → app-data `piper/` or `LOCALAGENT_PIPER_BINARY` | optional; only when the user picks the "piper" engine. Pinned sha256/size per OS/arch (Linux/macOS/Windows). Played in-JVM (Java Sound); falls back to OS shell-out if no prebuilt for the host (PR #66) |
@@ -220,12 +220,12 @@ fallback needs no display (X11/Wayland/Quartz) — safe on a true headless serve
 
 ### Secrets & `/proc` exposure (Security L3)
 
-The desktop reads a few secrets from environment variables — `LOCALAGENT_KEYSTORE_PASSWORD`
-(PKCS#12 store password), `BRAVE_API_KEY` (search), and `HF_AUTH_TOKEN` (gated-model
-download). All three have **non-env fallbacks the app prefers**: the keystore password falls
-back to the OS keyring then a `0600` `secrets.p12.pass`, and the Brave/HF tokens are read from
-the encrypted `secrets.p12` `SecureStorage` first (env is only a fallback). Env vars are the
-*least* private option:
+The desktop reads a couple of secrets from environment variables — `LOCALAGENT_KEYSTORE_PASSWORD`
+(PKCS#12 store password) and `BRAVE_API_KEY` (search). (PR #22 removed `HF_AUTH_TOKEN` — all
+models download from the public R2 CDN with no auth.) Both have **non-env fallbacks the app
+prefers**: the keystore password falls back to the OS keyring then a `0600` `secrets.p12.pass`,
+and the Brave key is read from the encrypted `secrets.p12` `SecureStorage` first (env is only a
+fallback). Env vars are the *least* private option:
 
 > ⚠️ A process's environment is **world-readable by the same user** via
 > `/proc/<pid>/environ`, is inherited by every child process, and is frequently captured in

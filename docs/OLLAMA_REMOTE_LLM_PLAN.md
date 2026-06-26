@@ -168,7 +168,8 @@ llama-server / LocalAI.
   (strict servers reject unknown fields).
 - **(d) API key required for OpenAI** (Settings gates Save on `hasOllamaApiKey`); optional
   for Ollama.
-- **(e) On/off switch.** `OllamaConfig.enabled` (default `true` so upgrades keep routing).
+- **(e) On/off switch.** `OllamaConfig.enabled` (default **`false`** since PR #22 — the remote
+  connection is opt-in; the user must configure a server AND flip the switch on).
   Routing gates on **`isActive = enabled && isConfigured`**, NOT `isConfigured`. Toggling
   writes `enabled` to the persisted config (preserving server details) → `configFlow` →
   re-decide.

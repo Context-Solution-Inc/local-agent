@@ -235,8 +235,8 @@ App-data dir per OS:
 | Artifact | Source | Notes |
 |---|---|---|
 | **llama-server binary** | GitHub `ggml-org/llama.cpp` release (pinned `LlamaServerRelease.TAG`), CPU or Vulkan per host | runs the LLM as a subprocess; CPU is the always-works default. `LOCALAGENT_LLAMA_SERVER_VARIANT=cpu\|vulkan\|auto` |
-| **Gemma GGUF** (Q4_K_M, ~3.1 GB) | HuggingFace `unsloth/gemma-4-E2B-it-GGUF` (sha256/size pinned in `DesktopModelStore`) | **public repo — no token needed.** Set `HF_AUTH_TOKEN` only if you point at a gated mirror |
-| **Vosk STT model** (~41 MB) | `alphacephei.com` | optional; dictation no-ops without it |
+| **Gemma GGUF** (Q4_K_M, ~3.1 GB) + **mmproj-F16** (~986 MB) | R2 CDN (`gemma-4-E2B-it-Q4_K_M.gguf` / `gemma-4-E2B-it-mmproj-F16.gguf`, sha256/size pinned in `DesktopModelStore`) | **public CDN — no auth** (PR #22, moved off HuggingFace) |
+| **Vosk STT model** (~41 MB) | R2 CDN (`vosk.tar.gz`, pinned in `VoskModelStore`) | optional; dictation no-ops without it (PR #22, moved off `alphacephei.com`) |
 | **Piper voice + binary** | `rhasspy/piper` + HF `rhasspy/piper-voices` | optional; only if the user picks the "piper" neural read-aloud engine |
 
 ### ONNX classifier + embedder
@@ -267,7 +267,6 @@ export LOCALAGENT_EMBEDDER_ONNX=/abs/path/all-MiniLM-L6-v2.onnx
 
 | Var | Purpose |
 |---|---|
-| `HF_AUTH_TOKEN` | only if the GGUF is behind a gated HF repo/mirror |
 | `LOCALAGENT_LLAMA_SERVER` / `LOCALAGENT_LLAMA_SERVER_VARIANT` | pin a prebuilt server binary / force cpu\|vulkan\|auto |
 | `LOCALAGENT_CLASSIFIER_ONNX` / `LOCALAGENT_EMBEDDER_ONNX` | Option B aux-model paths |
 | `LOCALAGENT_VOSK_MODEL` / `LOCALAGENT_PIPER_BINARY` | pre-staged STT/TTS assets |
@@ -314,8 +313,9 @@ cd <repo>/android-app
 cp secrets.properties.example secrets.properties
 ```
 
-Release-relevant keys (the `BRAVE_DEV_KEY` / `HF_AUTH_TOKEN` / `MODEL_*` entries are
-**debug-only** — release ships them empty and uses BYOK, see §B4):
+Release-relevant keys (`BRAVE_DEV_KEY` is **debug-only** — release ships it empty and uses
+BYOK, see §B4; the old `HF_AUTH_TOKEN` / `MODEL_*` entries were removed in PR #22 — all
+models download from the public R2 CDN):
 
 ```properties
 RELEASE_STORE_FILE=/abs/path/to/upload-keystore.jks
@@ -404,14 +404,12 @@ only when `ModelInventory.allRequiredPresent()` (Gemma + classifier + embedder).
 
 | Artifact | Source | Auth |
 |---|---|---|
-| **Gemma 4 E2B** (LiteRT-LM, ~2.58 GB) | HuggingFace `litert-community/gemma-4-E2B-it-litert-lm` | **GATED** — user accepts the license on HF, then supplies a read-scoped **HF token** during onboarding (BYOK). Release ships an empty `HF_AUTH_TOKEN`. |
+| **Gemma 4 E2B** (LiteRT-LM, ~2.58 GB) | R2 CDN (`gemma-4-E2B-it.litertlm`, pinned in `ModelInventory`) | **none** (PR #22, moved off the gated HF repo) |
 | **Pre-flight classifier** (`…_int8.tflite`, ~67.7 MB) | R2 CDN (`AndroidAuxModels`) | none |
 | **MiniLM embedder** (`…_int8.tflite`, ~23.5 MB) | R2 CDN (`AndroidAuxModels`) | none |
 
 Other per-user secrets (never baked into the build):
-- **Brave Search key** — BYOK via **Settings** (chat search no-fires until set).
-- **HF token** — onboarding/Settings; stored in `SecureStorage`. Prefer the user-supplied
-  token; `BuildConfig.HF_AUTH_TOKEN` is consulted only on `INTERNAL_BUILD` (debug).
+- **Brave Search key** — BYOK via **Settings** (chat search no-fires until set; default OFF, PR #22).
 - **Relay/anywhere-access** — paired by scanning the desktop's relay QR; the account secret
   lands in `SecureStorage` (the phone never holds a subscription of its own).
 
@@ -424,8 +422,9 @@ Other per-user secrets (never baked into the build):
 1. **Install:** `./gradlew :androidApp:installRelease`, or `adb install -r
    androidApp/build/outputs/apk/release/androidApp-release.apk` (or install from a Play
    test track).
-2. **Onboarding:** language (English at launch), country; enter the **HF token** when
-   prompted → the Download screen pulls Gemma + classifier + embedder (watch progress).
+2. **Onboarding:** language (English at launch) → privacy disclosure → country (PR #22
+   removed the HF-token/Brave-key/telemetry steps) → the Download screen pulls Gemma +
+   classifier + embedder from the R2 CDN (watch progress).
 3. **Functional smoke** (exercise on the **signed release** — debug never runs R8, so
    R8-only breakage surfaces only here; #70):
    - **Chat:** plain prompt → streamed answer.

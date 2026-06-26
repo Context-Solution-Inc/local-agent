@@ -28,7 +28,7 @@ chooses to point the app at.
 
 | Boundary | Trusted side | Untrusted / lower-trust side | Enforcement |
 |---|---|---|---|
-| On-device core ↔ network | The local agent process | Brave, HuggingFace, remote LLM, relay | Egress is enumerated + gated (below) |
+| On-device core ↔ network | The local agent process | Brave, model CDN (R2), remote LLM, relay | Egress is enumerated + gated (below) |
 | LLM backend seam | Agent loop | Any inference backend (incl. remote/relay) | `inference/InferenceEngine` — backend chosen once per load by `RoutingInferenceEngine`; never special-cased above the seam (invariant #44) |
 | Desktop job execution | The desktop user who defines a job | The job's subprocess + its arguments | Positional shell-arg binding in `job/JobExecutor` (no injection); 300 s timeout; 8 KB output cap |
 | Job definitions across sync | The desktop (authoritative) | A paired mobile peer | `sync/JobSyncPolicy` — `DesktopJobSyncPolicy` is **fail-closed** (invariants #49–#51) |
@@ -79,7 +79,7 @@ Every way data leaves the device, and what goes with it:
 |---|---|---|---|---|
 | **Brave Search API** | A turn needs the web (classifier fires, or an explicit `web search …`) | **Only the search query** (never the conversation) | HTTPS, `X-Subscription-Token` | Search enabled **and** a Brave key present; fully disableable |
 | **Remote LLM** (Ollama / OpenAI-compatible) | Only if the user configures one **and** it's reachable | The **full prompt + chat history** (and the current image, if any) | HTTPS for the OpenAI path; cleartext allowed for LAN Ollama (below) | Off by default; `RoutingInferenceEngine` falls back to on-device when inactive/unreachable |
-| **Model downloads** | First run / on demand | Download request (+ HF token for the gated Gemma repo) | HTTPS | Gemma (HuggingFace), `llama-server` binary (pinned `b9478`), ONNX aux models, Vosk |
+| **Model downloads** | First run / on demand | Download request only (**no auth header** — PR #22) | HTTPS | Gemma + ONNX/TFLite aux models + Vosk from the public R2 CDN (sha256/size-pinned); `llama-server` binary (GitHub, pinned `b9478`); Piper voices (HF, public) |
 | **Firebase Analytics + Crashlytics** (Android) | Opt-in only | Aggregate **counters only** (analytics) + **redacted** crash non-fatals | HTTPS | `TELEMETRY_OPT_IN`, default **OFF**; also requires `google-services.json` to be present |
 | **Sentry** (desktop) | Opt-in only | Redacted crash non-fatals | HTTPS | `SENTRY_DSN` env + consent |
 | **Secure Gateway relay** (anywhere access) | Paid subscription active + paired | E2EE link frames (chat + sync) | WSS + **X25519 (libsodium) E2EE** | Subscription active; relay operator sees only ciphertext |
