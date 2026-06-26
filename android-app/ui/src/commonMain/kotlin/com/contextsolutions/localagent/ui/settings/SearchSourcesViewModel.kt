@@ -29,8 +29,14 @@ class SearchSourcesViewModel(
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state.asStateFlow()
 
-    /** Countries the user can pick as their search-defaults country (PR #22). */
-    val countries: List<LocationCatalog.CountryEntry> = locationCatalog.countries()
+    /**
+     * Countries the user can pick as their search-defaults country (PR #22).
+     * Restricted to CA + US for launch (in that order); more countries will be
+     * enabled later per user feedback. Resolved from the catalog so display
+     * names + codes stay consistent; entries the catalog lacks are skipped.
+     */
+    val countries: List<LocationCatalog.CountryEntry> =
+        SELECTABLE_COUNTRY_CODES.mapNotNull { code -> locationCatalog.country(code) }
 
     init {
         repository.flow()
@@ -126,4 +132,9 @@ class SearchSourcesViewModel(
         val prefs: VerticalPreferences = VerticalPreferences(),
         val location: UserLocation? = null,
     )
+
+    private companion object {
+        /** Launch-selectable countries for the search-defaults picker (in display order). */
+        val SELECTABLE_COUNTRY_CODES = listOf("CA", "US")
+    }
 }
