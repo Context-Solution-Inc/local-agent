@@ -433,14 +433,15 @@ object EnglishStrings {
         ),
         StringKeys.ONBOARDING_DISCLOSURE_TITLE to Simple("Your assistant. On devices you control."),
         StringKeys.ONBOARDING_DISCLOSURE_BODY to Simple(
-            "The Local Agent runs AI models entirely on devices you control. " +
-                "Your conversations, tasks, memories and jobs stay on devices you " +
-                "control and are not sent to 3rd party providers for processing.\n\n" +
+            "The Local Agent runs AI models locally on devices you control. " +
+                "Your conversations, tasks, memories and jobs stay on your device " +
+                "and are not sent to 3rd party providers for processing.\n\n" +
                 "The Local Agent can be synchronized with a desktop or laptop you " +
                 "control to utilize a more powerful computer with more memory and " +
-                "GPU processing, but this is entirely optional. All data synchronized " +
-                "is secured using end-to-end encryption with no read or write access " +
-                "to the data from any server.",
+                "GPU processing, but this is optional. When the mobile agent is " +
+                "linked to a desktop agent, data is synchronized using secure " +
+                "end-to-end encryption with no read or write access to the data " +
+                "from any server.",
         ),
         StringKeys.ONBOARDING_DISCLOSURE_LEAVES_HEADER to Simple("What does leave the device:"),
         StringKeys.ONBOARDING_DISCLOSURE_LEAVES_BODY to Simple(
@@ -450,7 +451,7 @@ object EnglishStrings {
                 "to a dedicated LLM server either on your local private network or in " +
                 "the cloud.\n\n" +
                 "•  Optional anonymous telemetry data — off by default, and only used " +
-                "for troubleshooting application issues.",
+                "for application troubleshooting.",
         ),
         StringKeys.ONBOARDING_DISCLOSURE_ACKNOWLEDGE to Simple("I understand."),
 
