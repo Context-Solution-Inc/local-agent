@@ -97,6 +97,7 @@ class MyListResponseFormatter(
         val priority = priorityRaw?.let { priorityLabel(it, strings) }
         val completed = row["completed"]?.jsonPrimitive?.booleanOrNull ?: false
         val due = row["due_date_epoch_ms"]?.jsonPrimitive?.content?.toLongOrNull()
+        val notes = row["notes"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
         return buildString {
             append(index)
             append(". ")
@@ -106,13 +107,21 @@ class MyListResponseFormatter(
             }
             append(title)
             val tags = buildList {
-                if (priority != null && priorityRaw.uppercase() != "MEDIUM") add(priority)
+                // Always show the priority (incl. MEDIUM) when listing — the user
+                // asked to see it for every item, not just non-default ones.
+                if (priority != null) add(priority)
                 if (due != null) add(strings.get(StringKeys.MYLIST_DUE, dueLabel(due, strings)))
             }
             if (tags.isNotEmpty()) {
                 append(" (")
                 append(tags.joinToString(", "))
                 append(")")
+            }
+            // Optional notes on an indented continuation line so a long note
+            // doesn't crowd the title row.
+            if (notes != null) {
+                append("\n   ")
+                append(notes)
             }
         }
     }

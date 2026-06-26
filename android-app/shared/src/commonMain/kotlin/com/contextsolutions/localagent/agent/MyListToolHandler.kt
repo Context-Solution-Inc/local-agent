@@ -128,6 +128,7 @@ class MyListToolHandler(
                         put("priority", t.priority.name)
                         put("completed", t.completed)
                         t.dueDateEpochMs?.let { put("due_date_epoch_ms", it) }
+                        t.notes?.takeIf { it.isNotBlank() }?.let { put("notes", it) }
                     })
                 }
             })
