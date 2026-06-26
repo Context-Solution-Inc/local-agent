@@ -271,7 +271,7 @@
   "onboarding.disclosure.acknowledge": "Entendido.",
 
   "download.title": "Configura los modelos en el dispositivo",
-  "download.intro": "Descarga única de los pesos del modelo LLM, además de modelos más pequeños para búsqueda, memoria y voz.",
+  "download.intro": "Descarga única de los modelos de IA para preguntas y respuestas multimodales, resúmenes, razonamiento, clasificación de búsqueda y embeddings de memoria.",
   "download.models_header": "Modelos para descargar:",
   "download.total": "Descarga total: %1$s",
   "download.spec_incomplete": "⚠ La especificación del modelo está incompleta. Las coordenadas del modelo (URL + sha256 + tamaño) están fijadas en ModelInventory; esto suele indicar una compilación defectuosa.",
