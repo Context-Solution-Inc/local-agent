@@ -3,12 +3,12 @@ package com.contextsolutions.localagent.ui.onboarding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
@@ -45,8 +45,12 @@ fun DisclosureScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .safeDrawingPadding()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            // Tighter than the default so the longer disclosure copy + the
+            // acknowledge checkbox + Continue all fit on one screen; the
+            // verticalScroll above is the safety net on smaller devices.
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
                 text = tr(StringKeys.ONBOARDING_DISCLOSURE_TITLE),
@@ -66,8 +70,6 @@ fun DisclosureScreen(
                 style = MaterialTheme.typography.bodyMedium,
             )
 
-            Spacer(Modifier.height(8.dp))
-
             Row(
                 Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -81,8 +83,6 @@ fun DisclosureScreen(
                     style = MaterialTheme.typography.bodyLarge,
                 )
             }
-
-            Spacer(Modifier.height(8.dp))
 
             Button(
                 onClick = onContinue,
