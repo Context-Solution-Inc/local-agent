@@ -258,10 +258,10 @@
   "onboarding.nav.skip_settings": "Omitir — lo añadiré más tarde en Ajustes",
   "onboarding.language.title": "Elige tu idioma",
   "onboarding.language.body": "Selecciona el idioma de la app y de las respuestas del asistente. Puedes cambiarlo cuando quieras en Ajustes.",
-  "onboarding.disclosure.title": "Tu asistente. En tu dispositivo.",
-  "onboarding.disclosure.body": "Local Agent ejecuta el modelo de lenguaje completamente en tu teléfono. Tus conversaciones, lo que recuerda sobre ti y las memorias que crea se almacenan localmente y nunca salen del dispositivo.",
+  "onboarding.disclosure.title": "Tu asistente. En dispositivos que tú controlas.",
+  "onboarding.disclosure.body": "El Local Agent ejecuta modelos de IA completamente en dispositivos que tú controlas. Tus conversaciones, tareas, memorias y trabajos permanecen en dispositivos que tú controlas y no se envían a proveedores externos para su procesamiento.\n\nEl Local Agent se puede sincronizar con un equipo de escritorio o portátil que tú controles para aprovechar una computadora más potente con más memoria y procesamiento de GPU, pero esto es totalmente opcional. Todos los datos sincronizados se protegen mediante cifrado de extremo a extremo, sin acceso de lectura ni escritura a los datos desde ningún servidor.",
   "onboarding.disclosure.leaves_header": "Lo que sí sale del dispositivo:",
-  "onboarding.disclosure.leaves_body": "•  Consultas de búsqueda web — se envían a la API de Brave Search solo cuando el asistente decide que se necesita una búsqueda. Solo la consulta, nunca tus otros mensajes ni memorias.\n\n•  Telemetría anónima opcional — desactivada de forma predeterminada. Puedes activarla cuando quieras en Ajustes.",
+  "onboarding.disclosure.leaves_body": "•  Consultas de búsqueda web — desactivadas de forma predeterminada, y se envían a la API de Brave Search solo cuando el Local Agent necesita información actual o reciente.\n\n•  Conexión a LLM remoto — desactivada de forma predeterminada, pero puede usarse para apuntar a un servidor LLM dedicado, ya sea en tu red privada local o en la nube.\n\n•  Datos de telemetría anónimos opcionales — desactivados de forma predeterminada, y solo se usan para solucionar problemas de la aplicación.",
   "onboarding.disclosure.acknowledge": "Entendido.",
 
   "download.title": "Configura los modelos en el dispositivo",

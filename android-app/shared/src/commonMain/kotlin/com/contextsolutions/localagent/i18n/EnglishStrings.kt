@@ -431,19 +431,26 @@ object EnglishStrings {
             "Select the language for the app and the assistant's replies. " +
                 "You can change it anytime in Settings.",
         ),
-        StringKeys.ONBOARDING_DISCLOSURE_TITLE to Simple("Your assistant. On your device."),
+        StringKeys.ONBOARDING_DISCLOSURE_TITLE to Simple("Your assistant. On devices you control."),
         StringKeys.ONBOARDING_DISCLOSURE_BODY to Simple(
-            "Local Agent runs the language model entirely on your phone. " +
-                "Your conversations, the things it remembers about you, and the " +
-                "memories it creates are stored locally and never leave the device.",
+            "The Local Agent runs AI models entirely on devices you control. " +
+                "Your conversations, tasks, memories and jobs stay on devices you " +
+                "control and are not sent to 3rd party providers for processing.\n\n" +
+                "The Local Agent can be synchronized with a desktop or laptop you " +
+                "control to utilize a more powerful computer with more memory and " +
+                "GPU processing, but this is entirely optional. All data synchronized " +
+                "is secured using end-to-end encryption with no read or write access " +
+                "to the data from any server.",
         ),
         StringKeys.ONBOARDING_DISCLOSURE_LEAVES_HEADER to Simple("What does leave the device:"),
         StringKeys.ONBOARDING_DISCLOSURE_LEAVES_BODY to Simple(
-            "•  Web search queries — sent to Brave Search API only when " +
-                "the assistant decides a search is needed. Just the query, " +
-                "never your other messages or memories.\n\n" +
-                "•  Optional anonymous telemetry — off by default. You can " +
-                "turn it on anytime in Settings.",
+            "•  Web search queries — off by default, and sent to Brave Search API " +
+                "only when the Local Agent needs current or recent information.\n\n" +
+                "•  Remote LLM Connection — off by default, but can be used to point " +
+                "to a dedicated LLM server either on your local private network or in " +
+                "the cloud.\n\n" +
+                "•  Optional anonymous telemetry data — off by default, and only used " +
+                "for troubleshooting application issues.",
         ),
         StringKeys.ONBOARDING_DISCLOSURE_ACKNOWLEDGE to Simple("I understand."),
 
