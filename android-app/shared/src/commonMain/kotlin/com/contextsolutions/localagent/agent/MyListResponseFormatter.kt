@@ -81,7 +81,16 @@ class MyListResponseFormatter(
             return if (includeCompleted) strings.get(StringKeys.MYLIST_NONE_ALL)
             else strings.get(StringKeys.MYLIST_NONE_OPEN)
         }
-        val lines = rows.map { renderRow(it, strings) }
+        // Notes only render on a single-item show ("show number 2 on my list");
+        // the full list ("show my list") stays to title + priority + due date so
+        // it reads cleanly (PR #22).
+        val single = obj["single"]?.jsonPrimitive?.booleanOrNull == true
+        val lines = rows.map { renderRow(it, strings, includeNotes = single) }
+        // Single-item show: render just the requested row, no "Your list (N)"
+        // header — the user asked for one item.
+        if (single) {
+            return lines.joinToString("\n")
+        }
         val header = if (rows.size == 1) {
             strings.get(StringKeys.MYLIST_ONE_HEADER)
         } else {
@@ -90,13 +99,14 @@ class MyListResponseFormatter(
         return header + "\n" + lines.joinToString("\n")
     }
 
-    private fun renderRow(row: JsonObject, strings: Strings): String {
+    private fun renderRow(row: JsonObject, strings: Strings, includeNotes: Boolean): String {
         val index = row["index"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
         val title = row["title"]?.jsonPrimitive?.content ?: ""
         val priorityRaw = row["priority"]?.jsonPrimitive?.content
         val priority = priorityRaw?.let { priorityLabel(it, strings) }
         val completed = row["completed"]?.jsonPrimitive?.booleanOrNull ?: false
         val due = row["due_date_epoch_ms"]?.jsonPrimitive?.content?.toLongOrNull()
+        val notes = if (includeNotes) row["notes"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() } else null
         return buildString {
             append(index)
             append(". ")
@@ -106,13 +116,21 @@ class MyListResponseFormatter(
             }
             append(title)
             val tags = buildList {
-                if (priority != null && priorityRaw.uppercase() != "MEDIUM") add(priority)
+                // Always show the priority (incl. MEDIUM) when listing — the user
+                // asked to see it for every item, not just non-default ones.
+                if (priority != null) add(priority)
                 if (due != null) add(strings.get(StringKeys.MYLIST_DUE, dueLabel(due, strings)))
             }
             if (tags.isNotEmpty()) {
                 append(" (")
                 append(tags.joinToString(", "))
                 append(")")
+            }
+            // Optional notes on an indented continuation line so a long note
+            // doesn't crowd the title row.
+            if (notes != null) {
+                append("\n   ")
+                append(notes)
             }
         }
     }
