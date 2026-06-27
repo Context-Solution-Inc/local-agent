@@ -86,11 +86,13 @@ import org.koin.compose.viewmodel.koinViewModel
  * the chat top bar. Production users land here on first run via the
  * "Add a key" affordance once that's wired (M6 polish); for M2 it's manual.
  *
- * Section order (PR #44): the day-to-day controls come first
- * (Conversations, Web search, Search cache, Search sources, Memory,
- * Anonymous telemetry), then the BYOK credential sections (Brave Search
- * API, HuggingFace token) sit last. Response language was removed in
- * PR #44 — launch ships English-only; multi-language is a v2 activity.
+ * Section order (PR #44, #25): the day-to-day controls come first
+ * (Conversations, Web search, Search cache, Search sources, Memory), then
+ * the BYOK credential + connection sections (Brave Search API, Desktop
+ * Link, Remote Ollama). Anonymous telemetry and About sit last (PR #25
+ * moved telemetry from the day-to-day group to just above About — a
+ * set-once control). Response language was removed in PR #44 — launch
+ * ships English-only; multi-language is a v2 activity.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -347,77 +349,6 @@ fun SettingsScreen(
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
 
-            // M6 Phase C — opt-in telemetry. PRD §3.2.1 + §4.4 explicit-opt-in
-            // contract: default OFF, toggle is reachable from both first-run
-            // onboarding (Phase E) and this Settings section.
-            SectionHeaderWithToggle(
-                title = tr(StringKeys.SETTINGS_TELEMETRY_HEADER),
-                checked = state.telemetryEnabled,
-                onCheckedChange = { viewModel.setTelemetryEnabled(it) },
-            )
-            Text(
-                if (state.telemetryEnabled) {
-                    tr(StringKeys.SETTINGS_TELEMETRY_ON)
-                } else {
-                    tr(StringKeys.SETTINGS_TELEMETRY_OFF)
-                },
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                tr(StringKeys.SETTINGS_TELEMETRY_DETAIL),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline,
-            )
-
-            // Debug-only: bypass the 24h periodic schedule and fire one
-            // telemetry upload immediately. Watch `adb logcat -s
-            // TelemetryWorker:I` for the outcome line. The uploader still
-            // gates on consent — this button never sends data when the
-            // toggle above is OFF.
-            if (state.isDebugBuild) {
-                Spacer(Modifier.height(12.dp))
-                OutlinedButton(onClick = { viewModel.triggerTelemetryUploadNow() }) {
-                    Text("Run telemetry upload now (debug)")
-                }
-                Text(
-                    "Debug-only. Bypasses the 24 h periodic schedule. " +
-                        "Outcome in logcat -s TelemetryWorker:I.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline,
-                )
-
-                Spacer(Modifier.height(12.dp))
-                OutlinedButton(onClick = { viewModel.triggerCrashRedactionTest() }) {
-                    Text("Test crash redaction (debug)")
-                }
-                Text(
-                    "Debug-only. Records a non-fatal whose message contains a " +
-                        "fake Bearer token, then force-flushes so it ships " +
-                        "immediately. Dashboard typically shows the new issue " +
-                        "within 1–5 min. Expect 'Bearer <redacted>' in the " +
-                        "message, NOT the raw value.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline,
-                )
-
-                Spacer(Modifier.height(8.dp))
-                OutlinedButton(onClick = { viewModel.triggerBreadcrumbRedactionTest() }) {
-                    Text("Test breadcrumb redaction (debug)")
-                }
-                Text(
-                    "Debug-only. Records a breadcrumb with a fake subscription " +
-                        "token. Breadcrumbs only appear in the dashboard ATTACHED " +
-                        "TO a crash — tap this, then tap 'Test crash redaction' " +
-                        "above; the breadcrumb appears in that crash's Logs tab " +
-                        "with 'X-Subscription-Token: <redacted>'.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline,
-                )
-            }
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
-
             // BYOK credential sections moved to the bottom (PR #44) — set
             // once at setup, rarely touched afterwards.
             SectionHeader(tr(StringKeys.SETTINGS_BRAVE_HEADER))
@@ -528,6 +459,77 @@ fun SettingsScreen(
                 onSaveApiKey = { viewModel.saveOllamaApiKey(it) },
                 onClearApiKey = { viewModel.clearOllamaApiKey() },
             )
+
+            // M6 Phase C — opt-in telemetry. PRD §3.2.1 + §4.4 explicit-opt-in
+            // contract: default OFF, toggle is reachable from both first-run
+            // onboarding (Phase E) and this Settings section. Moved here (PR #25)
+            // to sit just above About — a set-once control, rarely revisited.
+            HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
+            SectionHeaderWithToggle(
+                title = tr(StringKeys.SETTINGS_TELEMETRY_HEADER),
+                checked = state.telemetryEnabled,
+                onCheckedChange = { viewModel.setTelemetryEnabled(it) },
+            )
+            Text(
+                if (state.telemetryEnabled) {
+                    tr(StringKeys.SETTINGS_TELEMETRY_ON)
+                } else {
+                    tr(StringKeys.SETTINGS_TELEMETRY_OFF)
+                },
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                tr(StringKeys.SETTINGS_TELEMETRY_DETAIL),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline,
+            )
+
+            // Debug-only: bypass the 24h periodic schedule and fire one
+            // telemetry upload immediately. Watch `adb logcat -s
+            // TelemetryWorker:I` for the outcome line. The uploader still
+            // gates on consent — this button never sends data when the
+            // toggle above is OFF.
+            if (state.isDebugBuild) {
+                Spacer(Modifier.height(12.dp))
+                OutlinedButton(onClick = { viewModel.triggerTelemetryUploadNow() }) {
+                    Text("Run telemetry upload now (debug)")
+                }
+                Text(
+                    "Debug-only. Bypasses the 24 h periodic schedule. " +
+                        "Outcome in logcat -s TelemetryWorker:I.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+
+                Spacer(Modifier.height(12.dp))
+                OutlinedButton(onClick = { viewModel.triggerCrashRedactionTest() }) {
+                    Text("Test crash redaction (debug)")
+                }
+                Text(
+                    "Debug-only. Records a non-fatal whose message contains a " +
+                        "fake Bearer token, then force-flushes so it ships " +
+                        "immediately. Dashboard typically shows the new issue " +
+                        "within 1–5 min. Expect 'Bearer <redacted>' in the " +
+                        "message, NOT the raw value.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(onClick = { viewModel.triggerBreadcrumbRedactionTest() }) {
+                    Text("Test breadcrumb redaction (debug)")
+                }
+                Text(
+                    "Debug-only. Records a breadcrumb with a fake subscription " +
+                        "token. Breadcrumbs only appear in the dashboard ATTACHED " +
+                        "TO a crash — tap this, then tap 'Test crash redaction' " +
+                        "above; the breadcrumb appears in that crash's Logs tab " +
+                        "with 'X-Subscription-Token: <redacted>'.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+            }
 
             // PR #63 — About lives at the very bottom; surfaces the running
             // build's identity (was a header-logo dialog in chat before).
