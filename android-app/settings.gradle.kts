@@ -26,7 +26,7 @@ dependencyResolutionManagement {
         // google()/mavenCentral()), and dependency verification pins it (gradle/verification-metadata.xml).
         maven {
             name = "SecureGatewayGitHubPackages"
-            url = uri("https://maven.pkg.github.com/Context-Solution-Inc/secure-gateway")
+            url = uri("https://maven.pkg.github.com/Context-Solutions-Inc/secure-gateway")
             credentials {
                 username = providers.gradleProperty("gpr.user").orNull ?: System.getenv("GITHUB_ACTOR")
                 password = providers.gradleProperty("gpr.key").orNull ?: System.getenv("GITHUB_TOKEN")

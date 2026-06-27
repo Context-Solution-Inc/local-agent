@@ -113,7 +113,7 @@ Full instructions — prerequisites, Docker dev container, flags, model setup, p
 build needs only JDK 17.
 
 ```bash
-git clone --recurse-submodules https://github.com/Context-Solution-Inc/local-agent.git      # agent-jobs is a submodule
+git clone --recurse-submodules https://github.com/Context-Solutions-Inc/local-agent.git      # agent-jobs is a submodule
 cd local-agent/android-app          # the Gradle project lives here
 ```
 

@@ -34,7 +34,7 @@ regen procedure — note the lint/release path needs a separate `--no-configurat
 
 Historical plan (for reference):
 
-**Recommendation: GitHub Packages (Maven registry) under `Context-Solution-Inc`.** Both repos
+**Recommendation: GitHub Packages (Maven registry) under `Context-Solutions-Inc`.** Both repos
 are already in that org; the package is private by default (the SDK is crypto code — do **not**
 publish to Maven Central); GitHub Actions authenticates with `GITHUB_TOKEN`; CI already holds a
 cross-repo PAT (`SECURE_GATEWAY_PAT`). GPG-sign the artifacts so Gradle verifies signatures, not
@@ -44,7 +44,7 @@ just checksums.
 
 1. `sdk/build.gradle.kts` (`subprojects` + `android-aar`): add a
    `publishing.repositories.maven` block →
-   `https://maven.pkg.github.com/Context-Solution-Inc/secure-gateway`, credentials from
+   `https://maven.pkg.github.com/Context-Solutions-Inc/secure-gateway`, credentials from
    `GITHUB_ACTOR` / `GITHUB_TOKEN` (or `gpr.user`/`gpr.key` props for local). Keep
    `publishToMavenLocal` working for SDK co-development.
 2. Apply the `signing` plugin; GPG-sign the `maven`/`release` publications (key + passphrase
@@ -57,7 +57,7 @@ just checksums.
 ### Step 2 — `local-agent`: consume the remote + enable verification (PR after Step 1)
 
 1. `android-app/settings.gradle.kts` (`dependencyResolutionManagement`): replace `mavenLocal()`
-   with a `maven { url = "https://maven.pkg.github.com/Context-Solution-Inc/secure-gateway"
+   with a `maven { url = "https://maven.pkg.github.com/Context-Solutions-Inc/secure-gateway"
    credentials { … } content { includeGroup("com.securegateway") } }` block (creds from
    `GITHUB_ACTOR`/`GITHUB_TOKEN` env or `gpr.*` props). Optionally keep `mavenLocal()` behind a
    `-PuseLocalSdk` opt-in for SDK co-development.

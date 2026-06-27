@@ -59,7 +59,7 @@ jobs:
         # Packages Maven registry (M4 Step 2 — replaces the old sibling-checkout +
         # publishToMavenLocal). secure-gateway is PRIVATE and cross-repo, so the local-agent
         # GITHUB_TOKEN can't read it — pass SECURE_GATEWAY_PAT (a PAT/fine-grained token with
-        # `read:packages` on Context-Solution-Inc/secure-gateway) as GITHUB_TOKEN.
+        # `read:packages` on Context-Solutions-Inc/secure-gateway) as GITHUB_TOKEN.
         # Dependency verification (gradle/verification-metadata.xml) pins every resolved
         # artifact, the SDK included.
         env:
