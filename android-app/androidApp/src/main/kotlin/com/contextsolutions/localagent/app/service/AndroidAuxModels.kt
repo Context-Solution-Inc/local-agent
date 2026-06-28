@@ -16,8 +16,8 @@ package com.contextsolutions.localagent.app.service
  * (and re-upload the hosted artifact to match). No auth — the CDN is public.
  */
 object AndroidAuxModels {
-    /** models.contextsolutions.com CDN base; shared with the desktop aux models + GGUF mirror. */
-    const val BASE_URL: String = "https://models.contextsolutions.com"
+    /** downloads.contextsolutions.com CDN base (`/models` path); shared with the desktop aux models + GGUF mirror. */
+    const val BASE_URL: String = "https://downloads.contextsolutions.com/models"
 
     const val CLASSIFIER_FILENAME: String = "preflight_memory_shared_v1.0.0_int8.tflite"
     const val EMBEDDER_FILENAME: String = "all-MiniLM-L6-v2_int8.tflite"
