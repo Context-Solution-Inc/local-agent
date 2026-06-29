@@ -60,6 +60,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -256,6 +257,16 @@ fun ChatScreen(
         }
     }
     DisposableEffect(Unit) { onDispose { dictation.destroy() } }
+    // A user-facing notice from the dictation engine (e.g. desktop capture wedged after
+    // suspend/resume — see VoskDictation). Surface it as a dismissible banner and turn the
+    // mic off so the button reflects that we've stopped listening.
+    var dictationNotice by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(dictation) {
+        dictation.notices.collect { msg ->
+            dictationNotice = msg
+            viewModel.setMicEnabled(false)
+        }
+    }
     // Listen for the whole time the mic is on — including while the speaker is
     // talking, so spoken commands ("speaker off") can interrupt playback. The
     // echo is handled in the collector above by dropping non-command text during
@@ -782,6 +793,32 @@ fun ChatScreen(
                     input = ""
                     committedInput = ""
                 }
+            }
+            // Dictation notice (e.g. mic capture wedged after suspend/resume) — a
+            // dismissible error banner above the input, mirroring the staged-image row.
+            dictationNotice?.let { notice ->
+                Surface(
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = notice,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.weight(1f).padding(start = 12.dp, top = 8.dp, bottom = 8.dp),
+                        )
+                        IconButton(onClick = { dictationNotice = null }) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = tr(StringKeys.CHAT_CD_CLEAR_INPUT),
+                                tint = MaterialTheme.colorScheme.onErrorContainer,
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
             }
             // PR #48 — staged-image chip: thumbnail + remove button, shown
             // above the input while a photo is attached to the next send.
