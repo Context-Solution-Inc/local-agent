@@ -129,26 +129,33 @@ The real quality win is the **bundled Piper neural engine, not the OS engine.**
 
 OS speech-dispatcher modules remain the non-neural fallback.
 
-### Desktop STT survives suspend/resume (debug PR, draft)
+### Desktop STT — suspend/resume capture wedge (debug PR, draft)
 
-On Linux a laptop suspend reclaims the microphone device; on resume the JVM's
-`javax.sound.sampled` hands back a `TargetDataLine` that opens "successfully" but returns
-`read() == 0` **forever** — the cached device handle is stale and reopening it does **not**
-recover (confirmed on-device: the reopened line + a force-close watchdog still only saw
-empty reads). The original capture loop did `if (read <= 0) continue` forever, so after a
-resume Vosk got no audio yet `isListening` stayed `true` — the mic button looked active but
-nothing transcribed, with no log.
+On Linux a laptop suspend can leave the **PipeWire/ALSA capture node wedged after resume** —
+no userspace client can read the mic (`arecord` blocks in `pcm_read`, `pw-record` returns 0
+bytes, and the JVM `TargetDataLine` returns `read() == 0`), even though the ALSA capture
+mixer is unmuted at 100%. This is a **system-level** failure (`snd_hda_intel` + PipeWire);
+restarting audio fixes it: `systemctl --user restart wireplumber pipewire pipewire-pulse`.
+**No app capture-API change can un-wedge the node.** The original loop did
+`if (read <= 0) continue` forever, so the failure was silent: Vosk got no audio yet
+`isListening` stayed `true` (mic looked active), with no log.
 
-Two parts to the fix:
+What the app *can* do — make the failure visible and recover automatically once audio is
+healthy again (e.g. after the PipeWire restart, no app restart needed). Two parts:
 
 - **Capture source.** On Linux, capture now runs through a spawned recorder CLI
   (`parec` → `arecord`, auto-detected via `which`) piping raw S16LE/16 kHz/mono into Vosk —
   the same `ProcessBuilder` + raw-PCM pattern as `PiperSpeechSynthesizer`. A **fresh process
-  per session** binds to the *current* default source, so it survives suspend/resume.
-  `parec` covers PulseAudio and PipeWire (via `pipewire-pulse`); `arecord` is the ALSA
-  fallback. macOS/Windows (and Linux with no recorder CLI) keep the `TargetDataLine` path.
-  Recorder pipes can split mid-sample, so the loop carries a trailing odd byte to keep
-  16-bit frames aligned.
+  per session** binds to the *current* default source, so once audio is healthy again the
+  recovery loop reconnects without an app restart (unlike a JVM `TargetDataLine`, which holds
+  a stale cached device). `parec` covers PulseAudio and PipeWire (via `pipewire-pulse`);
+  `arecord` is the ALSA fallback. macOS/Windows (and Linux with no recorder CLI) keep the
+  `TargetDataLine` path. Recorder pipes can split mid-sample, so the loop carries a trailing
+  odd byte to keep 16-bit frames aligned.
+- **Subprocess lifecycle.** A spawned recorder does **not** die with the JVM (an in-process
+  `TargetDataLine` does), so closing the window while the mic is on would leak `arecord`/
+  `parec` and leave the mic lit. A JVM shutdown hook + `stop()`/`destroy()` force-kill the
+  live source on every exit path.
 - **Recovery loop + watchdog.** Capture is split into reopenable per-mic sessions. A pure
   `classifyRead(read, consecutiveZero)` maps a read result to `Data` / `KeepWaiting` /
   `Stale` (recorder EOF / `-1` / a long run of empty line reads ⇒ `Stale`; a throwing read

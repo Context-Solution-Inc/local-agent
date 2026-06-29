@@ -108,6 +108,18 @@ class VoskDictation(
     @Volatile
     private var lastSessionProducedAudio = false
 
+    /**
+     * A spawned recorder subprocess does NOT die with the JVM (unlike an in-process
+     * [TargetDataLine], which the OS reclaims on exit). Without this, closing the desktop
+     * window while the mic is on leaks `arecord`/`parec` and the mic stays lit. The hook
+     * force-kills whatever source is live on any normal/​SIGTERM exit.
+     */
+    private val shutdownHook = Thread { runCatching { currentSource?.close() } }
+
+    init {
+        runCatching { Runtime.getRuntime().addShutdownHook(shutdownHook) }
+    }
+
     override fun start() {
         if (job?.isActive == true) return
         lastAudioAtMs = System.currentTimeMillis()
@@ -174,7 +186,11 @@ class VoskDictation(
                         // can't respawn forever.
                         consecutiveBarren = if (lastSessionProducedAudio) 0 else consecutiveBarren + 1
                         if (consecutiveBarren >= MAX_BARREN_SESSIONS) {
-                            logger("microphone produced no audio after $consecutiveBarren attempts — dictation disabled")
+                            logger(
+                                "microphone produced no audio after $consecutiveBarren attempts — dictation disabled. " +
+                                    "The capture device may be wedged (e.g. after suspend/resume); restart audio " +
+                                    "(Linux: `systemctl --user restart wireplumber pipewire pipewire-pulse`) and toggle the mic again.",
+                            )
                             break
                         }
                         val backoff = backoffMs(consecutiveBarren - 1)
