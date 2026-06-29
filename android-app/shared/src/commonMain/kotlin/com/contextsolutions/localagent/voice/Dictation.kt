@@ -2,6 +2,7 @@ package com.contextsolutions.localagent.voice
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.emptyFlow
 
 /**
  * Continuous speech-to-text dictation, the cross-platform seam extracted for the
@@ -35,6 +36,15 @@ interface Dictation {
 
     /** `true` while the microphone is actively capturing. */
     val isListening: StateFlow<Boolean>
+
+    /**
+     * Human-readable, user-facing notices the consumer should surface (e.g. a banner) —
+     * NOT diagnostic logs. Used when dictation can't recover the microphone and needs the
+     * user to act (e.g. the desktop capture device is wedged after suspend/resume and audio
+     * must be restarted). Default is empty: implementations that never need to notify
+     * (Android `SpeechDictation`) leave it unimplemented.
+     */
+    val notices: Flow<String> get() = emptyFlow()
 
     /** Begin (or resume) continuous listening. Safe to call repeatedly. */
     fun start()

@@ -141,37 +141,35 @@ restarting audio fixes it: `systemctl --user restart wireplumber pipewire pipewi
 `isListening` stayed `true` (mic looked active), with no log.
 
 What the app *can* do — make the failure visible and recover automatically once audio is
-healthy again (e.g. after the PipeWire restart, no app restart needed). Two parts:
+healthy again (e.g. after the PipeWire restart, no app restart needed):
 
-- **Capture source.** On Linux, capture now runs through a spawned recorder CLI
-  (`parec` → `arecord`, auto-detected via `which`) piping raw S16LE/16 kHz/mono into Vosk —
-  the same `ProcessBuilder` + raw-PCM pattern as `PiperSpeechSynthesizer`. A **fresh process
-  per session** binds to the *current* default source, so once audio is healthy again the
-  recovery loop reconnects without an app restart (unlike a JVM `TargetDataLine`, which holds
-  a stale cached device). `parec` covers PulseAudio and PipeWire (via `pipewire-pulse`);
-  `arecord` is the ALSA fallback. macOS/Windows (and Linux with no recorder CLI) keep the
-  `TargetDataLine` path. Recorder pipes can split mid-sample, so the loop carries a trailing
-  odd byte to keep 16-bit frames aligned.
-- **Subprocess lifecycle.** A spawned recorder does **not** die with the JVM (an in-process
-  `TargetDataLine` does), so closing the window while the mic is on would leak `arecord`/
-  `parec` and leave the mic lit. A JVM shutdown hook + `stop()`/`destroy()` force-kill the
-  live source on every exit path.
+- **Capture stays pure-Java `javax.sound.sampled.TargetDataLine`** — the one cross-platform
+  capture API (Linux/macOS/Windows), one code path, no external recorder CLI dependency, and
+  the in-process line is reclaimed by the OS on JVM exit (nothing to leak). (A Linux
+  recorder-subprocess capture via `parec`/`arecord` was prototyped and reverted: it couldn't
+  fix the system-level wedge either, added a Linux-only branch + a CLI dependency, and a
+  spawned recorder leaks past JVM exit — the very "mic won't turn off on exit" bug.)
 - **Recovery loop + watchdog.** Capture is split into reopenable per-mic sessions. A pure
-  `classifyRead(read, consecutiveZero)` maps a read result to `Data` / `KeepWaiting` /
-  `Stale` (recorder EOF / `-1` / a long run of empty line reads ⇒ `Stale`; a throwing read
-  too). On `Stale` the outer loop **reopens** (keeping `Model`/`Recognizer` alive,
-  `recognizer.reset()` between sessions) with bounded backoff (300 ms → 3 s); a session that
-  reads **no** audio counts toward a give-up guard (`MAX_BARREN_SESSIONS`) so a gone device
-  can't respawn forever. `isListening` drops during the gap and flips back true only on
-  reopen. A **stall watchdog** force-`close()`s a source that has delivered no audio for ~3 s
-  — the catch-all for a read wedged with no return value (closing it from another thread
-  unblocks the read → classified stale → recovery).
+  `classifyRead(read, consecutiveZero)` maps a `TargetDataLine.read()` result to `Data` /
+  `KeepWaiting` / `Stale` (`-1` / a long run of empty reads ⇒ `Stale`; a throwing read too).
+  On `Stale` the outer loop **reopens** (keeping `Model`/`Recognizer` alive,
+  `recognizer.reset()` between sessions) with bounded backoff (300 ms → 3 s) — once audio is
+  healthy the reopen reconnects with no app restart. A session that reads **no** audio counts
+  toward a give-up guard (`MAX_BARREN_SESSIONS`). `isListening` drops during the gap and
+  flips back true only on reopen. A **stall watchdog** force-`close()`s a line that has
+  delivered no audio for ~3 s — the catch-all for a `read()` wedged with no return value
+  (closing it from another thread unblocks the read → classified stale → recovery).
+- **Give-up surfaces a UI notice.** When reopening can't recover audio after
+  `MAX_BARREN_SESSIONS`, `VoskDictation` emits on the `Dictation.notices` flow (a new
+  seam member, default-empty so Android's `SpeechDictation` is unaffected). `ChatScreen`
+  collects it, shows a dismissible error banner above the input, and turns the mic off so the
+  button reflects reality. The app does **not** auto-restart PipeWire (too invasive — it
+  would cut audio for every app); the notice tells the user to restart audio themselves.
 
 `VoskDictation`'s `logger` writes to `System.err` un-gated, so recovery/stall lines are
 visible even in a packaged build (per-frame chatter stays behind `DesktopDiag.verbose`).
-Watch for `[Dictation]` lines: `capturing via recorder: parec`, `no audio for …ms — source
-appears stale, forcing reopen`, `microphone source went stale — reopening in …ms`,
-`microphone open — dictation listening`.
+Watch for `[Dictation]` lines: `no audio for …ms — line appears stale, forcing reopen`,
+`microphone line went stale — reopening in …ms`, `microphone open — dictation listening`.
 
 `classifyRead`/`backoffMs` are unit-tested hardware-free in `VoskReadClassifierTest`.
 
