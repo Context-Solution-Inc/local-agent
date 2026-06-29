@@ -129,6 +129,33 @@ The real quality win is the **bundled Piper neural engine, not the OS engine.**
 
 OS speech-dispatcher modules remain the non-neural fallback.
 
+### Desktop STT survives suspend/resume (debug PR, draft)
+
+On Linux a laptop suspend reclaims the microphone `TargetDataLine`; on resume the line is
+stale. The original `VoskDictation` capture loop opened the line once and did
+`if (read <= 0) continue` forever, so after a resume Vosk got no audio yet `isListening`
+stayed `true` — the mic button looked active but nothing transcribed, with no log.
+
+`VoskDictation` now runs capture as **reopenable per-mic sessions**:
+
+- A pure `classifyRead(read, consecutiveZero)` maps a `TargetDataLine.read()` result to
+  `Data` / `KeepWaiting` / `Stale`. `read == -1` (the suspend/resume signature) and a long
+  run of empty reads are `Stale`; a read that throws is also stale.
+- On `Stale`, the inner session returns and the outer loop **reopens the mic** (keeping the
+  `Model`/`Recognizer` alive, `recognizer.reset()` between sessions) with bounded backoff
+  (300 ms → 3 s). A configurable max of consecutive *open* failures disables dictation with
+  a log so a permanently-gone device can't spin forever. `isListening` drops during the gap
+  and flips back true only once a line reopens, so the button reflects true capture state.
+- A **stall watchdog** coroutine is the catch-all for the "read blocks forever" mode: if no
+  audio frame arrives for ~3 s while listening, it `close()`s the line from another thread,
+  which unblocks the wedged `read()` → classified stale → recovery.
+- `VoskDictation`'s `logger` writes to `System.err` un-gated, so recovery/stall lines are
+  visible even in a packaged build (per-frame chatter stays behind `DesktopDiag.verbose`).
+  Watch for `[Dictation]` lines: `no audio for …ms — line appears stale, forcing reopen`,
+  `microphone line went stale — reopening in …ms`, `microphone open — dictation listening`.
+
+`classifyRead`/`backoffMs` are unit-tested hardware-free in `VoskReadClassifierTest`.
+
 ---
 
 ## Key files
