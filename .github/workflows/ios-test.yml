@@ -1,0 +1,68 @@
+name: iOS test
+
+# Fast per-PR gate for the iOS port (PR #41). iOS needs the Apple/Kotlin-Native
+# toolchain, so this runs on macos-latest only (the desktop-test.yml matrix covers
+# Android-unit + desktop on macOS + Linux).
+#
+# Two cheap gates, no Xcode required:
+#   :shared:compileKotlinIosSimulatorArm64 + :ui:compileKotlinIosSimulatorArm64
+#       → the shared agent core + the shared Compose UI compile for iOS (Kotlin/Native).
+#   :ui:linkDebugFrameworkIosSimulatorArm64
+#       → the ComposeApp framework links (catches missing iOS actuals / interop).
+#
+# The full Xcode app build (xcodebuild -scheme iosApp) and on-device LLM are
+# validated locally on a physical iPhone — on-device LiteRT-LM does NOT run on the
+# iOS Simulator (CPU inference crashes, Metal is unavailable), so CI is build-only.
+# See docs/IOS_BUILD.md.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ios-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (iOS simulator arm64)
+    runs-on: macos-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: android-app
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v5
+
+      - name: Compile shared + UI for iOS
+        # :shared resolves the relay SDK from the private GitHub Packages registry
+        # during configuration, so the runner needs read:packages auth via
+        # SECURE_GATEWAY_PAT (matches desktop-test.yml). Dependency verification
+        # (gradle/verification-metadata.xml) pins the Kotlin/Native toolchain +
+        # iOS Skiko/Ktor-Darwin natives this job resolves.
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.SECURE_GATEWAY_PAT }}
+        run: >-
+          ./gradlew
+          :shared:compileKotlinIosSimulatorArm64
+          :ui:compileKotlinIosSimulatorArm64
+          --no-daemon --stacktrace
+
+      - name: Link ComposeApp framework
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.SECURE_GATEWAY_PAT }}
+        run: ./gradlew :ui:linkDebugFrameworkIosSimulatorArm64 --no-daemon --stacktrace

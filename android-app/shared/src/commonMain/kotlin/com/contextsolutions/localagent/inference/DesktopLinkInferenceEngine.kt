@@ -1,4 +1,5 @@
 package com.contextsolutions.localagent.inference
+import com.contextsolutions.localagent.platform.platformIoDispatcher
 
 import com.contextsolutions.localagent.link.transport.LinkMethod
 import com.contextsolutions.localagent.link.transport.LinkRequest
@@ -39,7 +40,7 @@ class DesktopLinkInferenceEngine(
     private val defaultTemperature: Float = InferenceConfig().temperature,
     private val keepAlive: String = "30m",
     private val logger: (String) -> Unit = {},
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val ioDispatcher: CoroutineDispatcher = platformIoDispatcher,
 ) : InferenceEngine {
 
     override suspend fun loadModel(modelPath: String, config: InferenceConfig): ModelHandle =

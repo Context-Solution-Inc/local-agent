@@ -1,4 +1,5 @@
 package com.contextsolutions.localagent.conversation
+import com.contextsolutions.localagent.platform.platformIoDispatcher
 
 import com.contextsolutions.localagent.agent.ChatMessage
 import com.contextsolutions.localagent.agent.ToolCall
@@ -28,7 +29,7 @@ import kotlinx.serialization.json.Json
 class SqlDelightConversationRepository(
     private val queries: ConversationsQueries,
     private val counters: TelemetryCounters,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val ioDispatcher: CoroutineDispatcher = platformIoDispatcher,
     /** PR #57 — fired after a genuine local write so [com.contextsolutions.localagent.sync.SyncController] pushes it. */
     private val localChangeBus: LocalChangeBus? = null,
 ) : ConversationRepository {

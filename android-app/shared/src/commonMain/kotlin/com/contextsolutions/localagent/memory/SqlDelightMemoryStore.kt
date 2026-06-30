@@ -1,4 +1,5 @@
 package com.contextsolutions.localagent.memory
+import com.contextsolutions.localagent.platform.platformIoDispatcher
 
 import com.contextsolutions.localagent.db.Memories as MemoriesRow
 import com.contextsolutions.localagent.db.MemoriesQueries
@@ -28,7 +29,7 @@ import kotlinx.datetime.Clock
  */
 class SqlDelightMemoryStore(
     private val queries: MemoriesQueries,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val ioDispatcher: CoroutineDispatcher = platformIoDispatcher,
     /** PR #57 — fired after a genuine local write so the SyncController pushes it. */
     private val localChangeBus: LocalChangeBus? = null,
 ) : MemoryStore {

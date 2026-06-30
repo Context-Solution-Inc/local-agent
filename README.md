@@ -1,7 +1,9 @@
 # Local Agent — On-Device AI Assistant (Mobile + Desktop)
 
 A privacy-first AI assistant whose language model runs **entirely on your own device** — phone or
-desktop — instead of in someone else's cloud.
+desktop — instead of in someone else's cloud. Runs on **Android**, **desktop** (Linux/macOS/Windows),
+and **iOS/iPhone** — the latter with on-device Gemma via the LiteRT-LM Swift API + Metal
+(build guide: [docs/IOS_BUILD.md](docs/IOS_BUILD.md)).
 
 > **Documentation map:** this README is the orientation. Build details live in
 > [docs/BUILD.md](docs/BUILD.md), how to use the app in [docs/USER_GUIDE.md](docs/USER_GUIDE.md),

@@ -1,13 +1,21 @@
-# iosApp — staging only (Phase 2)
+# iosApp — the iOS/iPhone app (PR #41)
 
-There is **no Xcode project here yet.** iOS is stubbed for Phase 2
-(`shared/src/iosMain`). This directory stages assets the future iOS app can
-adopt as-is.
+The Xcode app shell that hosts the shared Compose-Multiplatform UI (`:ui`, the
+`ComposeApp` framework) and bridges the on-device LiteRT-LM Swift engine into the
+shared Koin graph. Full build/run/test guide: [`../../docs/IOS_BUILD.md`](../../docs/IOS_BUILD.md).
 
-- `Assets.xcassets/AppIcon.appiconset/` — the app launcher icon
-  (`icon-1024.png`, opaque 1024×1024, single-size "universal" iOS app icon for
-  Xcode 14+). When the iOS app target is created, point its
-  `ASSETCATALOG_COMPILER_APPICON_NAME` / `Assets.xcassets` at this catalog.
+- `iosApp.xcodeproj` — the Xcode project (target `iosApp`, scheme `iosApp`). A Run
+  Script build phase runs `./gradlew :ui:embedAndSignAppleFrameworkForXcode` to
+  build + embed `ComposeApp.framework`.
+- `iosApp/iOSApp.swift` — `@main` SwiftUI app; calls `IosEntryPointKt.doInitKoin(bridge:)`.
+- `iosApp/ContentView.swift` — hosts `IosEntryPointKt.MainViewController()` (the shared UI).
+- `iosApp/LiteRtBridge.swift` — implements the Kotlin `NativeLlmBridge` using the
+  official LiteRT-LM Swift package (Metal). **Scaffold** against the documented API —
+  finalize the symbol names on-device.
+- `iosApp/Info.plist`, `Assets.xcassets/` — app metadata + launcher icon (`icon-1024.png`,
+  opaque 1024×1024, universal). Regenerate via `desktopApp/icons/generate_icons.py`.
 
-Regenerate the icon from the shared brand artwork with
-`desktopApp/icons/generate_icons.py` (see that script's header).
+**One-time Xcode setup** (can't be done headlessly): add the LiteRT-LM Swift Package
+(`https://github.com/google-ai-edge/LiteRT-LM`, tag v0.13.1+) to the `iosApp` target,
+and select your signing team. On-device LLM needs a **physical iPhone** (not the
+Simulator — LiteRT-LM #2504).

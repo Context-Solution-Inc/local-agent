@@ -114,6 +114,11 @@ kotlin {
         }
         iosMain.dependencies {
             implementation(libs.sqldelight.native.driver)
+            // iOS HTTP engine (NSURLSession) for the Ollama/search/link Ktor clients (PR #41).
+            implementation(libs.ktor.client.darwin)
+            implementation(libs.ktor.client.content.negotiation)
+            implementation(libs.ktor.serialization.kotlinx.json)
+            implementation(libs.ktor.client.logging)
         }
         val desktopMain by getting {
             dependencies {

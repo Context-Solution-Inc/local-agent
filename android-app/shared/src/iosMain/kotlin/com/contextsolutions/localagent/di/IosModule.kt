@@ -1,0 +1,420 @@
+package com.contextsolutions.localagent.di
+
+import com.contextsolutions.localagent.agent.ChatLogger
+import com.contextsolutions.localagent.agent.ChatSessionController
+import com.contextsolutions.localagent.agent.ClockToolHandler
+import com.contextsolutions.localagent.agent.MyListCommandParser
+import com.contextsolutions.localagent.agent.MyListIntentDetector
+import com.contextsolutions.localagent.agent.MyListResponseFormatter
+import com.contextsolutions.localagent.agent.MyListToolHandler
+import com.contextsolutions.localagent.agent.StockResponseFormatter
+import com.contextsolutions.localagent.agent.TranslationIntentDetector
+import com.contextsolutions.localagent.agent.WeatherResponseFormatter
+import com.contextsolutions.localagent.agent.currentTimeContext
+import com.contextsolutions.localagent.classifier.ClassifierEngine
+import com.contextsolutions.localagent.classifier.NoOpClassifierEngine
+import com.contextsolutions.localagent.classifier.PreflightConfig
+import com.contextsolutions.localagent.classifier.PreflightRouter
+import com.contextsolutions.localagent.classifier.Vocab
+import com.contextsolutions.localagent.clock.AlarmScheduler
+import com.contextsolutions.localagent.clock.ClockRepository
+import com.contextsolutions.localagent.clock.ClockService
+import com.contextsolutions.localagent.clock.IosAlarmScheduler
+import com.contextsolutions.localagent.clock.IosClockRepository
+import com.contextsolutions.localagent.conversation.ConversationRepository
+import com.contextsolutions.localagent.conversation.SqlDelightConversationRepository
+import com.contextsolutions.localagent.db.LocalAgentDatabase
+import com.contextsolutions.localagent.i18n.StringPackLoader
+import com.contextsolutions.localagent.inference.InferenceConfig
+import com.contextsolutions.localagent.inference.InferenceEngine
+import com.contextsolutions.localagent.inference.IosChatSessionController
+import com.contextsolutions.localagent.inference.IosMemoryHeadroomProvider
+import com.contextsolutions.localagent.inference.IosModelDownloadController
+import com.contextsolutions.localagent.inference.IosModelStore
+import com.contextsolutions.localagent.inference.IosSystemMemoryStatusProvider
+import com.contextsolutions.localagent.inference.IosThermalStatusProvider
+import com.contextsolutions.localagent.inference.LiteRtIosInferenceEngine
+import com.contextsolutions.localagent.inference.MemoryHeadroomProvider
+import com.contextsolutions.localagent.inference.NativeLlmBridge
+import com.contextsolutions.localagent.inference.OllamaClient
+import com.contextsolutions.localagent.inference.OllamaConnectionMonitor
+import com.contextsolutions.localagent.inference.OllamaInferenceEngine
+import com.contextsolutions.localagent.inference.PollingDesktopLinkStatusProvider
+import com.contextsolutions.localagent.inference.RoutingInferenceEngine
+import com.contextsolutions.localagent.inference.SystemMemoryStatusProvider
+import com.contextsolutions.localagent.inference.ThermalStatusProvider
+import com.contextsolutions.localagent.inference.DesktopLinkStatusProvider
+import com.contextsolutions.localagent.language.IosLanguagePreferences
+import com.contextsolutions.localagent.language.LanguagePreferences
+import com.contextsolutions.localagent.link.DesktopLinkConnectionStatus
+import com.contextsolutions.localagent.link.DesktopLinkQrProvider
+import com.contextsolutions.localagent.link.NoDesktopLinkConnection
+import com.contextsolutions.localagent.link.NoDesktopLinkQr
+import com.contextsolutions.localagent.memory.EmbedderEngine
+import com.contextsolutions.localagent.memory.IosMemoryPreferences
+import com.contextsolutions.localagent.memory.MemoryBackupController
+import com.contextsolutions.localagent.memory.MemoryBackupOps
+import com.contextsolutions.localagent.memory.MemoryConfig
+import com.contextsolutions.localagent.memory.MemoryExtractor
+import com.contextsolutions.localagent.memory.MemoryPreferences
+import com.contextsolutions.localagent.memory.MemoryRetriever
+import com.contextsolutions.localagent.memory.MemoryStore
+import com.contextsolutions.localagent.memory.NoOpEmbedderEngine
+import com.contextsolutions.localagent.memory.QuestionDetector
+import com.contextsolutions.localagent.memory.RememberForgetDetector
+import com.contextsolutions.localagent.memory.SqlDelightMemoryStore
+import com.contextsolutions.localagent.memory.TempContextDateParser
+import com.contextsolutions.localagent.mylist.MyListRepository
+import com.contextsolutions.localagent.mylist.SqlDelightMyListRepository
+import com.contextsolutions.localagent.notification.IosNotificationPresenter
+import com.contextsolutions.localagent.notification.NotificationPresenter
+import com.contextsolutions.localagent.observability.NoOpSafeCrashReporter
+import com.contextsolutions.localagent.observability.SafeCrashReporter
+import com.contextsolutions.localagent.onboarding.IosOnboardingPreferences
+import com.contextsolutions.localagent.onboarding.OnboardingPreferences
+import com.contextsolutions.localagent.platform.AgentClock
+import com.contextsolutions.localagent.platform.AppBuildConfig
+import com.contextsolutions.localagent.platform.HttpEngineFactory
+import com.contextsolutions.localagent.platform.IosAppBuildConfig
+import com.contextsolutions.localagent.platform.IosDatabaseFactory
+import com.contextsolutions.localagent.platform.IosHttpEngineFactory
+import com.contextsolutions.localagent.platform.IosJsonStore
+import com.contextsolutions.localagent.platform.IosSecureStorage
+import com.contextsolutions.localagent.platform.IosToaster
+import com.contextsolutions.localagent.platform.IosUrlOpener
+import com.contextsolutions.localagent.platform.SecureStorage
+import com.contextsolutions.localagent.platform.SecureStorageKeys
+import com.contextsolutions.localagent.platform.Toaster
+import com.contextsolutions.localagent.platform.UrlOpener
+import com.contextsolutions.localagent.preferences.DefaultSiteResolver
+import com.contextsolutions.localagent.preferences.DesktopLinkPreferences
+import com.contextsolutions.localagent.preferences.IosDesktopLinkPreferences
+import com.contextsolutions.localagent.preferences.IosOllamaPreferences
+import com.contextsolutions.localagent.preferences.IosSearchPreferencesRepository
+import com.contextsolutions.localagent.preferences.LocationCatalog
+import com.contextsolutions.localagent.preferences.OllamaPreferences
+import com.contextsolutions.localagent.preferences.SearchPreferencesRepository
+import com.contextsolutions.localagent.preferences.WeatherLocationResolver
+import com.contextsolutions.localagent.search.BraveKeyProvider
+import com.contextsolutions.localagent.search.BraveSearchClient
+import com.contextsolutions.localagent.search.DefaultBraveKeyProvider
+import com.contextsolutions.localagent.search.KtorBraveLlmContextClient
+import com.contextsolutions.localagent.search.KtorBraveSearchClient
+import com.contextsolutions.localagent.search.SearchCacheDao
+import com.contextsolutions.localagent.search.SearchService
+import com.contextsolutions.localagent.search.vertical.VerticalSearchDispatcher
+import com.contextsolutions.localagent.search.vertical.VerticalSearchDispatcherFactory
+import com.contextsolutions.localagent.subscription.NoOpRelayDisconnector
+import com.contextsolutions.localagent.subscription.NoOpRelayPairingInitiator
+import com.contextsolutions.localagent.subscription.NoOpSubscriptionPreferences
+import com.contextsolutions.localagent.subscription.NoOpSubscriptionUiController
+import com.contextsolutions.localagent.subscription.RelayDisconnector
+import com.contextsolutions.localagent.subscription.RelayPairingInitiator
+import com.contextsolutions.localagent.subscription.SubscriptionPreferences
+import com.contextsolutions.localagent.subscription.SubscriptionUiController
+import com.contextsolutions.localagent.sync.LastSyncStatus
+import com.contextsolutions.localagent.sync.LocalChangeBus
+import com.contextsolutions.localagent.sync.MutableLastSyncStatus
+import com.contextsolutions.localagent.telemetry.AnalyticsSink
+import com.contextsolutions.localagent.telemetry.IosTelemetryConsentManager
+import com.contextsolutions.localagent.telemetry.NoOpAnalyticsSink
+import com.contextsolutions.localagent.telemetry.NoOpTelemetryCounters
+import com.contextsolutions.localagent.telemetry.NoOpTelemetryFlusher
+import com.contextsolutions.localagent.telemetry.TelemetryConsentManager
+import com.contextsolutions.localagent.telemetry.TelemetryCounters
+import com.contextsolutions.localagent.telemetry.TelemetryFlusher
+import com.contextsolutions.localagent.telemetry.TelemetryPayloadBuilder
+import com.contextsolutions.localagent.telemetry.TelemetryUploader
+import com.contextsolutions.localagent.job.JobRepository
+import com.contextsolutions.localagent.job.SqlDelightJobRepository
+import com.contextsolutions.localagent.ui.theme.IosThemePreferences
+import com.contextsolutions.localagent.ui.theme.ThemePreferences
+import com.contextsolutions.localagent.voice.ChatSpeaker
+import com.contextsolutions.localagent.voice.Dictation
+import com.contextsolutions.localagent.voice.IosTtsPreferences
+import com.contextsolutions.localagent.voice.NoOpChatSpeaker
+import com.contextsolutions.localagent.voice.NoOpDictation
+import com.contextsolutions.localagent.voice.TtsPreferences
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.datetime.Clock
+import com.contextsolutions.localagent.platform.platformIoDispatcher
+import org.koin.core.module.Module
+import org.koin.core.qualifier.named
+import org.koin.dsl.module
+
+private const val EMPTY_DEFAULTS_JSON = """{"fallback":"US","countries":{"US":{}}}"""
+
+private fun nowMs(): Long = Clock.System.now().toEpochMilliseconds()
+
+/**
+ * iOS platform bindings for the Koin graph (PR #41) — the counterpart of
+ * `androidModule` / `desktopModule`. Combined with [agentCoreModule] and the
+ * `:ui` `uiModule` this resolves a complete agent graph on iOS.
+ *
+ * Chat runs on-device via [LiteRtIosInferenceEngine] (the Swift [NativeLlmBridge]
+ * passed in from `IosEntryPoint.doInitKoin`) wrapped in [RoutingInferenceEngine]
+ * (remote Ollama wins when configured + reachable). Persistence is the native
+ * SQLite driver; secrets are the Keychain; networking is Ktor/Darwin. Classifier/
+ * embedder are NoOp (search/memory degrade gracefully), and relay/subscription/
+ * voice/jobs-admin are no-op stubs this milestone.
+ */
+fun iosModule(bridge: NativeLlmBridge): Module = module {
+    // The Swift LiteRT-LM bridge, injected from the app shell.
+    single<NativeLlmBridge> { bridge }
+
+    // -- Platform seams --
+    single<HttpEngineFactory> { IosHttpEngineFactory() }
+    single<SecureStorage> { IosSecureStorage() }
+    single<AppBuildConfig> { IosAppBuildConfig() }
+    single<UrlOpener> { IosUrlOpener() }
+    single<Toaster> { IosToaster() }
+    single<ThermalStatusProvider> { IosThermalStatusProvider() }
+    single<MemoryHeadroomProvider> { IosMemoryHeadroomProvider() }
+    single<SystemMemoryStatusProvider> { IosSystemMemoryStatusProvider() }
+    single<NotificationPresenter> { IosNotificationPresenter() }
+    single<SafeCrashReporter> { NoOpSafeCrashReporter }
+
+    // -- Database + per-table queries --
+    single { LocalAgentDatabase(IosDatabaseFactory.create()) }
+    single { get<LocalAgentDatabase>().searchCacheQueries }
+    single { get<LocalAgentDatabase>().telemetryAggregateQueries }
+    single { get<LocalAgentDatabase>().jobsQueries }
+    single { get<LocalAgentDatabase>().conversationsQueries }
+    single { get<LocalAgentDatabase>().myListQueries }
+    single { get<LocalAgentDatabase>().memoriesQueries }
+
+    // -- Vocab (placeholder; classifier/embedder are NoOp on iOS so the tokenizer
+    //    is never used for real inference, but WordPieceTokenizer needs a Vocab). --
+    single { Vocab.fromLines(sequenceOf("[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]")) }
+
+    // -- Telemetry (opt-in, off by default; egress is a NoOp sink on iOS). --
+    single<TelemetryCounters> { NoOpTelemetryCounters }
+    single<TelemetryFlusher> { NoOpTelemetryFlusher }
+    single<AnalyticsSink> { NoOpAnalyticsSink }
+    single { TelemetryPayloadBuilder(get()) }
+    single {
+        TelemetryUploader(
+            consent = get(),
+            flusher = get(),
+            builder = get(),
+            sink = get(),
+            queries = get(),
+            nowEpochMs = ::nowMs,
+        )
+    }
+
+    // -- Sync plumbing the repos + Jobs UI need (relay sync itself deferred). --
+    single { LocalChangeBus() }
+    single { MutableLastSyncStatus(null) }
+    single<LastSyncStatus> { get<MutableLastSyncStatus>() }
+
+    // -- Jobs: read-only on iOS (no admin/scheduler/executor → JobsViewModel gets them via getOrNull). --
+    single<JobRepository> { SqlDelightJobRepository(queries = get(), bus = get()) }
+
+    // -- Remote Ollama (the configured-remote chat path). --
+    single<OllamaPreferences> { IosOllamaPreferences(IosJsonStore("ollama_prefs.json")) }
+    single { OllamaClient(get<HttpEngineFactory>(), get<SecureStorage>(), logger = diag("OllamaClient")) }
+    single {
+        OllamaConnectionMonitor(
+            healthProbe = { url -> get<OllamaClient>().health(url, get<OllamaPreferences>().config().serverType) },
+            logger = diag("Ollama"),
+        )
+    }
+    single {
+        OllamaInferenceEngine(
+            httpEngineFactory = get(),
+            preferences = get(),
+            client = get(),
+            monitor = get(),
+            secureStorage = get(),
+            logger = diag("Ollama"),
+        )
+    }
+
+    // -- Subscription / relay: no-op on iOS (no Secure Gateway iOS artifact). --
+    single<SubscriptionPreferences> { NoOpSubscriptionPreferences() }
+    single<SubscriptionUiController> { NoOpSubscriptionUiController() }
+    single<RelayDisconnector> { NoOpRelayDisconnector }
+    single<RelayPairingInitiator> { NoOpRelayPairingInitiator }
+
+    // -- Desktop link: disabled on iOS (status DISABLED → header dot hidden). --
+    single<DesktopLinkPreferences> { IosDesktopLinkPreferences(IosJsonStore("desktop_link_prefs.json")) }
+    single<DesktopLinkStatusProvider> { PollingDesktopLinkStatusProvider(preferences = get(), relayState = null) }
+    single<DesktopLinkQrProvider> { NoDesktopLinkQr() }
+    single<DesktopLinkConnectionStatus> { NoDesktopLinkConnection() }
+
+    // -- The inference seam: on-device LiteRT-LM (Swift bridge) + remote Ollama. --
+    single<InferenceEngine> {
+        RoutingInferenceEngine(
+            local = LiteRtIosInferenceEngine(bridge = get()),
+            ollama = get<OllamaInferenceEngine>(),
+            preferences = get(),
+            logger = diag("Inference"),
+        )
+    }
+    single<ClassifierEngine> { NoOpClassifierEngine() }
+    single<EmbedderEngine> { NoOpEmbedderEngine() }
+
+    // -- Model download gate (first-run Gemma .litertlm fetch). --
+    single { IosModelStore() }
+    single { IosModelDownloadController(store = get(), scope = appScope()) }
+
+    // -- Chat session controller (keeps the model resident once loaded). --
+    single<ChatSessionController> {
+        IosChatSessionController(
+            engine = get(),
+            modelPath = { get<IosModelDownloadController>().modelPath() },
+            config = InferenceConfig(enableVision = true),
+        )
+    }
+
+    // -- Memory subsystem (embedder is NoOp → retriever/extractor degrade to no-ops). --
+    single<MemoryConfig> { MemoryConfig.DEFAULT }
+    single<MemoryStore> { SqlDelightMemoryStore(get(), localChangeBus = get()) }
+    single<MemoryPreferences> { IosMemoryPreferences(IosJsonStore("memory_prefs.json")) }
+    single { RememberForgetDetector() }
+    single { QuestionDetector() }
+    single { TempContextDateParser(timeContextProvider = { currentTimeContext(get(), get()) }) }
+    single {
+        val clock = get<AgentClock>()
+        MemoryRetriever(
+            embedder = get(),
+            store = get(),
+            nowProvider = { clock.nowEpochMs() },
+            logger = diag("MemoryRetriever"),
+            counters = get(),
+        )
+    }
+    single {
+        val clock = get<AgentClock>()
+        val config = get<MemoryConfig>()
+        val preferences = get<MemoryPreferences>()
+        MemoryExtractor(
+            classifier = get(),
+            tokenizer = get(),
+            embedder = get(),
+            store = get(),
+            detector = get(),
+            questionDetector = get(),
+            dateParser = get(),
+            nowProvider = { clock.nowEpochMs() },
+            configProvider = { config },
+            creationEnabledProvider = { preferences.creationEnabled() },
+            logger = diag("MemoryExtractor"),
+            counters = get(),
+        )
+    }
+    single<MemoryBackupOps> {
+        MemoryBackupController(
+            store = get(),
+            embedder = get(),
+            clock = get(),
+            counters = get(),
+            config = get(),
+            appVersionName = get<AppBuildConfig>().versionName,
+            logger = diag("MemoryBackup"),
+        )
+    }
+
+    // -- Search subsystem (opt-in; off until a Brave key + the toggle are set). --
+    single<BraveKeyProvider> { DefaultBraveKeyProvider(get(), null) }
+    single<BraveSearchClient> { KtorBraveLlmContextClient(get(), maxUrls = 3) {} }
+    single { SearchCacheDao(queries = get(), nowEpochMs = get<AgentClock>()::nowEpochMs) }
+    single<SearchService> { searchService(get(), KtorBraveLlmContextClient(get(), maxUrls = 3) {}, get(), get(), "ctx:") }
+    single<SearchService>(named("sports")) {
+        searchService(get(), KtorBraveLlmContextClient(get(), maxUrls = 1) {}, get(), get(), "sports:")
+    }
+    single<SearchService>(named("news")) {
+        searchService(get(), KtorBraveLlmContextClient(get(), maxUrls = 10) {}, get(), get(), "news:")
+    }
+    single<SearchService>(named("finance")) {
+        searchService(get(), KtorBraveSearchClient(get()) {}, get(), get(), "fin:")
+    }
+
+    // -- Pre-flight classifier router (engine is NoOp → falls through to the LLM). --
+    single<PreflightConfig> { PreflightConfig.DEFAULT }
+    single {
+        val config = get<PreflightConfig>()
+        val searchService = get<SearchService>()
+        PreflightRouter(
+            engine = get(),
+            tokenizer = get(),
+            rewriter = get(),
+            configProvider = { config },
+            searchAvailableProvider = { searchService.isAvailable() },
+            subtypeDetector = get(),
+            logger = diag("ClassifierModule"),
+            counters = get(),
+        )
+    }
+    single<VerticalSearchDispatcher> {
+        VerticalSearchDispatcherFactory.create(
+            httpEngineFactory = get(),
+            searchService = get(),
+            sportsSearchService = get(named("sports")),
+            financeSearchService = get(named("finance")),
+            newsSearchService = get(named("news")),
+            logger = diag("VerticalSearch"),
+            logQueries = false,
+        )
+    }
+
+    // -- Vertical-search prefs + location data (empty defaults on iOS). --
+    single<DefaultSiteResolver> { DefaultSiteResolver(EMPTY_DEFAULTS_JSON) }
+    single<SearchPreferencesRepository> { IosSearchPreferencesRepository(IosJsonStore("search_prefs.json"), get()) }
+    single<LocationCatalog> { LocationCatalog("""{"countries":[]}""") }
+    single { WeatherLocationResolver(get()) }
+    single<OnboardingPreferences> { IosOnboardingPreferences(IosJsonStore("onboarding_prefs.json")) }
+
+    // -- Deterministic response formatters (objects). --
+    single { WeatherResponseFormatter }
+    single { StockResponseFormatter }
+    single<AgentLogger> { AgentLogger(diag("AgentLoop")) }
+
+    // -- My List. --
+    single<MyListRepository> { SqlDelightMyListRepository(get(), get()) }
+    single { MyListIntentDetector() }
+    single { MyListCommandParser() }
+    single { MyListResponseFormatter() }
+    single { MyListToolHandler(get()) }
+
+    // -- Clock (view-only on iOS; the scheduler is a no-op). --
+    single<ClockRepository> { IosClockRepository(IosJsonStore("clock_prefs.json")) }
+    single<AlarmScheduler> { IosAlarmScheduler() }
+    single { ClockService(repository = get(), scheduler = get()) }
+    single { ClockToolHandler(get()) }
+
+    // -- Remaining shared bindings. --
+    single<ConversationRepository> { SqlDelightConversationRepository(get(), get(), localChangeBus = get()) }
+    single<LanguagePreferences> { IosLanguagePreferences(IosJsonStore("language_prefs.json")) }
+    single { TranslationIntentDetector() }
+    single<StringPackLoader> { StringPackLoader { null } }
+    single<TelemetryConsentManager> { IosTelemetryConsentManager(IosJsonStore("telemetry_consent.json")) }
+    single<ChatLogger> { ChatLogger(diag("ChatViewModel")) }
+    single<ThemePreferences> { IosThemePreferences(IosJsonStore("theme_prefs.json")) }
+    single<TtsPreferences> { IosTtsPreferences(IosJsonStore("tts_prefs.json")) }
+    single<ChatSpeaker> { NoOpChatSpeaker() }
+    single<Dictation> { NoOpDictation() }
+}
+
+/** Long-lived scope for background work owned by iOS singletons (download, monitors). */
+private fun appScope(): CoroutineScope = CoroutineScope(SupervisorJob() + platformIoDispatcher)
+
+private fun diag(tag: String): (String) -> Unit = { println("[$tag] $it") }
+
+/** Shared SearchService builder (the 4 variants differ only by client + cache namespace). */
+private fun org.koin.core.scope.Scope.searchService(
+    keyProvider: BraveKeyProvider,
+    client: BraveSearchClient,
+    cache: SearchCacheDao,
+    counters: TelemetryCounters,
+    cacheNamespace: String,
+): SearchService = SearchService(
+    keyProvider = keyProvider,
+    client = client,
+    cache = cache,
+    isEnabled = { get<SecureStorage>().get(SecureStorageKeys.SEARCH_ENABLED) == "true" },
+    counters = counters,
+    cacheNamespace = cacheNamespace,
+)

@@ -52,7 +52,9 @@ class TelemetryPayloadBuilder(
         // to 4 events (`daily_inference`, `daily_preflight`, `daily_search`,
         // `daily_memory`) — only emit an event when at least one parameter
         // landed in that bucket.
-        val byWindow = sortedMapOf<Long, EventBuilderForWindow>()
+        // Plain map + sorted-key iteration below — commonMain has no sortedMapOf
+        // (java.util.TreeMap); output order is still ascending by window (PR #41).
+        val byWindow = mutableMapOf<Long, EventBuilderForWindow>()
         for (row in counters) {
             byWindow.getOrPut(row.window_start_epoch_ms) { EventBuilderForWindow(row.window_start_epoch_ms) }
                 .addCounter(row.counter_name, row.counter_value)
@@ -64,7 +66,8 @@ class TelemetryPayloadBuilder(
 
         val events = mutableListOf<AnalyticsSink.AnalyticsEvent>()
         val markers = mutableListOf<Marker>()
-        for ((_, b) in byWindow) {
+        for (windowStart in byWindow.keys.sorted()) {
+            val b = byWindow.getValue(windowStart)
             for (event in b.toEvents()) {
                 events += event
                 markers += b.markers(event.name)
@@ -112,7 +115,9 @@ class TelemetryPayloadBuilder(
 
         fun addCounter(name: String, value: Long) {
             val target = bucketForName(name)
-            target.merge(name, value) { a, b -> a + b }
+            // Native stdlib has no java.util.Map#merge — sum into place by hand
+            // (behaviour-identical on JVM + Native).
+            target[name] = (target[name] ?: 0L) + value
             counterMarkers += eventNameForBucket(target) to name
         }
 

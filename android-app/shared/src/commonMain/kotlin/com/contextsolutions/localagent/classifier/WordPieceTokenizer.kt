@@ -96,7 +96,7 @@ class WordPieceTokenizer(
             var matchedId: Int? = null
             var matchedEnd = -1
             while (end > start) {
-                val sub = String(codepoints, start, end - start)
+                val sub = codepoints.concatToString(start, end)
                 val candidate = if (start > 0) "##$sub" else sub
                 val id = vocab.id(candidate)
                 if (id != null) {

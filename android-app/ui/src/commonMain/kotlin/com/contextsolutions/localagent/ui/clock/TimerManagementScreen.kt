@@ -1,4 +1,5 @@
 package com.contextsolutions.localagent.ui.clock
+import kotlinx.datetime.Clock
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -66,10 +67,10 @@ fun TimerManagementScreen(
 
     // Tick a local clock once a second so the per-row remaining-time labels
     // update without each row spinning up its own LaunchedEffect.
-    var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
+    var nowMs by remember { mutableStateOf(Clock.System.now().toEpochMilliseconds()) }
     LaunchedEffect(Unit) {
         while (true) {
-            nowMs = System.currentTimeMillis()
+            nowMs = Clock.System.now().toEpochMilliseconds()
             delay(1_000)
         }
     }
@@ -256,5 +257,5 @@ private fun formatHms(ms: Long): String {
     val h = total / 3600
     val m = (total % 3600) / 60
     val s = total % 60
-    return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
+    return if (h > 0) "$h:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}" else "$m:${s.toString().padStart(2, '0')}"
 }

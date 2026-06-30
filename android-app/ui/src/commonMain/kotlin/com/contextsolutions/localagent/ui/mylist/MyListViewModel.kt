@@ -1,4 +1,5 @@
 package com.contextsolutions.localagent.ui.mylist
+import com.contextsolutions.localagent.platform.platformIoDispatcher
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -46,7 +47,7 @@ class MyListViewModel(
     ) {
         val trimmed = title.trim()
         if (trimmed.isBlank()) return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(platformIoDispatcher) {
             repository.create(
                 id = "mylist-${Uuid.random()}",
                 title = trimmed,
@@ -60,25 +61,25 @@ class MyListViewModel(
 
     fun updateItem(item: MyListItem) {
         if (item.title.isBlank()) return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(platformIoDispatcher) {
             repository.update(item, Clock.System.now().toEpochMilliseconds())
         }
     }
 
     fun setCompleted(id: String, completed: Boolean) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(platformIoDispatcher) {
             repository.setCompleted(id, completed, Clock.System.now().toEpochMilliseconds())
         }
     }
 
     fun deleteItem(id: String) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(platformIoDispatcher) {
             repository.delete(id)
         }
     }
 
     fun clearCompleted() {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(platformIoDispatcher) {
             repository.deleteCompleted()
         }
     }

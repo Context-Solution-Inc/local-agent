@@ -101,10 +101,20 @@ object ContentRedactor {
             redactedMessage = redactedMessage,
             cause = throwable.cause?.let { redactThrowable(it) },
         ).apply {
-            stackTrace = throwable.stackTrace
+            // JVM: copy the original stack so Crashlytics groups correctly.
+            // iOS: no-op (`Throwable.stackTrace` is private on Native; crash
+            // reporting is a NoOp there). PR #41.
+            applyStackTraceFrom(throwable)
         }
     }
 }
+
+/**
+ * Copies [source]'s stack trace onto the receiver where the platform allows it.
+ * JVM sets `Throwable.stackTrace` (preserving Crashlytics grouping); Kotlin/Native
+ * cannot mutate the stack trace, so the iOS actual is a no-op (PR #41).
+ */
+internal expect fun Throwable.applyStackTraceFrom(source: Throwable)
 
 /**
  * A throwable whose message has been redacted. Preserves the stack trace

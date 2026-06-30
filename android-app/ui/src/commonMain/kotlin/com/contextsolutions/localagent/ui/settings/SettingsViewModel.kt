@@ -1,4 +1,5 @@
 package com.contextsolutions.localagent.ui.settings
+import com.contextsolutions.localagent.platform.platformIoDispatcher
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -238,7 +239,7 @@ class SettingsViewModel(
     }
 
     fun clearCache() {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(platformIoDispatcher) {
             cache.clear()
             val count = cache.count()
             _state.update { it.copy(cacheCount = count, cacheJustCleared = true) }
@@ -272,7 +273,7 @@ class SettingsViewModel(
      * Outcome appears in `logcat -s TelemetryWorker:I`.
      */
     fun triggerTelemetryUploadNow() {
-        viewModelScope.launch(Dispatchers.IO) { telemetryUploader.upload() }
+        viewModelScope.launch(platformIoDispatcher) { telemetryUploader.upload() }
     }
 
     /**
@@ -283,7 +284,7 @@ class SettingsViewModel(
      */
     fun refreshMemorySummary() {
         viewModelScope.launch {
-            val count = withContext(Dispatchers.IO) { memoryStore.listAll().size }
+            val count = withContext(platformIoDispatcher) { memoryStore.listAll().size }
             _state.update {
                 it.copy(
                     memoryCount = count,
@@ -356,12 +357,12 @@ class SettingsViewModel(
             // distinct failures: an unreachable host vs. a reachable host whose
             // body isn't the expected model list (typically a wrong Base URL path
             // on an OpenAI-compatible server). Surface them separately.
-            val reachable = withContext(Dispatchers.IO) { ollamaClient.health(baseUrl, serverType) }
+            val reachable = withContext(platformIoDispatcher) { ollamaClient.health(baseUrl, serverType) }
             if (!reachable) {
                 _state.update { it.copy(ollamaTestStatus = OllamaTestStatus.Failed, ollamaModels = emptyList()) }
                 return@launch
             }
-            val models = withContext(Dispatchers.IO) { ollamaClient.listModels(baseUrl, serverType) }
+            val models = withContext(platformIoDispatcher) { ollamaClient.listModels(baseUrl, serverType) }
             _state.update {
                 it.copy(
                     ollamaModels = models,
@@ -491,8 +492,8 @@ class SettingsViewModel(
             mobilePresence = desktopLinkConnectionStatus.presence.value,
         ).also {
             // Load cache count off the main thread.
-            viewModelScope.launch(Dispatchers.IO) {
-                val count = withContext(Dispatchers.IO) { cache.count() }
+            viewModelScope.launch(platformIoDispatcher) {
+                val count = withContext(platformIoDispatcher) { cache.count() }
                 _state.update { st -> st.copy(cacheCount = count) }
             }
         }

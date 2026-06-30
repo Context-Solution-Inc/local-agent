@@ -1,4 +1,5 @@
 package com.contextsolutions.localagent.mylist
+import com.contextsolutions.localagent.platform.platformIoDispatcher
 
 import app.cash.sqldelight.coroutines.asFlow
 import app.cash.sqldelight.coroutines.mapToList
@@ -29,7 +30,7 @@ import kotlinx.datetime.Clock
 class SqlDelightMyListRepository(
     private val queries: MyListQueries,
     private val bus: LocalChangeBus,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val ioDispatcher: CoroutineDispatcher = platformIoDispatcher,
     private val now: () -> Long = { Clock.System.now().toEpochMilliseconds() },
 ) : MyListRepository {
 
