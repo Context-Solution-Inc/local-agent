@@ -1,4 +1,5 @@
 package com.contextsolutions.localagent.job
+import com.contextsolutions.localagent.platform.platformIoDispatcher
 
 import app.cash.sqldelight.coroutines.asFlow
 import app.cash.sqldelight.coroutines.mapToList
@@ -27,7 +28,7 @@ import kotlinx.coroutines.withContext
 class SqlDelightJobRepository(
     private val queries: JobsQueries,
     private val bus: LocalChangeBus,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val ioDispatcher: CoroutineDispatcher = platformIoDispatcher,
 ) : JobRepository {
 
     override fun flow(): Flow<List<Job>> =

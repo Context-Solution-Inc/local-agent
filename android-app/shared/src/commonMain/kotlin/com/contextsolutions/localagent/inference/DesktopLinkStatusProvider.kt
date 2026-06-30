@@ -1,4 +1,5 @@
 package com.contextsolutions.localagent.inference
+import com.contextsolutions.localagent.platform.platformIoDispatcher
 
 import com.contextsolutions.localagent.link.transport.LinkConnectionState
 import com.contextsolutions.localagent.preferences.DesktopLinkPreferences
@@ -46,7 +47,7 @@ class PollingDesktopLinkStatusProvider(
     // Relay pipe state (mobile, when subscribed). Null on desktop, where the link
     // is never enabled and the dot stays DISABLED.
     private val relayState: StateFlow<LinkConnectionState>? = null,
-    scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    scope: CoroutineScope = CoroutineScope(SupervisorJob() + platformIoDispatcher),
 ) : DesktopLinkStatusProvider {
 
     private val _status = MutableStateFlow(DesktopLinkStatus.DISABLED)

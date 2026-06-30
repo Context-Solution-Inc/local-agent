@@ -1,4 +1,5 @@
 package com.contextsolutions.localagent.ui.job
+import com.contextsolutions.localagent.platform.platformIoDispatcher
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -125,7 +126,7 @@ class JobsViewModel(
     fun setPaused(id: String, paused: Boolean) {
         // Desktop (admin) always controls; mobile needs the link UP.
         if (admin == null && linkStatus.value != DesktopLinkStatus.UP) return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(platformIoDispatcher) {
             val a = admin
             if (a != null) {
                 // Desktop: write the row AND drive the scheduler.
@@ -152,7 +153,7 @@ class JobsViewModel(
             if (isDebug) println("[JobsVM] create ignored — no JobAdmin bound (mobile is read-only)")
             return
         }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(platformIoDispatcher) {
             if (isDebug) println("[JobsVM] create name='${name.trim()}' command='${command.trim()}' schedule=$scheduleType cron=$cronExpression fireAt=$fireAtEpochMs")
             val job = a.create(name.trim(), command.trim(), prompt, workingDir, scheduleType, cronExpression, fireAtEpochMs)
             if (isDebug) println("[JobsVM] created job id=${job.id}")
@@ -170,14 +171,14 @@ class JobsViewModel(
         fireAtEpochMs: Long?,
     ) {
         val a = admin ?: return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(platformIoDispatcher) {
             a.update(id, name.trim(), command.trim(), prompt, workingDir, scheduleType, cronExpression, fireAtEpochMs)
         }
     }
 
     fun delete(id: String) {
         val a = admin ?: return
-        viewModelScope.launch(Dispatchers.IO) { a.delete(id) }
+        viewModelScope.launch(platformIoDispatcher) { a.delete(id) }
     }
 
     fun runNow(id: String) {
@@ -191,7 +192,7 @@ class JobsViewModel(
         // canControl, but guard here too).
         val r = remoteRunner ?: return
         if (linkStatus.value != DesktopLinkStatus.UP) return
-        viewModelScope.launch(Dispatchers.IO) { r.runNow(id) }
+        viewModelScope.launch(platformIoDispatcher) { r.runNow(id) }
     }
 
     /**
@@ -202,7 +203,7 @@ class JobsViewModel(
     fun resyncJobs() {
         val r = resync ?: return
         if (linkStatus.value != DesktopLinkStatus.UP) return
-        viewModelScope.launch(Dispatchers.IO) { r.resyncFromDesktop() }
+        viewModelScope.launch(platformIoDispatcher) { r.resyncFromDesktop() }
     }
 
     fun cancel(id: String) {
@@ -216,6 +217,6 @@ class JobsViewModel(
         // canControl, but guard here too).
         val r = remoteRunner ?: return
         if (linkStatus.value != DesktopLinkStatus.UP) return
-        viewModelScope.launch(Dispatchers.IO) { r.cancel(id) }
+        viewModelScope.launch(platformIoDispatcher) { r.cancel(id) }
     }
 }

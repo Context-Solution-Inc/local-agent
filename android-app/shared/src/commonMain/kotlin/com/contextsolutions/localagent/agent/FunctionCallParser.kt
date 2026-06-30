@@ -64,14 +64,14 @@ class MarkerFunctionCallParser(
                 val startIdx = buffer.indexOfMarker(startMarker)
                 if (startIdx >= 0) {
                     if (startIdx > 0) emit(ParsedEvent.Text(buffer.substring(0, startIdx)))
-                    buffer.delete(0, startIdx + startMarker.length)
+                    buffer.deleteRange(0, startIdx + startMarker.length)
                     insideMarker = true
                     return
                 }
                 val safeLen = buffer.length - longestPrefixSuffix(buffer, startMarker)
                 if (safeLen <= 0) return
                 emit(ParsedEvent.Text(buffer.substring(0, safeLen)))
-                buffer.delete(0, safeLen)
+                buffer.deleteRange(0, safeLen)
                 return
             }
         }
@@ -81,7 +81,7 @@ class MarkerFunctionCallParser(
             val endIdx = buffer.indexOfMarker(endMarker)
             if (endIdx < 0) return
             val payload = buffer.substring(0, endIdx)
-            buffer.delete(0, endIdx + endMarker.length)
+            buffer.deleteRange(0, endIdx + endMarker.length)
             insideMarker = false
             val parsed = bodyParser.parse(payload)
             if (parsed != null) {

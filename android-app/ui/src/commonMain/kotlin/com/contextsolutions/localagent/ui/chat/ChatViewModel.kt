@@ -1,4 +1,5 @@
 package com.contextsolutions.localagent.ui.chat
+import com.contextsolutions.localagent.platform.platformIoDispatcher
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -437,7 +438,7 @@ class ChatViewModel(
             _memoryCount.value = 0
             return
         }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(platformIoDispatcher) {
             runCatching { _memoryCount.value = memoryStore.countForConversation(cid) }
         }
     }
@@ -492,7 +493,7 @@ class ChatViewModel(
         truncationAcknowledged = true
         val convId = _conversationId.value
         if (convId != null) {
-            viewModelScope.launch(Dispatchers.IO) {
+            viewModelScope.launch(platformIoDispatcher) {
                 runCatching {
                     conversationRepository.acknowledgeTruncation(
                         conversationId = convId,
@@ -535,7 +536,7 @@ class ChatViewModel(
      */
     fun deleteTurn(messageId: String) {
         val convId = _conversationId.value ?: return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(platformIoDispatcher) {
             runCatching {
                 val deletedIds = conversationRepository.deleteTurnContaining(convId, messageId).toSet()
                 if (deletedIds.isEmpty()) return@launch
@@ -693,7 +694,7 @@ class ChatViewModel(
         val convId = _conversationId.value ?: return
         val toPersist = turnMessages.dropWhile { it is ChatMessage.User }
         if (toPersist.isEmpty()) return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(platformIoDispatcher) {
             val now = Clock.System.now().toEpochMilliseconds()
             toPersist.forEachIndexed { index, msg ->
                 // PR #4 — the final user-visible assistant turn shares its id with
@@ -734,7 +735,7 @@ class ChatViewModel(
         // skipMemoryExtraction = true, so without this they'd propose nothing.
         event.locationToRemember?.let { locationText ->
             val cid = _conversationId.value
-            viewModelScope.launch(Dispatchers.IO) {
+            viewModelScope.launch(platformIoDispatcher) {
                 val report = runCatching { memoryExtractor.proposeLocationMemory(locationText, cid) }
                     .onFailure { logger.log("proposeLocationMemory crashed; turn already complete: ${it.message}") }
                     .getOrNull()
@@ -771,7 +772,7 @@ class ChatViewModel(
         }
         val assistantText = event.message.text
         val cid = _conversationId.value
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(platformIoDispatcher) {
             val report = runCatching {
                 memoryExtractor.extract(
                     userMessage = userMessage,
@@ -852,7 +853,7 @@ class ChatViewModel(
         // cap we leave it in place so the user can retry after deleting
         // memories in Settings → Memory.
         val candidate = pendingCandidates[candidateId] ?: return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(platformIoDispatcher) {
             when (val outcome = memoryExtractor.acceptPromptCandidate(candidate)) {
                 is MemoryExtractor.AcceptOutcome.CapReached -> {
                     _memoryLimitReached.value = outcome.limit

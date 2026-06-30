@@ -1,4 +1,5 @@
 package com.contextsolutions.localagent.link.transport
+import kotlin.concurrent.Volatile
 
 import com.contextsolutions.localagent.preferences.DesktopLinkPreferences
 import kotlinx.coroutines.CoroutineScope

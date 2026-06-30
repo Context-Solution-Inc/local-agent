@@ -1,4 +1,5 @@
 package com.contextsolutions.localagent.search.vertical
+import com.contextsolutions.localagent.platform.platformIoDispatcher
 
 import com.contextsolutions.localagent.preferences.GpsCoordinates
 import com.contextsolutions.localagent.preferences.UserLocation
@@ -54,7 +55,7 @@ class FinanceQuoteAdapter(
         prefs: VerticalPreferences,
         location: UserLocation?,
         gps: GpsCoordinates?,
-    ): SearchOutcome = withContext(Dispatchers.IO) {
+    ): SearchOutcome = withContext(platformIoDispatcher) {
         // 1. Brave resolves the ticker (+ company name) from its finance result.
         val webOutcome = fallback.fetch(query, prefs, location, gps)
         if (webOutcome !is SearchOutcome.Success) return@withContext webOutcome

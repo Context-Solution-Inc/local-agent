@@ -1,4 +1,5 @@
 package com.contextsolutions.localagent.sync
+import com.contextsolutions.localagent.platform.platformIoDispatcher
 
 import com.contextsolutions.localagent.preferences.DesktopLinkPreferences
 import kotlinx.coroutines.CoroutineScope
@@ -37,7 +38,7 @@ class SyncController(
     private val watermarks: SyncWatermarkStore,
     private val lastSync: LastSyncStore,
     private val lastSyncStatus: MutableLastSyncStatus,
-    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + platformIoDispatcher),
     private val nowEpochMs: () -> Long = { kotlinx.datetime.Clock.System.now().toEpochMilliseconds() },
     private val logger: (String) -> Unit = {},
 ) {

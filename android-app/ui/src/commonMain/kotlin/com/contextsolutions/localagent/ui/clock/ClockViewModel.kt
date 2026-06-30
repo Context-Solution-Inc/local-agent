@@ -1,4 +1,5 @@
 package com.contextsolutions.localagent.ui.clock
+import com.contextsolutions.localagent.platform.platformIoDispatcher
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -40,43 +41,43 @@ class ClockViewModel(
 
     fun createTimer(durationMs: Long, label: String?) {
         if (durationMs <= 0) return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(platformIoDispatcher) {
             clockService.createTimer(durationMs, label)
         }
     }
 
     fun extendTimer(id: String, extraMs: Long) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(platformIoDispatcher) {
             clockService.extendTimer(id, extraMs)
         }
     }
 
     fun cancelTimer(id: String) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(platformIoDispatcher) {
             clockService.cancelTimer(id)
         }
     }
 
     fun createAlarm(hour: Int, minute: Int, days: Set<AlarmDay>, label: String?) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(platformIoDispatcher) {
             clockService.createAlarm(hour, minute, days, label)
         }
     }
 
     fun updateAlarm(alarm: AlarmEntry) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(platformIoDispatcher) {
             clockService.updateAlarm(alarm)
         }
     }
 
     fun cancelAlarm(id: String) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(platformIoDispatcher) {
             clockService.cancelAlarm(id)
         }
     }
 
     fun setAlarmEnabled(id: String, enabled: Boolean) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(platformIoDispatcher) {
             clockService.setAlarmEnabled(id, enabled)
         }
     }

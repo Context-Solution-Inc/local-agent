@@ -13,7 +13,7 @@ Phase 1 delivers the **complete v1 product described in PRD.md**, restricted to 
 
 | Dimension | Phase 1 commitment |
 |---|---|
-| Platforms | Android only (iOS deferred to Phase 2) |
+| Platforms | Android + desktop; iOS/iPhone first milestone landed (PR #41 — on-device chat via LiteRT-LM Swift/Metal; `docs/IOS_BUILD.md`) |
 | Devices | Google Pixel 7 (non-Pro, non-a) — 8 GB RAM, Tensor G2, ARM64 |
 | OS floor | Android 16 (API 36) |
 | Feature scope | Full v1 PRD: chat, web search, pre-flight classifier, memory subsystem, telemetry pipeline |
@@ -109,7 +109,7 @@ Source: spike run `ca42ff6a-6911-4ad3-84d1-29f264ad8ed2`, 2026-05-05. See
 /eval                         # Regression harness, canonical query sets, CI gates
 ```
 
-`iosMain` exists as an empty stub from day 1 so the expect/actual contracts are exercised. Phase 2 fills it in without restructuring.
+`iosMain` existed as an empty stub from day 1 so the expect/actual contracts were exercised. PR #41 filled it in (Ktor/Darwin, Keychain, native SQLite, the LiteRT-LM Swift bridge, `iosModule`, the Compose entry point) without restructuring — `:shared` + `:ui` now compile + link for iOS; see `docs/IOS_BUILD.md`.
 
 ### 3.2 Key dependencies
 

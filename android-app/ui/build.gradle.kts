@@ -37,9 +37,27 @@ kotlin {
         }
     }
 
+    // iOS (PR #41) — the shared Compose UI compiles to a static `ComposeApp`
+    // framework that the Xcode app (iosApp/) links. It re-exports :shared so
+    // Swift sees the exported Kotlin types (e.g. NativeLlmBridge, initKoin).
+    // Additive: Android/desktop are untouched.
+    listOf(
+        iosX64(),
+        iosArm64(),
+        iosSimulatorArm64(),
+    ).forEach { target ->
+        target.binaries.framework {
+            baseName = "ComposeApp"
+            isStatic = true
+            export(project(":shared"))
+        }
+    }
+
     sourceSets {
         commonMain.dependencies {
-            implementation(project(":shared"))
+            // `api` (not `implementation`) so the iOS `export(project(":shared"))`
+            // above is legal — exported deps must be on the api configuration.
+            api(project(":shared"))
             // Direct CMP artifact coordinates — the `compose.*` Gradle DSL aliases
             // are deprecated as of CMP 1.10 ("Specify dependency directly").
             implementation(libs.compose.mp.runtime)
@@ -84,6 +102,12 @@ kotlin {
                 // PR #57 — QR encoder (pure-JVM) to render the desktop pairing QR.
                 implementation(libs.zxing.core)
             }
+        }
+        iosMain.dependencies {
+            // mikepenz multiplatform markdown renderer (publishes iOS artifacts)
+            // for the iOS `PlatformMarkdownMath` actual. LaTeX renders as literal
+            // text on iOS this milestone (no JLaTeXMath — JVM-only); PR #41.
+            implementation(libs.markdown.renderer.m3)
         }
     }
 }

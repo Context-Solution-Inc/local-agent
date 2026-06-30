@@ -1,4 +1,5 @@
 package com.contextsolutions.localagent.inference
+import com.contextsolutions.localagent.platform.platformIoDispatcher
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -40,7 +41,7 @@ import kotlinx.coroutines.sync.withLock
 class OllamaConnectionMonitor(
     /** Probes server reachability; in production `OllamaClient.health`. */
     private val healthProbe: suspend (baseUrl: String) -> Boolean,
-    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + platformIoDispatcher),
     private val probeIntervalMs: Long = DEFAULT_PROBE_INTERVAL_MS,
     private val logger: (String) -> Unit = {},
 ) {

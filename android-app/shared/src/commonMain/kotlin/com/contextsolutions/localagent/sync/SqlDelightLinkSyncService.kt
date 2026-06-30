@@ -1,4 +1,5 @@
 package com.contextsolutions.localagent.sync
+import com.contextsolutions.localagent.platform.platformIoDispatcher
 
 import com.contextsolutions.localagent.db.ConversationsQueries
 import com.contextsolutions.localagent.db.JobsQueries
@@ -41,7 +42,7 @@ class SqlDelightLinkSyncService(
     private val embedder: EmbedderEngine,
     private val bus: LocalChangeBus,
     private val logger: (String) -> Unit = {},
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val ioDispatcher: CoroutineDispatcher = platformIoDispatcher,
     /**
      * Desktop-only hook fired AFTER a peer's paused toggle is applied to an
      * existing job (the raw `*FromPeer` write doesn't go through the repo, so it

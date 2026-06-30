@@ -1,4 +1,5 @@
 package com.contextsolutions.localagent.ui.history
+import com.contextsolutions.localagent.platform.platformIoDispatcher
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -55,7 +56,7 @@ class ConversationHistoryViewModel(
                     _loading.value = false
                 }
             }
-            .flowOn(Dispatchers.IO)
+            .flowOn(platformIoDispatcher)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun setQuery(value: String) {
@@ -67,7 +68,7 @@ class ConversationHistoryViewModel(
     }
 
     fun delete(conversationId: String) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(platformIoDispatcher) {
             repository.delete(conversationId)
             refresh()
         }

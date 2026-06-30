@@ -1,4 +1,5 @@
 package com.contextsolutions.localagent.agent
+import kotlin.concurrent.Volatile
 
 import com.contextsolutions.localagent.inference.PendingToolCall
 import com.contextsolutions.localagent.inference.ToolDefinition

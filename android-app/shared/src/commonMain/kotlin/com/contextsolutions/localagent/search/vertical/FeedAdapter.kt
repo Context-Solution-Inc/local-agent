@@ -1,4 +1,5 @@
 package com.contextsolutions.localagent.search.vertical
+import com.contextsolutions.localagent.platform.platformIoDispatcher
 
 import com.contextsolutions.localagent.preferences.DefaultSiteResolver
 import com.contextsolutions.localagent.preferences.GpsCoordinates
@@ -63,7 +64,7 @@ class FeedAdapter(
         prefs: VerticalPreferences,
         location: UserLocation?,
         gps: GpsCoordinates?,
-    ): SearchOutcome = withContext(Dispatchers.IO) {
+    ): SearchOutcome = withContext(platformIoDispatcher) {
         val sites = prefs.sitesFor(subtype).take(maxSources)
         if (sites.isEmpty()) {
             return@withContext SearchOutcome.Error(

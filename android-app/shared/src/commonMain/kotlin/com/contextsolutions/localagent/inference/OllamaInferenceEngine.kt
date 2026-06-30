@@ -1,4 +1,5 @@
 package com.contextsolutions.localagent.inference
+import com.contextsolutions.localagent.platform.platformIoDispatcher
 
 import com.contextsolutions.localagent.preferences.OllamaConfig
 import com.contextsolutions.localagent.preferences.OllamaPreferences
@@ -81,7 +82,7 @@ class OllamaInferenceEngine(
     private val defaultTemperature: Float = InferenceConfig().temperature,
     private val keepAlive: String = DEFAULT_KEEP_ALIVE,
     private val logger: (String) -> Unit = {},
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val ioDispatcher: CoroutineDispatcher = platformIoDispatcher,
 ) : InferenceEngine {
 
     /**

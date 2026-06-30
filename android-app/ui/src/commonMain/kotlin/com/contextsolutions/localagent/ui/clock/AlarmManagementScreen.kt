@@ -179,7 +179,7 @@ private fun AlarmRow(
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "%02d:%02d".format(alarm.hour, alarm.minute),
+                text = "${alarm.hour.toString().padStart(2, '0')}:${alarm.minute.toString().padStart(2, '0')}",
                 style = MaterialTheme.typography.titleMedium,
             )
             val subtitle = buildString {

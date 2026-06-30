@@ -1,4 +1,5 @@
 package com.contextsolutions.localagent.task
+import com.contextsolutions.localagent.platform.platformIoDispatcher
 
 import com.contextsolutions.localagent.db.TasksQueries
 import kotlinx.coroutines.CoroutineDispatcher
@@ -24,7 +25,7 @@ import kotlinx.serialization.json.Json
  */
 class SqlDelightTaskRepository(
     private val queries: TasksQueries,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val ioDispatcher: CoroutineDispatcher = platformIoDispatcher,
 ) : TaskRepository {
 
     private val json = Json { ignoreUnknownKeys = true }

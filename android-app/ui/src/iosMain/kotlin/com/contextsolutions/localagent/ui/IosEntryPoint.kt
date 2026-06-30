@@ -1,0 +1,116 @@
+package com.contextsolutions.localagent.ui
+
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.ComposeUIViewController
+import com.contextsolutions.localagent.di.agentCoreModule
+import com.contextsolutions.localagent.di.iosModule
+import com.contextsolutions.localagent.inference.IosDownloadState
+import com.contextsolutions.localagent.inference.IosModelDownloadController
+import com.contextsolutions.localagent.inference.NativeLlmBridge
+import com.contextsolutions.localagent.i18n.StringCatalog
+import com.contextsolutions.localagent.onboarding.OnboardingPreferences
+import com.contextsolutions.localagent.ui.di.uiModule
+import com.contextsolutions.localagent.ui.i18n.LocalStrings
+import com.contextsolutions.localagent.ui.navigation.AppNavHost
+import com.contextsolutions.localagent.ui.theme.AppThemeScaffold
+import com.contextsolutions.localagent.ui.theme.ThemeMode
+import com.contextsolutions.localagent.ui.theme.ThemeModeViewModel
+import androidx.compose.runtime.CompositionLocalProvider
+import org.koin.compose.koinInject
+import org.koin.compose.viewmodel.koinViewModel
+import org.koin.core.context.startKoin
+import platform.UIKit.UIViewController
+
+/**
+ * iOS entry point (PR #41), exported to Swift as `IosEntryPointKt`.
+ *
+ * [doInitKoin] starts the Koin graph with the Swift-provided on-device LLM
+ * [bridge]; [MainViewController] hosts the shared Compose UI ([AppNavHost]) in a
+ * `UIViewController` for the SwiftUI shell to embed.
+ */
+fun doInitKoin(bridge: NativeLlmBridge) {
+    startKoin {
+        modules(agentCoreModule, iosModule(bridge), uiModule)
+    }
+}
+
+fun MainViewController(): UIViewController = ComposeUIViewController {
+    val strings by koinInject<StringCatalog>().active.collectAsState()
+    val themeVm: ThemeModeViewModel = koinViewModel()
+    val mode by themeVm.mode.collectAsState()
+    val fontScale by themeVm.fontScale.collectAsState()
+    val fontFamily by themeVm.fontFamily.collectAsState()
+
+    val dark = when (mode) {
+        ThemeMode.Dark -> true
+        ThemeMode.Light -> false
+        ThemeMode.System -> isSystemInDarkTheme()
+    }
+    val colors: ColorScheme = if (dark) darkColorScheme() else lightColorScheme()
+
+    CompositionLocalProvider(LocalStrings provides strings) {
+        AppThemeScaffold(colorScheme = colors, fontScale = fontScale, fontFamily = fontFamily) {
+            val onboarding = koinInject<OnboardingPreferences>()
+            val onboardingComplete by onboarding.languageDecidedFlow()
+                .collectAsState(initial = onboarding.languageDecided())
+            val downloads = koinInject<IosModelDownloadController>()
+            val modelPresent by downloads.modelPresent.collectAsState()
+            AppNavHost(
+                onboardingComplete = onboardingComplete,
+                modelPresent = modelPresent,
+                downloadContent = { IosDownloadScreen(downloads) },
+            )
+        }
+    }
+}
+
+/**
+ * Minimal first-run model-download gate for iOS — fetches the Gemma `.litertlm`
+ * (~2.58 GB) with progress, auto-starting on first show and offering retry on
+ * failure. Replaced by the chat UI once [IosModelDownloadController.modelPresent]
+ * flips true.
+ */
+@Composable
+private fun IosDownloadScreen(controller: IosModelDownloadController) {
+    val state by controller.state.collectAsState()
+    LaunchedEffect(Unit) { controller.start() }
+
+    Column(
+        modifier = Modifier.fillMaxSize().padding(32.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("Setting up the on-device AI model", style = MaterialTheme.typography.titleMedium)
+        when (val s = state) {
+            is IosDownloadState.Idle -> CircularProgressIndicator()
+            is IosDownloadState.Downloading -> {
+                LinearProgressIndicator(progress = { s.fraction })
+                Text("${(s.fraction * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium)
+            }
+            is IosDownloadState.Done -> CircularProgressIndicator()
+            is IosDownloadState.Failed -> {
+                Text("Download failed: ${s.message}", style = MaterialTheme.typography.bodyMedium)
+                Button(onClick = { controller.retry() }) { Text("Retry") }
+            }
+        }
+    }
+}

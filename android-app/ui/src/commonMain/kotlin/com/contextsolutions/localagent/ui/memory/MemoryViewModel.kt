@@ -1,4 +1,5 @@
 package com.contextsolutions.localagent.ui.memory
+import com.contextsolutions.localagent.platform.platformIoDispatcher
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -52,7 +53,7 @@ class MemoryViewModel(
      * param by type and `CoroutineDispatcher` is bound nowhere — so `uiModule`
      * binds this VM with an explicit `viewModel { }` lambda that omits this param.
      */
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val ioDispatcher: CoroutineDispatcher = platformIoDispatcher,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(

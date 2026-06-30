@@ -1,4 +1,5 @@
 package com.contextsolutions.localagent.task
+import kotlin.concurrent.Volatile
 
 import com.contextsolutions.localagent.i18n.StringCatalog
 import com.contextsolutions.localagent.i18n.StringKeys

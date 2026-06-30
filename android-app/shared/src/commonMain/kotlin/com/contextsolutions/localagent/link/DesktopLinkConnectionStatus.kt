@@ -61,7 +61,7 @@ class MutableDesktopLinkConnectionStatus : DesktopLinkConnectionStatus {
      * has paired (persisted marker, survives the phone going offline + a desktop restart).
      * CONNECTED ⇒ relay up; OFFLINE ⇒ paired but down; UNPAIRED ⇒ never paired (PR #90).
      */
-    @Synchronized
+    // Single driving coroutine (relay host collector); StateFlow writes are atomic. (PR #41 — no common @Synchronized.)
     fun update(connected: Boolean, everPaired: Boolean) {
         _presence.value = when {
             connected -> MobileLinkPresence.CONNECTED

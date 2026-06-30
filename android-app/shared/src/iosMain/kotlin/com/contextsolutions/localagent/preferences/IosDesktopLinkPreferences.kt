@@ -1,0 +1,51 @@
+package com.contextsolutions.localagent.preferences
+
+import com.contextsolutions.localagent.platform.IosJsonStore
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.serialization.json.Json
+
+/**
+ * iOS [DesktopLinkPreferences] (PR #41), the counterpart of desktop's
+ * [DesktopDesktopLinkPreferences]. Backed by an [IosJsonStore] file. The whole
+ * [DesktopLinkConfig] is stored as one JSON blob; a corrupt/missing value falls
+ * back to [DesktopLinkConfig.EMPTY]. A stable [DesktopLinkConfig.selfDeviceId] is
+ * minted on first read.
+ */
+@OptIn(ExperimentalUuidApi::class)
+class IosDesktopLinkPreferences(private val store: IosJsonStore) : DesktopLinkPreferences {
+
+    private val json = Json { ignoreUnknownKeys = true }
+
+    private val state = MutableStateFlow(ensureDeviceId(load()))
+
+    private fun load(): DesktopLinkConfig = store.getString(KEY_CONFIG)
+        ?.let { runCatching { json.decodeFromString(DesktopLinkConfig.serializer(), it) }.getOrNull() }
+        ?: DesktopLinkConfig.EMPTY
+
+    private fun ensureDeviceId(config: DesktopLinkConfig): DesktopLinkConfig {
+        if (config.selfDeviceId.isNotBlank()) return config
+        val seeded = config.copy(selfDeviceId = "dev-${Uuid.random()}")
+        store.putString(KEY_CONFIG, json.encodeToString(DesktopLinkConfig.serializer(), seeded))
+        return seeded
+    }
+
+    override fun config(): DesktopLinkConfig = state.value
+
+    override fun configFlow(): Flow<DesktopLinkConfig> = state.asStateFlow()
+
+    override fun setConfig(config: DesktopLinkConfig) {
+        val withId = if (config.selfDeviceId.isNotBlank()) config
+        else config.copy(selfDeviceId = state.value.selfDeviceId)
+        if (state.value == withId) return // idempotent
+        state.value = withId
+        store.putString(KEY_CONFIG, json.encodeToString(DesktopLinkConfig.serializer(), withId))
+    }
+
+    private companion object {
+        const val KEY_CONFIG = "desktop_link_config"
+    }
+}
