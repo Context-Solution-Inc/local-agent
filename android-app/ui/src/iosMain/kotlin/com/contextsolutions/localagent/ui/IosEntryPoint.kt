@@ -26,9 +26,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.ComposeUIViewController
 import com.contextsolutions.localagent.di.agentCoreModule
 import com.contextsolutions.localagent.di.iosModule
+import com.contextsolutions.localagent.inference.IosAuxModelWarmer
 import com.contextsolutions.localagent.inference.IosDownloadState
 import com.contextsolutions.localagent.inference.IosModelDownloadController
 import com.contextsolutions.localagent.inference.IosModelSpec
+import com.contextsolutions.localagent.inference.NativeClassifierBridge
+import com.contextsolutions.localagent.inference.NativeEmbedderBridge
 import com.contextsolutions.localagent.inference.NativeLlmBridge
 import com.contextsolutions.localagent.i18n.StringCatalog
 import com.contextsolutions.localagent.i18n.StringKeys
@@ -53,9 +56,13 @@ import platform.UIKit.UIViewController
  * [bridge]; [MainViewController] hosts the shared Compose UI ([AppNavHost]) in a
  * `UIViewController` for the SwiftUI shell to embed.
  */
-fun doInitKoin(bridge: NativeLlmBridge) {
+fun doInitKoin(
+    llmBridge: NativeLlmBridge,
+    classifierBridge: NativeClassifierBridge,
+    embedderBridge: NativeEmbedderBridge,
+) {
     startKoin {
-        modules(agentCoreModule, iosModule(bridge), uiModule)
+        modules(agentCoreModule, iosModule(llmBridge, classifierBridge, embedderBridge), uiModule)
     }
 }
 
@@ -80,6 +87,12 @@ fun MainViewController(): UIViewController = ComposeUIViewController {
                 .collectAsState(initial = onboarding.languageDecided())
             val downloads = koinInject<IosModelDownloadController>()
             val modelPresent by downloads.modelPresent.collectAsState()
+            // Lazily fetch + warm the aux ONNX models once past the LLM download gate.
+            // Feature-gated inside the warmer: embedder when memory is on (default),
+            // classifier when web search is enabled. Toggling a feature on takes effect
+            // on the next entry here. (Idempotent.)
+            val auxWarmer = koinInject<IosAuxModelWarmer>()
+            LaunchedEffect(modelPresent) { if (modelPresent) auxWarmer.kickIfEnabled() }
             AppNavHost(
                 onboardingComplete = onboardingComplete,
                 modelPresent = modelPresent,
