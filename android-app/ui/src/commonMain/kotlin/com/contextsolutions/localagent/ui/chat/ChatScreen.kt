@@ -86,6 +86,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -1074,12 +1075,18 @@ private fun UserBubble(text: String, imageBytes: ByteArray? = null, maxWidth: Dp
             value = withContext(Dispatchers.Default) { decodeImageBitmap(bytes) }
         }.value
     }
+    // In the monochrome dark scheme `primaryContainer` (#2A2A2A) reads near-black
+    // against the #121212 chat background; use a clearly lighter grey for the user
+    // prompt bubble in dark mode (still distinct from the assistant's #2A2A2A). Light
+    // mode keeps the scheme's light-grey container.
+    val scheme = MaterialTheme.colorScheme
+    val bubbleColor = if (scheme.surface.luminance() < 0.5f) Color(0xFF3A3A3A) else scheme.primaryContainer
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         Box(
             modifier = Modifier
                 .widthIn(max = maxWidth)
                 .background(
-                    color = MaterialTheme.colorScheme.primaryContainer,
+                    color = bubbleColor,
                     shape = RoundedCornerShape(12.dp),
                 )
                 .padding(horizontal = 12.dp, vertical = 8.dp),
