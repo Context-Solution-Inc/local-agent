@@ -197,7 +197,9 @@ fun ChatScreen(
     // partial — only display it (and drop it during TTS playback, echo #42).
     LaunchedEffect(dictation) {
         dictation.partials.collect { partial ->
-            if (!suppressDictationText) {
+            // Also drop partials while the assistant is generating — a late partial
+            // of the just-spoken prompt would otherwise repopulate the just-cleared box.
+            if (!suppressDictationText && !ui.isGenerating) {
                 input = if (committedInput.isBlank()) partial else "$committedInput $partial"
             }
         }
@@ -240,14 +242,14 @@ fun ChatScreen(
                 VoiceCommand.SPEAKER_OFF -> viewModel.setTtsEnabled(false)
                 VoiceCommand.SPEAKER_ON -> viewModel.setTtsEnabled(true)
                 VoiceCommand.NONE -> {
-                    // While the speaker is reading aloud (plus a grace tail for
-                    // late-delivered transcripts), stay in command-only mode:
-                    // keep listening so "speaker off" can interrupt, but DROP
-                    // regular text since the mic is mostly hearing the
-                    // assistant's own playback (echo). Outside playback, promote
-                    // the finalized utterance into the committed text (replacing
-                    // the live partial that was on screen).
-                    if (!suppressDictationText) {
+                    // Drop transcribed text while the assistant is generating OR
+                    // reading aloud (+grace): during playback the mic mostly hears
+                    // the assistant's own voice (echo), and right after a send the
+                    // recognizer delivers a late final transcript of the just-spoken
+                    // prompt that would repopulate the just-cleared box. Otherwise
+                    // promote the finalized utterance into the committed text
+                    // (replacing the live partial that was on screen).
+                    if (!suppressDictationText && !ui.isGenerating) {
                         committedInput = if (committedInput.isBlank()) spoken else "$committedInput $spoken"
                         input = committedInput
                     } else {
@@ -268,12 +270,19 @@ fun ChatScreen(
             viewModel.setMicEnabled(false)
         }
     }
-    // Listen for the whole time the mic is on — including while the speaker is
-    // talking, so spoken commands ("speaker off") can interrupt playback. The
-    // echo is handled in the collector above by dropping non-command text during
-    // playback rather than by pausing the recognizer.
-    LaunchedEffect(micEnabled) {
-        if (micEnabled) dictation.start() else dictation.stop()
+    // Auto-pause the mic while the assistant is generating or reading aloud
+    // (+2.5s grace). This physically prevents the recognizer from (a) transcribing
+    // the assistant's own TTS playback (echo) and (b) delivering a late final
+    // transcript of the just-spoken prompt that repopulates the box after send —
+    // the same behaviour the Android app used. Trade-off: a spoken "speaker off"
+    // can't interrupt playback mid-answer (the mic is paused); it takes effect once
+    // the mic resumes. Resume automatically once the assistant is idle.
+    LaunchedEffect(micEnabled, ui.isGenerating, ttsSpeaking, suppressDictationText) {
+        // assistantBusy pauses the mic while: generating, actively speaking
+        // (`ttsSpeaking`, immediate — closes the generation→speech handoff gap), or in
+        // the post-speech grace (`suppressDictationText`, catches late transcripts).
+        val assistantBusy = ui.isGenerating || ttsSpeaking || suppressDictationText
+        if (micEnabled && !assistantBusy) dictation.start() else dictation.stop()
     }
     val listState = rememberLazyListState()
     // Desktop scrolls a plain Column via this state (see the list branch below);

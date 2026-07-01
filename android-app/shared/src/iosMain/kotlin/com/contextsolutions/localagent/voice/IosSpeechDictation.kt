@@ -72,11 +72,17 @@ class IosSpeechDictation(
 
     override fun stop() {
         wantListening = false
-        scope.launch { teardown(deactivateSession = true) }
+        // Do NOT deactivate the AVAudioSession here. stop() is also used to pause the
+        // mic while the assistant reads aloud (echo control, ChatScreen), and TTS
+        // (AVSpeechSynthesizer) plays through this SAME shared session — deactivating
+        // it would cut off the assistant's playback. Just stop capturing; keep the
+        // session active. destroy() (screen leaves composition) releases it.
+        scope.launch { teardown(deactivateSession = false) }
     }
 
     override fun destroy() {
-        stop()
+        wantListening = false
+        scope.launch { teardown(deactivateSession = true) }
     }
 
     private suspend fun ensureEngineAndListen() {
