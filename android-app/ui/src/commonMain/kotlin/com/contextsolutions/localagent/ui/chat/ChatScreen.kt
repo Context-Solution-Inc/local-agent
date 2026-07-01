@@ -1075,12 +1075,14 @@ private fun UserBubble(text: String, imageBytes: ByteArray? = null, maxWidth: Dp
             value = withContext(Dispatchers.Default) { decodeImageBitmap(bytes) }
         }.value
     }
-    // In the monochrome dark scheme `primaryContainer` (#2A2A2A) reads near-black
-    // against the #121212 chat background; use a clearly lighter grey for the user
-    // prompt bubble in dark mode (still distinct from the assistant's #2A2A2A). Light
-    // mode keeps the scheme's light-grey container.
+    // Dark mode: the monochrome `primaryContainer` (#2A2A2A) reads near-black against
+    // the #121212 chat background, so use a lighter mid-grey with white text for the
+    // user prompt bubble (distinct from the assistant's #2A2A2A). Light mode keeps the
+    // scheme's light-grey container (with the default dark text).
     val scheme = MaterialTheme.colorScheme
-    val bubbleColor = if (scheme.surface.luminance() < 0.5f) Color(0xFF3A3A3A) else scheme.primaryContainer
+    val darkMode = scheme.surface.luminance() < 0.5f
+    val bubbleColor = if (darkMode) Color(0xFF505050) else scheme.primaryContainer
+    val bubbleTextColor = if (darkMode) Color.White else Color.Unspecified
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         Box(
             modifier = Modifier
@@ -1110,7 +1112,7 @@ private fun UserBubble(text: String, imageBytes: ByteArray? = null, maxWidth: Dp
                 // all / Share) — no custom menu needed.
                 if (text.isNotEmpty()) {
                     SelectionContainer {
-                        Text(text, style = MaterialTheme.typography.bodyMedium)
+                        Text(text, style = MaterialTheme.typography.bodyMedium, color = bubbleTextColor)
                     }
                 }
             }
