@@ -3,6 +3,7 @@ package com.contextsolutions.localagent.ui.chat
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -95,6 +96,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Dp
@@ -105,6 +107,7 @@ import com.contextsolutions.localagent.ui.i18n.tr
 import com.contextsolutions.localagent.ui.clock.ClockViewModel
 import com.contextsolutions.localagent.ui.icons.RuleSettingsIcon
 import com.contextsolutions.localagent.ui.platform.isDesktopPlatform
+import com.contextsolutions.localagent.ui.platform.isIosPlatform
 import com.contextsolutions.localagent.ui.markdown.MarkdownMath
 import com.contextsolutions.localagent.ui.mylist.MyListViewModel
 import com.contextsolutions.localagent.ui.util.AccessibilityAnnouncer
@@ -307,15 +310,22 @@ fun ChatScreen(
     //    wrongly disengaged after the first exchange (breaking auto-scroll + the FAB).
     //  - Re-engages whenever `isAtBottom` is true again (manual scroll-back or FAB tap).
     //  - A SmallFloatingActionButton shows while sticky is off to jump back.
-    val isAtBottom by remember {
+    // PR #46 — a small "at-bottom" tolerance. On iOS the fractional device density (@2x/@3x)
+    // makes the exact `last.offset + last.size <= viewportEndOffset` comparison flip by a
+    // sub-pixel mid-stream, which both disengaged sticky and flickered the jump-to-latest FAB.
+    // ~4dp is below a text line yet above the rounding noise; imperceptible on Android/desktop
+    // (a bubble 4dp shy of the edge is effectively at bottom), so this is applied on all platforms.
+    val density = LocalDensity.current
+    val bottomEpsilonPx = with(density) { 4.dp.toPx() }
+    val isAtBottom by remember(bottomEpsilonPx) {
         derivedStateOf {
             val info = listState.layoutInfo
             val visible = info.visibleItemsInfo
             if (visible.isEmpty() || info.totalItemsCount == 0) return@derivedStateOf true
             val last = visible.last()
-            // Fully visible bottom item + no items below it = at-bottom.
+            // Fully visible bottom item + no items below it = at-bottom (within epsilon).
             last.index >= info.totalItemsCount - 1 &&
-                last.offset + last.size <= info.viewportEndOffset
+                last.offset + last.size <= info.viewportEndOffset + bottomEpsilonPx
         }
     }
     var stickyToBottom by remember { mutableStateOf(true) }
@@ -334,7 +344,7 @@ fun ChatScreen(
         if (total <= 0) return@pin
         autoScrolling = true
         try {
-            listState.followBottom(lastIndex = total - 1, animate = animate)
+            listState.followBottom(lastIndex = total - 1, animate = animate, epsilonPx = bottomEpsilonPx)
         } finally {
             autoScrolling = false
         }
@@ -344,14 +354,41 @@ fun ChatScreen(
     // Keyed on BOTH isScrollInProgress AND isAtBottom so it re-checks as a scroll crosses
     // off the bottom, not only at the scroll's start edge. isScrollInProgress is false for
     // a relayout clamp, and our own scrolls set `autoScrolling`, so neither misfires.
+    //
+    // PR #46 — iOS ONLY additionally requires an active finger-drag. On iOS a momentum-fling
+    // keeps `isScrollInProgress` true after the finger lifts, so combined with mid-stream
+    // content growth it spuriously disengaged sticky (and flickered the FAB). `collectIsDragged`
+    // is true only while the finger is down (the original PR #9 signal), excluding momentum.
+    // Android/desktop keep the proven `isScrollInProgress` path — it deliberately catches the
+    // desktop relayout-anchor clamp (see the comment above `isAtBottom`), which drag-only misses.
+    val dragged by listState.interactionSource.collectIsDraggedAsState()
     LaunchedEffect(listState) {
-        snapshotFlow { listState.isScrollInProgress to isAtBottom }
-            .collect { (scrolling, atBottom) ->
+        snapshotFlow { Triple(listState.isScrollInProgress, isAtBottom, dragged) }
+            .collect { (scrolling, atBottom, isDragging) ->
+                val userScrolling = if (isIosPlatform) isDragging else scrolling
                 when {
-                    scrolling && !autoScrolling && !atBottom -> stickyToBottom = false
+                    userScrolling && !autoScrolling && !atBottom -> stickyToBottom = false
                     atBottom -> stickyToBottom = true
                 }
             }
+    }
+
+    // PR #46 — TEMPORARY iOS scroll diagnostic. Confirms the CMP-iOS root cause on a physical
+    // iPhone (fractional density flipping `isAtBottom`; momentum-fling `isScrollInProgress`).
+    // Logs one line per token/layout tick under the `[ScrollDiag]` tag. REMOVE once the epsilon +
+    // drag fixes are verified on device (see docs/IOS_BUILD.md acceptance).
+    if (isIosPlatform) {
+        LaunchedEffect(listState) {
+            snapshotFlow {
+                val info = listState.layoutInfo
+                val last = info.visibleItemsInfo.lastOrNull()
+                // (viewportEnd, lastIndex, lastOffset, lastSize, scrolling, dragged, atBottom, sticky)
+                listOf(
+                    info.viewportEndOffset, last?.index ?: -1, last?.offset ?: 0, last?.size ?: 0,
+                    listState.isScrollInProgress, dragged, isAtBottom, stickyToBottom,
+                )
+            }.collect { println("[ScrollDiag] $it") }
+        }
     }
 
     // Auto-follow the tail — MOBILE ONLY (PR #64). Mobile's scroll behavior works and is
@@ -1427,7 +1464,7 @@ private fun DesktopLinkStatusIndicator(
  * overlapping animations would queue up and lag). Set true for the
  * user-facing FAB tap so the scroll has visible feedback.
  */
-private suspend fun LazyListState.followBottom(lastIndex: Int, animate: Boolean) {
+private suspend fun LazyListState.followBottom(lastIndex: Int, animate: Boolean, epsilonPx: Float = 0f) {
     if (lastIndex < 0) return
     val needsJump = layoutInfo.visibleItemsInfo.none { it.index == lastIndex }
     if (needsJump) {
@@ -1436,7 +1473,9 @@ private suspend fun LazyListState.followBottom(lastIndex: Int, animate: Boolean)
     val info = layoutInfo
     val last = info.visibleItemsInfo.firstOrNull { it.index == lastIndex } ?: return
     val overflow = (last.offset + last.size) - info.viewportEndOffset
-    if (overflow > 0) {
+    // PR #46 — ignore a sub-pixel overflow (default 0f = unchanged for other callers). On iOS
+    // the fractional density otherwise issues a tiny `scrollBy` each token that visibly churns.
+    if (overflow > epsilonPx) {
         if (animate) animateScrollBy(overflow.toFloat()) else scrollBy(overflow.toFloat())
     }
 }

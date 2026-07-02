@@ -188,6 +188,27 @@ settings"** flips it back to `YES`, set it to `NO` again (project → Build Sett
 Script Sandboxing*). The iOS **deployment target is 15.1** (the prebuilt onnxruntime
 framework is built for 15.1).
 
+### 9. The SwiftMath package for LaTeX rendering (one-time, in Xcode) — PR #46
+
+Markdown answers render on iOS via the mikepenz Compose-Multiplatform renderer (already a
+Kotlin dep). **LaTeX** math is rendered natively by the **SwiftMath** Swift package (CoreText,
+no WebView) — the iOS counterpart of desktop's JVM JLaTeXMath (invariant #41). In Xcode →
+**File → Add Package Dependencies…** → `https://github.com/mgriebling/SwiftMath` → pin to a
+released tag (like the LiteRT-LM / ONNX packages) → add the **`SwiftMath`** library product to
+the `iosApp` target. Then **Add Files to "iosApp"…** → `iosApp/iosApp/LatexBridge.swift` with
+target membership on (it implements the Kotlin `NativeLatexRenderer` and is passed into
+`doInitKoin(latexRenderer:)`).
+
+- SwiftMath **bundles its math fonts** (latinmodern-math, …) in its own SPM resource bundle,
+  so there is **no** Copy-Bundle-Resources step (unlike `vocab.txt` in §6).
+- It is pure Swift/CoreText with **no vendored C deps**, so it coexists cleanly under the
+  LiteRT-LM `-all_load` link (no duplicate-symbol risk, unlike ORT; `ComposeApp` stays dynamic).
+- **No Gradle dependency-verification regen** — SwiftMath is Swift-only (no new iOS *Kotlin*
+  dependency), so `gradle/verification-metadata.xml` and the
+  `…ResolveResourcesFromDependencies` recipe are untouched.
+- If the bridge is not registered (this step skipped), math degrades to raw LaTeX shown as
+  inline code — markdown still renders, the app does not crash.
+
 ## Build & run
 
 1. Open `android-app/iosApp/iosApp.xcodeproj` in Xcode.

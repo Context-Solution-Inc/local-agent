@@ -15,6 +15,8 @@
 		21FF2A672FF52D7C009D9F2A /* search_defaults.json in Resources */ = {isa = PBXBuildFile; fileRef = 21FF2A632FF52D7C009D9F2A /* search_defaults.json */; };
 		21FF2A682FF52D7C009D9F2A /* vocab.txt in Resources */ = {isa = PBXBuildFile; fileRef = 21FF2A642FF52D7C009D9F2A /* vocab.txt */; };
 		21FF2A6B2FF5F57D009D9F2A /* SecureGatewaySDK in Frameworks */ = {isa = PBXBuildFile; productRef = 21FF2A6A2FF5F57D009D9F2A /* SecureGatewaySDK */; };
+		21FF2A6E2FF69E19009D9F2A /* SwiftMath in Frameworks */ = {isa = PBXBuildFile; productRef = 21FF2A6D2FF69E19009D9F2A /* SwiftMath */; };
+		21FF2A702FF69F05009D9F2A /* LatexBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21FF2A6F2FF69F05009D9F2A /* LatexBridge.swift */; };
 		A1000011000000000000001 /* iOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001000000000000001 /* iOSApp.swift */; };
 		A1000012000000000000001 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002000000000000001 /* ContentView.swift */; };
 		A1000013000000000000001 /* LiteRtBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000003000000000000001 /* LiteRtBridge.swift */; };
@@ -28,6 +30,7 @@
 		21FF2A622FF52D7C009D9F2A /* OnnxRuntimeBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnnxRuntimeBridge.swift; sourceTree = "<group>"; };
 		21FF2A632FF52D7C009D9F2A /* search_defaults.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = search_defaults.json; sourceTree = "<group>"; };
 		21FF2A642FF52D7C009D9F2A /* vocab.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = vocab.txt; sourceTree = "<group>"; };
+		21FF2A6F2FF69F05009D9F2A /* LatexBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LatexBridge.swift; sourceTree = "<group>"; };
 		A1000001000000000000001 /* iOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = iOSApp.swift; sourceTree = "<group>"; };
 		A1000002000000000000001 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		A1000003000000000000001 /* LiteRtBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiteRtBridge.swift; sourceTree = "<group>"; };
@@ -45,6 +48,7 @@
 			files = (
 				21FF2A5E2FF52AA4009D9F2A /* onnxruntime in Frameworks */,
 				215E4B252FF3F32C005E4D52 /* LiteRTLM in Frameworks */,
+				21FF2A6E2FF69E19009D9F2A /* SwiftMath in Frameworks */,
 				21FF2A602FF52AA4009D9F2A /* onnxruntime_extensions in Frameworks */,
 				21FF2A6B2FF5F57D009D9F2A /* SecureGatewaySDK in Frameworks */,
 			);
@@ -64,6 +68,7 @@
 		A1000031000000000000001 /* iosApp */ = {
 			isa = PBXGroup;
 			children = (
+				21FF2A6F2FF69F05009D9F2A /* LatexBridge.swift */,
 				21FF2A612FF52D7C009D9F2A /* locations.json */,
 				21FF2A622FF52D7C009D9F2A /* OnnxRuntimeBridge.swift */,
 				21FF2A632FF52D7C009D9F2A /* search_defaults.json */,
@@ -136,6 +141,7 @@
 				215E4B232FF3F32C005E4D52 /* XCRemoteSwiftPackageReference "LiteRT-LM" */,
 				21FF2A5C2FF52AA4009D9F2A /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */,
 				21FF2A692FF5F57D009D9F2A /* XCLocalSwiftPackageReference "../../../secure-gateway/sdk/ios" */,
+				21FF2A6C2FF69E19009D9F2A /* XCRemoteSwiftPackageReference "SwiftMath" */,
 			);
 			productRefGroup = A1000032000000000000001 /* Products */;
 			projectDirPath = "";
@@ -183,6 +189,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				21FF2A702FF69F05009D9F2A /* LatexBridge.swift in Sources */,
 				A1000011000000000000001 /* iOSApp.swift in Sources */,
 				A1000012000000000000001 /* ContentView.swift in Sources */,
 				21FF2A652FF52D7C009D9F2A /* OnnxRuntimeBridge.swift in Sources */,
@@ -390,6 +397,14 @@
 				minimumVersion = 1.24.2;
 			};
 		};
+		21FF2A6C2FF69E19009D9F2A /* XCRemoteSwiftPackageReference "SwiftMath" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mgriebling/SwiftMath";
+			requirement = {
+				kind = exactVersion;
+				version = 1.7.3;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -411,6 +426,11 @@
 		21FF2A6A2FF5F57D009D9F2A /* SecureGatewaySDK */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = SecureGatewaySDK;
+		};
+		21FF2A6D2FF69E19009D9F2A /* SwiftMath */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 21FF2A6C2FF69E19009D9F2A /* XCRemoteSwiftPackageReference "SwiftMath" */;
+			productName = SwiftMath;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
