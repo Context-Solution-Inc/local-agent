@@ -6,6 +6,9 @@ import androidx.compose.ui.platform.LocalWindowInfo
 /** iOS is a mobile platform, not desktop (PR #41). */
 actual val isDesktopPlatform: Boolean = false
 
+/** True on iOS — gates the iOS-only chat-scroll hardening (PR #46). */
+actual val isIosPlatform: Boolean = true
+
 /**
  * iOS actual (PR #41): landscape when the container is wider than tall. Drives the
  * same alarm-dialog widening as Android (invariant — see [rememberIsLandscape]).

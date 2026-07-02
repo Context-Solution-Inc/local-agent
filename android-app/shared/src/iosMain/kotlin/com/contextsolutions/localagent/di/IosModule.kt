@@ -95,6 +95,7 @@ import com.contextsolutions.localagent.platform.IosHttpEngineFactory
 import com.contextsolutions.localagent.platform.IosJsonStore
 import com.contextsolutions.localagent.platform.IosSecureStorage
 import com.contextsolutions.localagent.platform.IosToaster
+import com.contextsolutions.localagent.platform.NativeLatexRenderer
 import com.contextsolutions.localagent.platform.NativeQrScanner
 import com.contextsolutions.localagent.platform.IosUrlOpener
 import com.contextsolutions.localagent.platform.SecureStorage
@@ -197,15 +198,18 @@ fun iosModule(
     embedderBridge: NativeEmbedderBridge,
     relayBridge: NativeRelayBridge,
     qrScanner: NativeQrScanner,
+    latexRenderer: NativeLatexRenderer,
 ): Module = module {
     // The Swift bridges, injected from the app shell: LiteRT-LM (LLM) + ONNX Runtime
-    // (classifier/embedder) + Secure Gateway relay + camera QR scanner. See NativeLlmBridge /
-    // NativeAuxBridges / NativeRelayBridge / NativeQrScanner.
+    // (classifier/embedder) + Secure Gateway relay + camera QR scanner + SwiftMath LaTeX
+    // renderer. See NativeLlmBridge / NativeAuxBridges / NativeRelayBridge / NativeQrScanner /
+    // NativeLatexRenderer.
     single<NativeLlmBridge> { llmBridge }
     single<NativeClassifierBridge> { classifierBridge }
     single<NativeEmbedderBridge> { embedderBridge }
     single<NativeRelayBridge> { relayBridge }
     single<NativeQrScanner> { qrScanner }
+    single<NativeLatexRenderer> { latexRenderer }
 
     // -- Platform seams --
     single<HttpEngineFactory> { IosHttpEngineFactory() }

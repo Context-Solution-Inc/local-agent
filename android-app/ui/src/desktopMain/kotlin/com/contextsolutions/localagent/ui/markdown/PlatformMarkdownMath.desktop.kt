@@ -79,25 +79,5 @@ actual fun PlatformMarkdownMath(text: String, modifier: Modifier) {
 
 private const val MATH_FONT_SIZE = 18f
 
-private sealed interface MdSegment {
-    data class Markdown(val text: String) : MdSegment
-    data class Math(val latex: String) : MdSegment
-}
-
-private val BLOCK_MATH = Regex("""\$\$([\s\S]+?)\$\$""")
-
-/** Split normalized text into alternating markdown / `$$…$$` math segments. */
-private fun splitMarkdownAndMath(text: String): List<MdSegment> {
-    val out = ArrayList<MdSegment>()
-    var last = 0
-    for (match in BLOCK_MATH.findAll(text)) {
-        if (match.range.first > last) {
-            out.add(MdSegment.Markdown(text.substring(last, match.range.first)))
-        }
-        out.add(MdSegment.Math(match.groupValues[1].trim()))
-        last = match.range.last + 1
-    }
-    if (last < text.length) out.add(MdSegment.Markdown(text.substring(last)))
-    if (out.isEmpty()) out.add(MdSegment.Markdown(text))
-    return out
-}
+// MdSegment / BLOCK_MATH / splitMarkdownAndMath now live in commonMain
+// (MarkdownMathSplit.kt), shared with the iOS actual.

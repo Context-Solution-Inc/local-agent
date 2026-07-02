@@ -6,6 +6,8 @@ import androidx.compose.ui.platform.LocalConfiguration
 
 actual val isDesktopPlatform: Boolean = false
 
+actual val isIosPlatform: Boolean = false
+
 @Composable
 actual fun rememberIsLandscape(): Boolean =
     LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE

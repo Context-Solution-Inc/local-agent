@@ -51,7 +51,7 @@ object LatexNormalizer {
      * LaTeX-token check stays FIRST so coefficient-led math ("$4k^2 = ...$")
      * still renders.
      */
-    private fun looksLikeMath(s: String): Boolean {
+    internal fun looksLikeMath(s: String): Boolean {
         if (s.any { it in "\\^_{}=" }) return true
         if (s.firstOrNull()?.isDigit() == true) return false
         val hasLetter = s.any { it.isLetter() }

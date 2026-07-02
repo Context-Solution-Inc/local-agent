@@ -32,6 +32,7 @@ import com.contextsolutions.localagent.inference.NativeClassifierBridge
 import com.contextsolutions.localagent.inference.NativeEmbedderBridge
 import com.contextsolutions.localagent.inference.NativeLlmBridge
 import com.contextsolutions.localagent.link.transport.NativeRelayBridge
+import com.contextsolutions.localagent.platform.NativeLatexRenderer
 import com.contextsolutions.localagent.platform.NativeQrScanner
 import com.contextsolutions.localagent.sync.SyncController
 import com.contextsolutions.localagent.i18n.StringCatalog
@@ -65,11 +66,12 @@ fun doInitKoin(
     embedderBridge: NativeEmbedderBridge,
     relayBridge: NativeRelayBridge,
     qrScanner: NativeQrScanner,
+    latexRenderer: NativeLatexRenderer,
 ) {
     val app = startKoin {
         modules(
             agentCoreModule,
-            iosModule(llmBridge, classifierBridge, embedderBridge, relayBridge, qrScanner),
+            iosModule(llmBridge, classifierBridge, embedderBridge, relayBridge, qrScanner, latexRenderer),
             uiModule,
         )
     }

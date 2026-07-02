@@ -19,7 +19,8 @@ struct iOSApp: App {
             classifierBridge: ort,
             embedderBridge: ort,
             relayBridge: RelayBridge(),
-            qrScanner: QRScannerBridge()
+            qrScanner: QRScannerBridge(),
+            latexRenderer: LatexBridge()
         )
     }
 
